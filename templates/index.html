@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>EPUB Translator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <h1>Загрузите EPUB для перевода</h1>
+    <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+        <p>
+            <label for="epub_file">Выберите файл EPUB:</label><br>
+            <input type="file" id="epub_file" name="epub_file" accept=".epub" required>
+        </p>
+        <!-- Можно добавить выбор языка/модели здесь, если нужно переопределять дефолты до загрузки -->
+        <!--
+        <p>
+            <label for="target_language">Целевой язык (англ.):</label><br>
+            <input type="text" id="target_language" name="target_language" value="russian">
+        </p>
+        <p>
+            <label for="model_name">Модель Gemini:</label><br>
+            <input type="text" id="model_name" name="model_name" value="gemini-1.5-flash">
+        </p>
+         -->
+        <p>
+            <button type="submit">Загрузить и просмотреть</button>
+        </p>
+    </form>
+</body>
+</html>
