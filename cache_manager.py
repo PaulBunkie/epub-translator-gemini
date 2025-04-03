@@ -1,5 +1,8 @@
+# В файле cache_manager.py
+
 import os
 import hashlib
+import shutil # <--- Добавляем импорт shutil для удаления папок
 
 CACHE_DIR = ".epub_cache" # Название папки для кэша
 
@@ -16,10 +19,8 @@ def _ensure_dir_exists(filepath):
             print(f"Создана директория: {directory}")
         except OSError as e:
             print(f"ОШИБКА: Не удалось создать директорию {directory}: {e}")
-            # Если директорию создать не удалось, возвращаем False
             return False
-    return True # Директория существует или успешно создана
-
+    return True
 
 def _get_cache_filepath(epub_id, section_id, target_language):
     """Конструирует путь к файлу кэша для конкретного раздела и языка."""
@@ -37,7 +38,7 @@ def get_translation_from_cache(epub_filepath, section_id, target_language):
     cache_filepath = _get_cache_filepath(epub_id, section_id, target_language)
 
     if os.path.exists(cache_filepath):
-        print(f"Найден перевод в кэше: {cache_filepath}")
+        # print(f"Найден перевод в кэше: {cache_filepath}") # Можно раскомментировать для отладки
         try:
             with open(cache_filepath, "r", encoding="utf-8") as f:
                 return f.read()
@@ -49,14 +50,15 @@ def get_translation_from_cache(epub_filepath, section_id, target_language):
 
 def save_translation_to_cache(epub_filepath, section_id, target_language, translated_text):
     """Сохраняет переведенный текст в кэш."""
-    if not translated_text:
-        print("Предупреждение: Попытка сохранить пустой перевод в кэш.")
+    # Сохраняем даже пустой текст (результат completed_empty)
+    if translated_text is None:
+        print("Предупреждение: Попытка сохранить None в кэш.")
         return False
 
     epub_id = _get_epub_id(epub_filepath)
     cache_filepath = _get_cache_filepath(epub_id, section_id, target_language)
-    if not _ensure_dir_exists(cache_filepath): # Убедимся, что папка существует
-        return False # Не удалось создать директорию
+    if not _ensure_dir_exists(cache_filepath):
+        return False
 
     try:
         with open(cache_filepath, "w", encoding="utf-8") as f:
@@ -67,22 +69,60 @@ def save_translation_to_cache(epub_filepath, section_id, target_language, transl
         print(f"ОШИБКА: Не удалось сохранить перевод в кэш {cache_filepath}: {e}")
         return False
 
-# --- НОВАЯ ФУНКЦИЯ ---
 def save_translated_chapter(text, filename):
     """Сохраняет текст (например, полный перевод) в указанный файл."""
-    if not text:
-        print("Предупреждение: Попытка сохранить пустой текст в файл.")
-        return False
+    # Сохраняем даже пустой текст
+    if text is None:
+         print("Предупреждение: Попытка сохранить None в файл.")
+         text = "" # Сохраним пустой файл вместо ошибки
 
-    if not _ensure_dir_exists(filename): # Убедимся, что папка существует
-        return False # Не удалось создать директорию
+    if not _ensure_dir_exists(filename):
+        return False
 
     try:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(text)
-        # Не будем выводить сообщение здесь, оно будет в main_tester
         return True
     except Exception as e:
         print(f"ОШИБКА: Не удалось сохранить текст в файл {filename}: {e}")
         return False
+
+# --- НОВАЯ ФУНКЦИЯ УДАЛЕНИЯ КЭША РАЗДЕЛА ---
+def delete_section_cache(epub_filepath, section_id, target_language):
+    """Удаляет файл кэша для конкретного раздела и языка, если он существует."""
+    epub_id = _get_epub_id(epub_filepath)
+    cache_filepath = _get_cache_filepath(epub_id, section_id, target_language)
+
+    if os.path.exists(cache_filepath):
+        try:
+            os.remove(cache_filepath)
+            print(f"Удален кэш раздела: {cache_filepath}")
+            return True
+        except OSError as e:
+            print(f"ОШИБКА: Не удалось удалить файл кэша {cache_filepath}: {e}")
+            return False
+    else:
+        # Файла и так нет, считаем операцию успешной (для идемпотентности)
+        # print(f"Файл кэша для удаления не найден: {cache_filepath}")
+        return True
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
+# --- НОВАЯ ФУНКЦИЯ УДАЛЕНИЯ КЭША КНИГИ (на будущее, если понадобится кнопка) ---
+def delete_book_cache(epub_filepath):
+    """Удаляет всю папку кэша для указанной книги."""
+    epub_id = _get_epub_id(epub_filepath)
+    book_cache_dir = os.path.join(CACHE_DIR, epub_id)
+
+    if os.path.exists(book_cache_dir) and os.path.isdir(book_cache_dir):
+        try:
+            shutil.rmtree(book_cache_dir) # Удаляем папку и все ее содержимое
+            print(f"Удалена папка кэша книги: {book_cache_dir}")
+            return True
+        except OSError as e:
+            print(f"ОШИБКА: Не удалось удалить папку кэша книги {book_cache_dir}: {e}")
+            return False
+    else:
+        # Папки нет, считаем успешным
+        print(f"Папка кэша книги для удаления не найдена: {book_cache_dir}")
+        return True
 # --- КОНЕЦ НОВОЙ ФУНКЦИИ ---

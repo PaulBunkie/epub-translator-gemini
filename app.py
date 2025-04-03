@@ -5,17 +5,21 @@ from flask import Flask, request, render_template, redirect, url_for, jsonify, s
 from werkzeug.utils import secure_filename
 from concurrent.futures import ThreadPoolExecutor
 import time
+import hashlib 
 
 # Импортируем наши модули
-from translation_module import configure_api, translate_text, CONTEXT_LIMIT_ERROR
+from translation_module import configure_api, translate_text, CONTEXT_LIMIT_ERROR, get_models_list
 # Импортируем новые и старые функции парсера
 from epub_parser import get_epub_structure, extract_section_text, get_epub_toc
 from cache_manager import (
     get_translation_from_cache,
     save_translation_to_cache,
-    save_translated_chapter,
+    save_translated_chapter, # Используем для сохранения полного файла
+    delete_section_cache,    # <--- ДОБАВИТЬ ЭТУ СТРОКУ
+    # delete_book_cache,     # Пока не используем
     _get_epub_id
 )
+import hashlib # Добавим hashlib для хэша
 
 # --- Настройки ---
 UPLOAD_FOLDER = 'uploads'
@@ -64,42 +68,40 @@ def update_book_section_status(book_id, section_id, status, error_msg=None):
               print(f"Предупреждение: Попытка обновить статус для неизвестной секции {section_id} книги {book_id}")
 
 def update_overall_book_status(book_id):
-    """ Пересчитывает и обновляет общий статус книги """
+    """ Пересчитывает и обновляет общий статус книги, используя только статус 'translated' """
     if book_id in book_progress:
         book_data = book_progress[book_id]
         translated_count = 0
         error_count = 0
         processing_count = 0
-        # Используем сохраненный список ID секций
         total = len(book_data.get("section_ids_list", []))
-        book_data["total_sections"] = total # Обновляем на всякий случай
+        book_data["total_sections"] = total
 
         for section_id in book_data.get("section_ids_list", []):
              status = book_data["sections"].get(section_id, "not_translated")
-             if status in ["translated", "cached", "completed_empty"]: # Считаем переведенные (даже пустые)
+             # --- ИСПОЛЬЗУЕМ ТОЛЬКО 'translated' ---
+             if status in ["translated", "completed_empty"]: # Считаем переведенные (включая пустые)
                  translated_count += 1
              elif status == "processing":
                   processing_count += 1
              elif status.startswith("error_"):
                   error_count +=1
+             # Статус 'cached' больше не используется для подсчета отдельно
 
-        book_data["translated_count"] = translated_count
+        book_data["translated_count"] = translated_count # Теперь это общее число готовых
         book_data["error_count"] = error_count
 
         # Определяем общий статус
         if processing_count > 0:
              book_data["status"] = "processing"
-        # Все секции обработаны (есть статус), и нет активных процессов
-        elif (translated_count + error_count) == total and total > 0:
+        elif (translated_count + error_count) == total and total > 0 and processing_count == 0:
              book_data["status"] = "complete" if error_count == 0 else "complete_with_errors"
         elif total == 0:
-             book_data["status"] = "error_no_sections" # Если не нашли секций
+             book_data["status"] = "error_no_sections"
         else:
-             book_data["status"] = "idle" # Есть еще нетронутые
+             book_data["status"] = "idle"
 
 # --- Фоновая задача ---
-# Функция run_single_section_translation остается БЕЗ ИЗМЕНЕНИЙ
-# (кроме возможного добавления error_message в update_book_section_status)
 def run_single_section_translation(task_id, epub_filepath, book_id, section_id, target_language, model_name):
     """ Выполняется в отдельном потоке для перевода одной секции """
     print(f"Фоновая задача {task_id}: Начало перевода {section_id} для {book_id}")
@@ -107,13 +109,14 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
     error_message = None
     try:
         if task_id in active_tasks: active_tasks[task_id]["status"] = "extracting"
-        update_book_section_status(book_id, section_id, "processing")
+        # Статус раздела уже должен быть "processing" из вызывающей функции
+        # update_book_section_status(book_id, section_id, "processing") # Можно убрать?
         original_text = extract_section_text(epub_filepath, section_id)
 
         if not original_text:
             print(f"Фоновая задача {task_id}: Извлеченный текст пуст для {section_id}.")
             current_status = "completed_empty"
-            save_translation_to_cache(epub_filepath, section_id, target_language, "") # Кэшируем пустую строку
+            save_translation_to_cache(epub_filepath, section_id, target_language, "")
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
             api_result = translate_text(original_text, target_language, model_name)
@@ -125,6 +128,7 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
             elif api_result is not None:
                  if task_id in active_tasks: active_tasks[task_id]["status"] = "caching"
                  if save_translation_to_cache(epub_filepath, section_id, target_language, api_result):
+                     # --- ИСПОЛЬЗУЕМ СТАТУС 'translated' ---
                      current_status = "translated"
                  else:
                      current_status = "error_caching"
@@ -134,17 +138,18 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
                  current_status = "error_translation"
                  error_message = "Ошибка при вызове API перевода."
 
+        # Обновляем статус секции в book_progress
         update_book_section_status(book_id, section_id, current_status, error_message)
 
     except Exception as e:
         print(f"Критическая ошибка в фоновой задаче {task_id}: {e}")
         error_message = str(e)
         current_status = "error_unknown"
-        # Обновляем статус даже при критической ошибке
         update_book_section_status(book_id, section_id, current_status, error_message)
     finally:
+        # Обновляем финальный статус задачи в active_tasks
         if task_id in active_tasks:
-             active_tasks[task_id]["status"] = current_status # Финальный статус задачи
+             active_tasks[task_id]["status"] = current_status
              if error_message: active_tasks[task_id]["error_message"] = error_message
         print(f"Фоновая задача {task_id}: Завершена со статусом {current_status}")
 
@@ -158,111 +163,156 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """ Обрабатывает загрузку EPUB файла """
-    if 'epub_file' not in request.files:
-        return "Файл не найден", 400
+    """ Обрабатывает загрузку EPUB файла и переводит оглавление """
+    if 'epub_file' not in request.files: return "Файл не найден", 400
     file = request.files['epub_file']
-    if file.filename == '':
-        return "Файл не выбран", 400
+    if file.filename == '': return "Файл не выбран", 400
+
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        unique_filename = f"{uuid.uuid4()}_{filename}"
+        original_filename = secure_filename(file.filename)
+        file.seek(0)
+        file_content = file.read()
+        file.seek(0)
+        hasher = hashlib.md5()
+        hasher.update(file_content)
+        book_id = hasher.hexdigest()
+        unique_filename = f"{book_id}.epub"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+
         try:
-            file.save(filepath)
-            print(f"Файл сохранен: {filepath}")
+            if not os.path.exists(filepath):
+                 with open(filepath, 'wb') as f: f.write(file_content)
+                 print(f"Файл сохранен: {filepath}")
+            else: print(f"Файл с ID (хэшем) {book_id} уже существует: {filepath}")
 
-            book_id = get_book_id(filepath)
-
-            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-            # Получаем ОБА значения от функции
-            result_tuple = get_epub_structure(filepath)
-            if result_tuple is None or result_tuple[0] is None: # Проверяем, что результат не None и список ID не None
-                 raise ValueError("Не удалось получить структуру EPUB (spine).") # Вызываем ошибку, чтобы попасть в except
-            section_ids, id_to_href_map = result_tuple # Распаковываем кортеж
-            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-            toc = get_epub_toc(filepath, id_to_href_map) if id_to_href_map else [] # Получаем TOC
-
-            if section_ids: # Проверяем, что список section_ids не пустой
-                # Инициализируем прогресс
-                book_progress[book_id] = {
-                    "filename": filename,
-                    "filepath": filepath,
-                    "total_sections": len(section_ids),
-                    "translated_count": 0,
-                    "error_count": 0,
-                    "status": "idle",
-                    "sections": {section_id: "not_translated" for section_id in section_ids},
-                    "section_ids_list": section_ids,
-                    "toc": toc if toc else []
-                }
-                initial_check_cache(book_id, "russian") # Проверяем для языка по умолчанию
-                return redirect(url_for('view_book', book_id=book_id))
+            if book_id in book_progress:
+                 print(f"Найден существующий прогресс для книги ID: {book_id}")
+                 return redirect(url_for('view_book', book_id=book_id))
             else:
-                # Если section_ids пустой, даже если функция отработала
-                os.remove(filepath)
-                print("Ошибка: Структура EPUB прочитана, но не найдено секций в spine.")
-                return "Ошибка: Не удалось найти читаемые разделы в EPUB файле.", 400
+                 print(f"Чтение структуры для новой книги ID: {book_id}")
+                 section_ids, id_to_href_map = get_epub_structure(filepath)
+                 if section_ids is None: raise ValueError("Не удалось получить структуру EPUB (spine).")
+
+                 print("Вызов get_epub_toc...")
+                 toc = get_epub_toc(filepath, id_to_href_map) or []
+
+                 # --- НОВЫЙ БЛОК: ПЕРЕВОД ОГЛАВЛЕНИЯ ---
+                 target_language = request.form.get('target_language', 'russian') # Или 'russian'
+                 print(f"Перевод оглавления на язык: {target_language}...")
+                 toc_titles_for_translation = [item['title'] for item in toc if item.get('title')] # Извлекаем только названия
+                 if toc_titles_for_translation:
+                      # Соединяем названия в одну строку с разделителем
+                      titles_text = "\n|||---\n".join(toc_titles_for_translation) # Уникальный разделитель
+                      translated_titles_text = translate_text(titles_text, target_language, "gemini-1.5-flash") # Или model из формы?
+
+                      if translated_titles_text:
+                           translated_titles = translated_titles_text.split("\n|||---\n") # Разделяем обратно в список
+                           if len(translated_titles) == len(toc_titles_for_translation):
+                                # Обновляем TOC, добавляя translated_title
+                                for i, item in enumerate(toc):
+                                     if item.get('title'): # Проверяем на None на всякий случай
+                                          item['translated_title'] = translated_titles[i] # Добавляем переведенное название
+                                print("Оглавление переведено и добавлено в структуру.")
+                           else:
+                                print(f"ОШИБКА: Количество переведенных названий TOC ({len(translated_titles)}) не совпадает с оригинальным ({len(toc_titles_for_translation)}). Используем оригинальные названия.")
+                      else:
+                           print("ОШИБКА: Не удалось перевести оглавление. Используем оригинальные названия.")
+                 else:
+                      print("Оглавление не содержит названий для перевода.")
+                 # --- КОНЕЦ БЛОКА ПЕРЕВОДА ОГЛАВЛЕНИЯ ---
+
+
+                 print(f"Инициализация прогресса для книги ID: {book_id}")
+                 book_progress[book_id] = {
+                     "filename": original_filename,
+                     "filepath": filepath,
+                     "total_sections": len(section_ids) if section_ids else 0,
+                     "translated_count": 0,
+                     "error_count": 0,
+                     "status": "idle",
+                     "sections": {section_id: "not_translated" for section_id in section_ids} if section_ids else {},
+                     "section_ids_list": section_ids if section_ids else [],
+                     "toc": toc # Сохраняем обновленный TOC (с translated_title)
+                 }
+                 initial_check_cache(book_id, target_language)
+                 return redirect(url_for('view_book', book_id=book_id, lang=target_language)) # Передаем язык в URL
+
+
         except Exception as e:
             print(f"Ошибка при сохранении или обработке файла: {e}")
             if os.path.exists(filepath): os.remove(filepath)
-            # Можно добавить более специфичную обработку ValueError
             if isinstance(e, ValueError) and "структуру EPUB" in str(e):
                  return "Ошибка: Не удалось прочитать структуру EPUB.", 400
             else:
+                 import traceback
+                 traceback.print_exc()
                  return "Ошибка сервера при обработке файла.", 500
     else:
         return "Ошибка: Недопустимый тип файла.", 400
 
-# Функция для первоначальной проверки кэша
 def initial_check_cache(book_id, target_language):
      if book_id in book_progress:
-          filepath = book_progress[book_id]['filepath']
-          for section_id in book_progress[book_id]['section_ids_list']:
-               if get_translation_from_cache(filepath, section_id, target_language):
-                    book_progress[book_id]['sections'][section_id] = "cached"
-          update_overall_book_status(book_id) # Обновляем статус после проверки кэша
+          filepath = book_progress[book_id].get('filepath')
+          if not filepath: return # Если нет пути к файлу
+          # Итерируем по копии ключей, чтобы избежать ошибок при изменении словаря
+          section_ids_to_check = list(book_progress[book_id].get('sections', {}).keys())
+          for section_id in section_ids_to_check:
+               # Проверяем только те, что еще не переведены или без статуса
+               current_status = book_progress[book_id]['sections'].get(section_id)
+               if current_status == 'not_translated' or current_status is None:
+                    if get_translation_from_cache(filepath, section_id, target_language) is not None:
+                         # --- ИСПОЛЬЗУЕМ СТАТУС 'translated' ---
+                         update_book_section_status(book_id, section_id, "translated")
+          update_overall_book_status(book_id) # Обновляем общий статус
 
 
 @app.route('/book/<book_id>', methods=['GET'])
 def view_book(book_id):
     """ Отображает страницу с оглавлением книги и статусом перевода """
     if book_id not in book_progress:
-        return "Ошибка: Книга с таким ID не найдена.", 404
+        # Попытка загрузить из uploads, если в памяти нет (на случай перезапуска)
+        # TODO: Реализовать более надежное восстановление состояния из БД/файлов
+        return "Ошибка: Книга с таким ID не найдена в текущей сессии.", 404
 
     book_info = book_progress[book_id]
-    # Обновляем статусы перед отображением (на случай фоновых изменений)
-    initial_check_cache(book_id, request.args.get('lang', 'russian'))
+    target_language = request.args.get('lang', 'russian') # Получаем язык для проверки кэша
+    initial_check_cache(book_id, target_language) # Обновляем статусы из кэша перед отображением
 
-    # Передаем иерархическое оглавление в шаблон
-    return render_template('book_view.html', book_id=book_id, book_info=book_info)
+    return render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language)
 
 
 # --- Эндпоинты для AJAX ---
 
 @app.route('/translate_section/<book_id>/<section_id>', methods=['POST'])
 def translate_section_request(book_id, section_id):
-    """ Запускает фоновый перевод для одной секции """
-    # ... (Код остается таким же, как в предыдущем ответе) ...
+    """ Запускает фоновый перевод для одной секции, ПРЕДВАРИТЕЛЬНО УДАЛЯЯ КЭШ """
     if book_id not in book_progress:
         return jsonify({"error": "Book not found"}), 404
+
     filepath = book_progress[book_id].get("filepath")
     if not filepath or not os.path.exists(filepath):
          return jsonify({"error": "EPUB file not found"}), 404
+
     target_language = request.json.get('target_language', 'russian')
     model_name = request.json.get('model_name', 'gemini-1.5-flash')
+
     current_status = book_progress[book_id]["sections"].get(section_id)
     if current_status == 'processing':
-         return jsonify({"status": "already_processing"}), 409
-    if get_translation_from_cache(filepath, section_id, target_language):
-        update_book_section_status(book_id, section_id, "cached")
-        return jsonify({"status": "already_cached"}), 200
+         return jsonify({"status": "already_processing", "message": "Раздел уже в процессе перевода."}), 409
+
+    # !!! 1. УДАЛЯЕМ СТАРЫЙ КЭШ !!!
+    print(f"Попытка удалить кэш для {section_id} ({target_language}) перед переводом...")
+    # Теперь функция должна быть доступна
+    delete_section_cache(filepath, section_id, target_language)
+    # Мы не проверяем результат delete_section_cache, т.к. она возвращает True, даже если файла не было
+
+    # !!! 2. ЗАПУСКАЕМ ФОНОВУЮ ЗАДАЧУ !!!
     task_id = str(uuid.uuid4())
     active_tasks[task_id] = {"status": "queued", "book_id": book_id, "section_id": section_id}
     update_book_section_status(book_id, section_id, "processing")
     executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name)
-    print(f"Запущена задача {task_id} для перевода {section_id}")
+    print(f"Запущена задача {task_id} для перевода (обновления) {section_id}")
+
     return jsonify({"status": "processing", "task_id": task_id}), 202
 
 
@@ -367,49 +417,87 @@ def download_section(book_id, section_id):
 
 @app.route('/download_full/<book_id>', methods=['GET'])
 def download_full(book_id):
-    """ Собирает все переведенные секции и отдает как один файл """
-    # ... (Код доработан для итерации по section_ids_list) ...
     if book_id not in book_progress: return "Book not found", 404
     filepath = book_progress[book_id].get("filepath")
     target_language = request.args.get('lang', 'russian')
     book_info = book_progress[book_id]
-    update_overall_book_status(book_id)
-    # if book_info['status'] not in ["complete", "complete_with_errors"]:
-    #     return "Book translation is not complete yet.", 409
 
-    section_ids = book_info.get("section_ids_list", []) # Берем порядок из spine
+    # Пересчитываем статус ПЕРЕД проверкой
+    update_overall_book_status(book_id)
+    print(f"Статус книги перед скачиванием полного файла: {book_info['status']}") # Отладка
+
+    # Разрешаем скачивать, если статус 'complete' или 'complete_with_errors'
+    if book_info['status'] not in ["complete", "complete_with_errors"]:
+         print("Отказ в скачивании: перевод книги еще не завершен.")
+         # Возвращаем более понятную ошибку для пользователя
+         missing_sections_count = book_info['total_sections'] - (book_info.get('translated_count', 0) + book_info.get('error_count', 0))
+         processing_count = 0 # Посчитать заново, если нужно точнее
+         for status in book_info['sections'].values():
+              if status == 'processing': processing_count+=1
+         message = f"Перевод книги не завершен. Осталось: {missing_sections_count}. В процессе: {processing_count}."
+         return message, 409 # 409 Conflict - состояние не позволяет выполнить
+
+    section_ids = book_info.get("section_ids_list", [])
     if not section_ids: return "No sections found for this book", 500
 
     full_text_parts = []
-    missing_sections = []
+    missing_for_download = [] # Секции, которые должны быть, но нет в кэше (странно)
+    error_sections_included = [] # Секции с ошибками, текст которых не будет включен
+
+    print("Сборка полного текста из кэша...")
     for section_id in section_ids:
+        section_status = book_info["sections"].get(section_id, "not_translated")
         translation = get_translation_from_cache(filepath, section_id, target_language)
-        if translation is not None: # Включаем даже пустые переводы
-             full_text_parts.append(f"\n\n==== Section: {section_id} ====\n\n")
+
+        if translation is not None: # Есть в кэше (даже пустой)
+             full_text_parts.append(f"\n\n==== Section: {section_id} ({section_status}) ====\n\n")
              full_text_parts.append(translation)
+        elif section_status.startswith("error_"):
+             # Если была ошибка, добавляем сообщение об этом
+             full_text_parts.append(f"\n\n==== Section: {section_id} (ОШИБКА: {section_status}) ====\n\n")
+             error_sections_included.append(section_id)
         else:
-             # Считаем отсутствующими только те, у которых нет статуса ошибки
-             status = book_info["sections"].get(section_id, "not_translated")
-             if not status.startswith("error_") and status != 'completed_empty':
-                  missing_sections.append(section_id)
+             # Странно: статус complete, а кэша нет
+             print(f"Предупреждение: Статус книги '{book_info['status']}', но кэш для секции '{section_id}' (статус: {section_status}) не найден!")
+             missing_for_download.append(section_id)
+             full_text_parts.append(f"\n\n==== Section: {section_id} (ОШИБКА: Перевод отсутствует в кэше) ====\n\n")
 
-    # Разрешаем скачивать, даже если были ошибки, но есть хоть какой-то текст
+
     if not full_text_parts:
-         return "No translated text found to download.", 404
+         return "Не найдено переведенного текста для скачивания.", 404
 
-    if missing_sections:
-         # Добавляем предупреждение в начало файла
-         full_text_parts.insert(0, f"WARNING: Following sections could not be translated: {', '.join(missing_sections)}\n\n")
+    # Добавляем предупреждения в начало, если были проблемы
+    if missing_for_download:
+         full_text_parts.insert(0, f"ПРЕДУПРЕЖДЕНИЕ: Не найден кэш для секций: {', '.join(missing_for_download)}\n\n")
+    if error_sections_included:
+          full_text_parts.insert(0, f"ПРЕДУПРЕЖДЕНИЕ: Следующие секции не были переведены из-за ошибок: {', '.join(error_sections_included)}\n\n")
+
 
     full_text = "".join(full_text_parts)
     base_name = os.path.splitext(book_info['filename'])[0]
     output_filename = f"{base_name}_{target_language}_translated.txt"
 
+    print(f"Отправка полного файла: {output_filename}")
     return Response(
         full_text,
-        mimetype="text/plain",
-        headers={"Content-Disposition": f"attachment;filename={output_filename}"}
+        mimetype="text/plain; charset=utf-8", # Добавляем charset
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{output_filename}"} # Кодируем имя файла
     )
+
+# --- НОВЫЙ МАРШРУТ для API моделей ---
+@app.route('/api/models', methods=['GET'])
+def api_get_models():
+    """ Возвращает список доступных моделей Gemini в формате JSON. """
+    models = get_models_list()
+    if models is not None:
+        return jsonify(models)
+    else:
+        # Возвращаем пустой список или ошибку сервера
+        return jsonify({"error": "Could not retrieve models from API"}), 500
+
+# --- Запуск приложения ---
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0')
 
 # --- Запуск приложения ---
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ from ebooklib import epub
 from bs4 import BeautifulSoup
 import os
 import re
+import uuid
 
 def get_epub_structure(epub_filepath):
     """
@@ -84,101 +85,181 @@ def get_epub_structure(epub_filepath):
 
 def get_epub_toc(epub_filepath, id_to_href_map):
     """
-    Извлекает иерархическое оглавление (TOC) из EPUB.
-    Возвращает список словарей [{'level': int, 'title': str, 'href': str, 'id': str}]
-    или пустой список, или None в случае ошибки.
+    Извлекает иерархическое оглавление (TOC) из EPUB,
+    пытаясь прочитать NCX или Навигационный документ XHTML.
+    Возвращает список словарей или None.
     """
     if not os.path.exists(epub_filepath):
         print(f"ОШИБКА: Файл EPUB не найден: {epub_filepath}")
         return None
     try:
-        print(f"Чтение TOC EPUB: {epub_filepath}")
+        print(f"Чтение TOC EPUB (NCX/Nav): {epub_filepath}")
         book = epub.read_epub(epub_filepath)
         toc_list = []
         processed_hrefs = set()
 
-        # --- ИЗМЕНЕННАЯ РЕКУРСИВНАЯ ФУНКЦИЯ ---
-        def process_toc_item(item, level):
-            # Проверяем тип элемента
-            if isinstance(item, ebooklib.epub.Link):
-                # Это ссылка - обрабатываем как раньше
-                if not hasattr(item, 'title') or not hasattr(item, 'href'):
-                    print(f"Предупреждение: Пропуск элемента Link из-за отсутствия атрибутов title/href: {item}")
-                    return
+        # --- Попытка 1: Парсинг Навигационного документа (EPUB 3) ---
+        nav_doc = None
+        # Преобразуем генератор в список, чтобы проверить его длину и взять элемент
+        nav_items_list = list(book.get_items_of_type(ebooklib.ITEM_NAVIGATION)) # <--- ИЗМЕНЕНИЕ
+        if nav_items_list: # Проверяем, что список не пустой
+            nav_doc = nav_items_list[0] # <--- Теперь берем из списка
+            print(f"Найден Навигационный документ: {nav_doc.get_name()}")
+            nav_content = nav_doc.get_content()
+            nav_soup = BeautifulSoup(nav_content, 'xml')
+            toc_nav = nav_soup.find('nav', attrs={'epub:type': 'toc'})
+            if toc_nav:
+                root_ol = toc_nav.find('ol', recursive=False)
+                if root_ol:
+                    print("Парсинг TOC из Nav Document (XHTML)...")
+                    _parse_nav_ol(root_ol, 1, toc_list, processed_hrefs, id_to_href_map)
+            nav_content = nav_doc.get_content()
+            nav_soup = BeautifulSoup(nav_content, 'xml')
+            # Ищем <nav epub:type="toc">, внутри него <ol>
+            toc_nav = nav_soup.find('nav', attrs={'epub:type': 'toc'})
+            if toc_nav:
+                root_ol = toc_nav.find('ol', recursive=False)
+                if root_ol:
+                    print("Парсинг TOC из Nav Document (XHTML)...")
+                    _parse_nav_ol(root_ol, 1, toc_list, processed_hrefs, id_to_href_map)
 
-                title = item.title
-                href_full = item.href
+        # --- Попытка 2: Парсинг NCX (EPUB 2), если Nav не дал результатов ---
+        if not toc_list: # Если после парсинга Nav список пуст
+            ncx_item = book.get_item_with_id('ncx') # Ищем стандартный ID 'ncx'
+            # Иногда ID может быть 'ncxtoc' или другим, ищем по имени файла
+            if not ncx_item:
+                for item in book.get_items():
+                     if item.get_name().lower().endswith('.ncx'):
+                          ncx_item = item
+                          break
+            if ncx_item:
+                 print(f"Найден NCX файл: {ncx_item.get_name()}")
+                 ncx_content = ncx_item.get_content()
+                 ncx_soup = BeautifulSoup(ncx_content, 'xml')
+                 # Ищем корневые navPoint внутри navMap
+                 nav_map = ncx_soup.find('navMap')
+                 if nav_map:
+                      print("Парсинг TOC из NCX...")
+                      for nav_point in nav_map.find_all('navPoint', recursive=False):
+                           _parse_ncx_navpoint(nav_point, 1, toc_list, processed_hrefs, id_to_href_map)
 
-                if href_full in processed_hrefs:
-                    return # Пропускаем дубликаты href
-                processed_hrefs.add(href_full)
-
-                href_parts = href_full.split('#')
-                file_href = href_parts[0]
-                anchor = href_parts[1] if len(href_parts) > 1 else None
-
-                section_id = None
-                for item_id, item_href in id_to_href_map.items():
-                    if os.path.basename(item_href) == os.path.basename(file_href):
-                        section_id = item_id
-                        break
-
-                if section_id:
-                    toc_list.append({
-                        'level': level,
-                        'title': title,
-                        'href': href_full,
-                        'id': section_id,
-                        'anchor': anchor
-                    })
-                else:
-                    print(f"Предупреждение: Не найден ID для элемента TOC href '{file_href}'. Ссылка TOC '{title}' может не работать.")
-
-                # У Link тоже могут быть дети (вложенные ссылки в NCX)
-                if hasattr(item, 'children') and item.children:
-                     for child in item.children:
-                         process_toc_item(child, level + 1)
-
-            elif isinstance(item, ebooklib.epub.Section):
-                 # Это секция - обрабатываем ее детей, саму секцию не добавляем
-                 # print(f"Обработка секции TOC: {getattr(item, 'title', 'Без названия')}") # Для отладки
-                 if hasattr(item, 'children') and item.children:
-                      for child in item.children:
-                          # Увеличиваем уровень для детей секции
-                          process_toc_item(child, level + 1)
-
-            elif isinstance(item, tuple):
-                 # Иногда элементы book.toc могут быть кортежами (Section, Children)
-                 # Пытаемся обработать и секцию, и детей
-                 print(f"Предупреждение: Обнаружен кортеж в TOC: {item}")
-                 if len(item) > 0:
-                      process_toc_item(item[0], level) # Обрабатываем первый элемент кортежа (возможно, Section)
-                 if len(item) > 1 and isinstance(item[1], list):
-                      for child in item[1]: # Обрабатываем второй элемент (список детей)
-                          process_toc_item(child, level + 1) # Увеличиваем уровень для детей
-
-            else:
-                # Пропускаем другие типы или если нет атрибутов
-                print(f"Предупреждение: Пропуск неизвестного типа элемента TOC: {type(item)} - {item}")
-
-
-        # --- КОНЕЦ РЕКУРСИВНОЙ ФУНКЦИИ ---
-
-        if book.toc:
-             for item in book.toc:
-                 process_toc_item(item, 1) # Начинаем с уровня 1
-        else:
-             print("Предупреждение: TOC (book.toc) не найден в EPUB.")
-
+        # --- Если ничего не найдено ---
+        if not toc_list:
+             print("Предупреждение: Не удалось извлечь TOC ни из Nav документа, ни из NCX.")
+             # В крайнем случае, можно вернуть плоский список из spine, но без названий
+             # return [{'level': 1, 'title': section_id, 'href': id_to_href_map.get(section_id,''), 'id': section_id, 'anchor': None} for section_id in get_epub_structure(epub_filepath)[0]]
+             return [] # Возвращаем пустой список
 
         print(f"Извлечено {len(toc_list)} элементов TOC.")
-        return toc_list if toc_list else [] # Возвращаем пустой список, если ничего не извлекли
+        return toc_list
 
     except Exception as e:
         print(f"ОШИБКА: Не удалось прочитать TOC EPUB: {e}")
-        import traceback # Для детальной ошибки
-        traceback.print_exc() # Печатаем traceback
+        import traceback
+        traceback.print_exc()
         return None
+
+# Вспомогательная функция для парсинга <ol> из Nav Document
+def _parse_nav_ol(ol_element, level, toc_list, processed_hrefs, id_to_href_map):
+    if not ol_element or not hasattr(ol_element, 'find_all'):
+        return
+    for li in ol_element.find_all('li', recursive=False):
+        link = li.find('a', recursive=False)
+        if link and link.get('href'):
+            title = link.get_text(strip=True)
+            href_full = link['href']
+
+            # Пропускаем дубликаты href
+            if href_full in processed_hrefs:
+                # Но проверяем на вложенность
+                nested_ol = li.find('ol', recursive=False)
+                if nested_ol:
+                    _parse_nav_ol(nested_ol, level + 1, toc_list, processed_hrefs, id_to_href_map)
+                continue
+            processed_hrefs.add(href_full)
+
+            href_parts = href_full.split('#')
+            file_href = href_parts[0]
+            anchor = href_parts[1] if len(href_parts) > 1 else None
+
+            section_id = None
+            for item_id_map, item_href_map in id_to_href_map.items():
+                if os.path.basename(item_href_map) == os.path.basename(file_href):
+                    section_id = item_id_map
+                    break
+
+            if section_id:
+                toc_list.append({
+                    'level': level, 'title': title, 'href': href_full,
+                    'id': section_id, 'anchor': anchor
+                })
+            else:
+                print(f"Предупреждение (Nav): Не найден ID для href '{file_href}'. Ссылка '{title}' может не работать.")
+
+            # Ищем вложенный <ol> и рекурсивно вызываем
+            nested_ol = li.find('ol', recursive=False)
+            if nested_ol:
+                _parse_nav_ol(nested_ol, level + 1, toc_list, processed_hrefs, id_to_href_map)
+        else:
+            # Иногда текст может быть просто в li без ссылки, или это заголовок группы
+            # Можно попробовать взять текст из li, но без href он бесполезен для навигации
+            list_text = li.get_text(strip=True)
+            if list_text:
+                print(f"Предупреждение (Nav): Найден элемент li без ссылки: {list_text}")
+            # Все равно проверяем на вложенность
+            nested_ol = li.find('ol', recursive=False)
+            if nested_ol:
+                _parse_nav_ol(nested_ol, level + 1, toc_list, processed_hrefs, id_to_href_map)
+
+
+# Вспомогательная функция для парсинга <navPoint> из NCX
+def _parse_ncx_navpoint(nav_point, level, toc_list, processed_hrefs, id_to_href_map):
+    if not nav_point or not hasattr(nav_point, 'find'):
+        return
+
+    nav_label = nav_point.find('navLabel')
+    content = nav_point.find('content')
+
+    if nav_label and content and content.get('src'):
+        title = nav_label.find('text')
+        title_text = title.get_text(strip=True) if title else "Без названия"
+        href_full = content['src']
+
+        # Пропускаем дубликаты href
+        if href_full in processed_hrefs:
+            # Но проверяем на вложенность
+            for child_nav_point in nav_point.find_all('navPoint', recursive=False):
+                _parse_ncx_navpoint(child_nav_point, level + 1, toc_list, processed_hrefs, id_to_href_map)
+            return
+        processed_hrefs.add(href_full)
+
+        href_parts = href_full.split('#')
+        file_href = href_parts[0]
+        anchor = href_parts[1] if len(href_parts) > 1 else None
+
+        section_id = None
+        for item_id_map, item_href_map in id_to_href_map.items():
+            if os.path.basename(item_href_map) == os.path.basename(file_href):
+                section_id = item_id_map
+                break
+
+        if section_id:
+            toc_list.append({
+                'level': level, 'title': title_text, 'href': href_full,
+                'id': section_id, 'anchor': anchor
+            })
+        else:
+            print(f"Предупреждение (NCX): Не найден ID для src '{file_href}'. Ссылка '{title_text}' может не работать.")
+
+        # Рекурсивно обрабатываем вложенные navPoint
+        for child_nav_point in nav_point.find_all('navPoint', recursive=False):
+            _parse_ncx_navpoint(child_nav_point, level + 1, toc_list, processed_hrefs, id_to_href_map)
+    else:
+        print(f"Предупреждение (NCX): Пропуск navPoint без navLabel/content@src: {nav_point.get('id', '')}")
+        # Все равно обрабатываем детей
+        for child_nav_point in nav_point.find_all('navPoint', recursive=False):
+            _parse_ncx_navpoint(child_nav_point, level + 1, toc_list, processed_hrefs, id_to_href_map)
+
 
 def extract_section_text(epub_filepath, section_id):
     """

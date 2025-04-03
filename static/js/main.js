@@ -1,88 +1,145 @@
+/**
+ * EPUB Translator Frontend Logic
+ * Handles UI interactions, API calls, and status updates.
+ */
 document.addEventListener('DOMContentLoaded', () => {
-    // Получаем элементы один раз
+    // --- Получение основных элементов DOM ---
     const tocList = document.getElementById('toc-list');
     const translateAllBtn = document.getElementById('translate-all-btn');
     const downloadFullLink = document.getElementById('download-full-link');
     const downloadFullBtn = document.getElementById('download-full-btn');
-    // const bookStatusSpan = document.getElementById('book-status'); // Больше не используется напрямую
-    // const translatedCountSpan = document.getElementById('translated-count');
-    // const totalCountSpan = document.getElementById('total-count');
+    const modelSelect = document.getElementById('model-select');
+    const languageSelect = document.getElementById('language-select');
 
     const translationDisplay = document.getElementById('translation-display');
     const translationSectionIdSpan = document.getElementById('translation-section-id');
-    const translationContentPre = document.getElementById('translation-content');
-    // const closeTranslationBtn = document.getElementById('close-translation-btn'); // Убрали кнопку закрытия
+    const translationContentDiv = document.getElementById('translation-content');
 
+    // Проверяем наличие book_id (передается из шаблона)
+    // Если его нет, скрипт не должен пытаться работать с книгой
+    if (typeof currentBookId === 'undefined' || !currentBookId) {
+        console.log("Book ID not found. Stopping JS execution for book specific actions.");
+        // Можно скрыть/заблокировать элементы управления здесь, если они не должны быть видны без книги
+        if(translateAllBtn) translateAllBtn.disabled = true;
+        if(downloadFullBtn) downloadFullBtn.disabled = true;
+        if(downloadFullLink) downloadFullLink.classList.add('hidden');
+        if(modelSelect) modelSelect.disabled = true;
+        if(languageSelect) languageSelect.disabled = true;
+        return; // Прекращаем выполнение остального скрипта
+    }
+
+    // --- Глобальные переменные состояния ---
     let pollInterval;
-    let currentPolling = false; // Флаг, что опрос активен
+    let currentPolling = false;
+    let activeSectionId = null; // ID секции (файла), отображаемой в данный момент
 
     // --- Функции обновления UI ---
 
-    function updateSectionStatusUI(sectionId, status) {
-        const sectionItem = tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`);
-        if (!sectionItem) return;
+    /**
+     * Обновляет визуальный статус для одного или всех элементов TOC,
+     * относящихся к указанному sectionId.
+     * @param {string} sectionId - ID секции (файла).
+     * @param {string} newStatus - Новый статус.
+     * @param {boolean} updateAllMatching - Если true, обновить все элементы с этим sectionId.
+     */
+    function updateSectionStatusUI(sectionId, newStatus, updateAllMatching = false) {
+        if (!tocList) return;
+        const sectionItems = updateAllMatching
+            ? tocList.querySelectorAll(`.toc-item[data-section-id="${sectionId}"]`)
+            : [tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`)];
 
-        sectionItem.dataset.status = status; // Обновляем статус в data-атрибуте
-        const statusSpan = sectionItem.querySelector('.toc-status');
-        const downloadLink = sectionItem.querySelector('.download-section-link');
-        const processingIndicator = sectionItem.querySelector('.processing-indicator');
+        sectionItems.forEach(sectionItem => {
+            if (!sectionItem) return;
 
-        if (statusSpan) {
-            statusSpan.className = `toc-status status-${status}`;
-            // Формируем текст статуса
-            let statusText = status.replace(/_/g, ' ').replace(/^error$/, 'Error'); // Общая ошибка
-            statusText = statusText.charAt(0).toUpperCase() + statusText.slice(1);
-            if (status === 'error_context_limit') statusText = 'Error (Too Large)';
-            else if (status === 'error_translation') statusText = 'Error (Translate)';
-            else if (status === 'error_caching') statusText = 'Error (Cache)';
-            else if (status === 'error_unknown') statusText = 'Error (Unknown)';
-            else if (status === 'completed_empty') statusText = 'Empty Section';
+            const previousStatus = sectionItem.dataset.status;
+            // Обновляем только если статус реально изменился
+            if (previousStatus === newStatus) return;
+            sectionItem.dataset.status = newStatus;
 
-            statusSpan.textContent = statusText;
-        }
+            const statusSpan = sectionItem.querySelector('.toc-status');
+            const downloadLink = sectionItem.querySelector('.download-section-link');
+            const processingIndicator = sectionItem.querySelector('.processing-indicator');
+            const updateBtn = sectionItem.querySelector('.update-translation-btn'); // Находим кнопку обновления
 
-        if (downloadLink) {
-            // Показываем иконку скачивания для переведенных или кэшированных
-            downloadLink.classList.toggle('hidden', !['cached', 'translated', 'completed_empty'].includes(status));
-        }
-        if (processingIndicator) {
-             processingIndicator.style.display = status === 'processing' ? 'inline' : 'none';
-        }
+            // Обновляем текст и стиль статуса
+            if (statusSpan) {
+                statusSpan.className = `toc-status status-${newStatus}`;
+                let statusText = newStatus.replace(/_/g, ' ').replace(/^error$/, 'Error');
+                statusText = statusText.charAt(0).toUpperCase() + statusText.slice(1);
+                if (newStatus === 'error_context_limit') statusText = 'Error (Too Large)';
+                else if (newStatus === 'error_translation') statusText = 'Error (Translate)';
+                else if (newStatus === 'error_caching') statusText = 'Error (Cache)';
+                else if (newStatus === 'error_unknown') statusText = 'Error (Unknown)';
+                else if (newStatus === 'completed_empty') statusText = 'Empty Section';
+                else if (newStatus === 'translated') statusText = 'Translated'; // Явное имя
+                 else if (newStatus === 'cached') statusText = 'Translated'; // Заменяем cached на Translated
+
+                statusSpan.textContent = statusText;
+            }
+
+            // Обновляем видимость ссылки скачивания и кнопки обновления
+            const isReady = ['translated', 'completed_empty'].includes(newStatus);
+            const canUpdate = isReady || newStatus.startsWith('error_'); // Обновлять можно готовые или ошибочные
+
+            if (downloadLink) downloadLink.classList.toggle('hidden', !isReady);
+            if (updateBtn) updateBtn.classList.toggle('hidden', !canUpdate); // Показываем кнопку Обновить для готовых и ошибочных
+
+            // Обновляем видимость индикатора загрузки
+            if (processingIndicator) {
+                 processingIndicator.style.display = newStatus === 'processing' ? 'inline' : 'none';
+            }
+
+            // Если активная секция завершила обработку (при общем обновлении)
+            if (sectionId === activeSectionId && previousStatus === 'processing' && newStatus !== 'processing' && updateAllMatching) {
+                console.log(`Polling update finished for active section ${sectionId}, new status: ${newStatus}. Reloading content.`);
+                 if (!newStatus.startsWith('error')) {
+                     loadAndDisplaySection(sectionId, true); // Обновляем контент
+                 } else {
+                      displayTranslatedText(`(Ошибка перевода раздела: ${statusSpan ? statusSpan.textContent : newStatus})`);
+                 }
+            }
+        });
     }
 
+    /**
+     * Обновляет общий статус книги и UI кнопок.
+     * @param {object} bookData - Данные о книге из /book_status.
+     */
     function updateOverallBookStatusUI(bookData) {
         if (!bookData) return;
-        // Обновляем счетчики (если они есть в шаблоне)
-        // translatedCountSpan.textContent = bookData.translated_count !== undefined ? bookData.translated_count : '?';
-        // totalCountSpan.textContent = bookData.total_sections !== undefined ? bookData.total_sections : '?';
 
-        // Активируем кнопку скачивания всей книги
-        const isComplete = bookData.status === 'complete' || (bookData.status === 'complete_with_errors' && (bookData.translated_count || 0) > 0);
-        downloadFullBtn.disabled = !isComplete;
-        downloadFullLink.classList.toggle('hidden', !isComplete);
+        const isCompleteOrErrors = bookData.status === 'complete' || bookData.status === 'complete_with_errors';
+        const anythingTranslated = (bookData.translated_count || 0) > 0 || (bookData.error_count || 0) > 0; // Считаем завершенной, если есть хоть что-то обработанное
 
-        // Блокируем кнопку "Перевести все", если идет обработка
-        translateAllBtn.disabled = bookData.status === 'processing';
+        if (downloadFullBtn) downloadFullBtn.disabled = !(isCompleteOrErrors && anythingTranslated);
+        if (downloadFullLink) downloadFullLink.classList.toggle('hidden', !(isCompleteOrErrors && anythingTranslated));
+
+        const canTranslateMore = bookData.status !== 'processing' && bookData.status !== 'complete';
+        if (translateAllBtn) translateAllBtn.disabled = !canTranslateMore;
 
         // Обновляем статусы всех секций в TOC
-        if (bookData.sections) {
+        if (bookData.sections && tocList) {
             for (const [sectionId, status] of Object.entries(bookData.sections)) {
-                updateSectionStatusUI(sectionId, status);
+                updateSectionStatusUI(sectionId, status, true);
             }
+        } else if (!tocList) {
+             console.error("TOC list element not found for status update!");
         }
 
-        // Остановить опрос, если книга обработана
-        if (bookData.status === 'complete' || bookData.status === 'complete_with_errors') {
+        // Управляем опросом
+        if (isCompleteOrErrors && bookData.status !== 'processing') { // Останавливаем, если все готово И не в процессе
             stopPolling();
         } else if (bookData.status === 'processing' && !currentPolling) {
-             // Если статус processing, а опрос не идет - запускаем
              startPolling();
         }
     }
 
     // --- Функции для запросов к API ---
 
-    async function fetchWithTimeout(resource, options = {}, timeout = 60000) { // Увеличим таймаут
+    /**
+     * Выполняет fetch с таймаутом.
+     */
+    async function fetchWithTimeout(resource, options = {}, timeout = 60000) { // Увеличен таймаут
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), timeout);
         try {
@@ -91,217 +148,379 @@ document.addEventListener('DOMContentLoaded', () => {
             return response;
         } catch (error) {
             clearTimeout(id);
-            if (error.name === 'AbortError') console.error('Request timed out');
+            if (error.name === 'AbortError') console.error('Request timed out for:', resource);
             throw error;
         }
     }
 
-    // Запрашиваем перевод или получаем текст из кэша для отображения
-    async function loadAndDisplaySection(sectionId) {
-        console.log(`Loading section ${sectionId}`);
+    /**
+     * Загружает и отображает перевод секции.
+     * Если перевода нет, запускает фоновый перевод.
+     * @param {string} sectionId - ID секции (файла).
+     * @param {boolean} isUpdate - True, если это обновление контента после поллинга.
+     */
+    async function loadAndDisplaySection(sectionId, isUpdate = false) {
+        console.log(`Loading section ${sectionId}. Is update: ${isUpdate}`);
+        if (!sectionId || !translationSectionIdSpan || !translationContentDiv || !translationDisplay || !tocList || !languageSelect) {
+             console.error("Essential UI element missing for loadAndDisplaySection");
+             return;
+        }
+        activeSectionId = sectionId;
         translationSectionIdSpan.textContent = sectionId;
-        translationContentPre.textContent = 'Загрузка перевода...';
-        translationDisplay.classList.remove('hidden');
-        document.querySelectorAll('.toc-item').forEach(el => el.style.fontWeight = 'normal'); // Сброс выделения
+        translationContentDiv.innerHTML = '<p>Загрузка...</p>';
+        translationDisplay.style.display = 'block';
+
+        // Обновляем выделение активного элемента в TOC
+        tocList.querySelectorAll('.toc-item').forEach(el => el.dataset.isActive = "false");
         const currentTocItem = tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`);
-        if(currentTocItem) currentTocItem.style.fontWeight = 'bold'; // Выделяем текущий
+        if(currentTocItem) currentTocItem.dataset.isActive = "true";
+        else console.warn(`TOC item for section ${sectionId} not found.`);
+
+        const selectedLanguage = languageSelect.value; // Берем текущий выбранный язык
 
         try {
-            // Пытаемся получить готовый перевод
-            const response = await fetchWithTimeout(`/get_translation/${currentBookId}/${sectionId}?lang=${defaultTargetLanguage}`);
+            const response = await fetchWithTimeout(`/get_translation/${currentBookId}/${sectionId}?lang=${selectedLanguage}`);
 
             if (response.ok) {
                 const data = await response.json();
                 displayTranslatedText(data.text);
-                updateSectionStatusUI(sectionId, 'cached'); // Обновляем статус на случай если он был другим
+                // Обновляем статус для всех элементов этой секции на 'translated'
+                updateSectionStatusUI(sectionId, data.text === "" ? 'completed_empty' : 'translated', true);
             } else if (response.status === 404) {
-                // Перевода нет, запускаем процесс
-                translationContentPre.textContent = 'Перевод не найден. Запускаем перевод...';
-                await startSectionTranslation(sectionId);
+                const errorData = await response.json().catch(() => ({ error: "Not found" }));
+                // Если это не обновление после поллинга, запускаем перевод
+                if (!isUpdate) {
+                    translationContentDiv.innerHTML = '<p>Перевод не найден. Запускаем перевод...</p>';
+                    await startSectionTranslation(sectionId); // Запускаем перевод
+                } else {
+                     displayTranslatedText(`(Перевод не найден или еще не готов: ${errorData.error || ''})`);
+                     updateSectionStatusUI(sectionId, 'not_translated', true);
+                }
             } else {
-                // Другая ошибка при получении перевода
-                const errorData = await response.json().catch(() => ({}));
+                const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
                 console.error(`Error fetching translation for ${sectionId}: ${response.status}`, errorData);
-                translationContentPre.textContent = `Ошибка загрузки перевода (${response.status}): ${errorData.error || ''}`;
-                updateSectionStatusUI(sectionId, 'error_unknown'); // Примерный статус ошибки
+                displayTranslatedText(`Ошибка загрузки перевода (${response.status}): ${errorData.error || ''}`);
+                updateSectionStatusUI(sectionId, 'error_unknown', true);
             }
         } catch (error) {
             console.error(`Network error loading section ${sectionId}:`, error);
-            translationContentPre.textContent = 'Сетевая ошибка при загрузке раздела.';
-            updateSectionStatusUI(sectionId, 'error_unknown');
+            displayTranslatedText('Сетевая ошибка при загрузке раздела.');
+            updateSectionStatusUI(sectionId, 'error_unknown', true);
         }
     }
 
-     // Отображает текст в основной области
-    function displayTranslatedText(text) {
-         translationContentPre.innerHTML = ''; // Очищаем
-         const paragraphs = (text || "").split('\n\n');
-         if (paragraphs.length === 1 && paragraphs[0] === "") {
-             translationContentPre.textContent = "(Раздел пуст или перевод пустой)";
+     /**
+      * Отображает текст в основной области, оборачивая параграфы в <p>.
+      * @param {string} text - Текст для отображения (ожидаются параграфы, разделенные \n\n).
+      */
+     function displayTranslatedText(text) {
+         const translationContentDiv = document.getElementById('translation-content');
+         if (!translationContentDiv) return;
+         translationContentDiv.innerHTML = ''; // Очищаем предыдущий контент
+
+         const paragraphs = (text || "").split('\n\n'); // Разделяем на параграфы
+
+         if (paragraphs.length === 1 && paragraphs[0].trim() === "") {
+             // Если текст пустой или состоит только из пробелов
+             const pElement = document.createElement('p');
+             pElement.textContent = "(Раздел пуст или перевод не содержит текста)";
+             pElement.style.fontStyle = 'italic';
+             translationContentDiv.appendChild(pElement);
          } else {
+             // Итерируем по параграфам и создаем для каждого тег <p>
              paragraphs.forEach(pText => {
-                 if (pText.trim()) {
+                 const trimmedText = pText.trim(); // Убираем пробелы по краям параграфа
+                 if (trimmedText) { // Добавляем только не пустые параграфы
                      const pElement = document.createElement('p');
-                     pElement.textContent = pText;
-                     translationContentPre.appendChild(pElement);
+                     // Используем textContent для безопасной вставки ТЕКСТА параграфа
+                     pElement.textContent = trimmedText;
+                     translationContentDiv.appendChild(pElement);
                  }
+                 // Если нужно сохранить пустую строку между параграфами, можно добавить <br> или пустой <p>
+                 // else if (pText.length === 0 && paragraphs.length > 1) {
+                 //     // Можно добавить <br> или просто пропустить, как сейчас
+                 // }
              });
          }
      }
 
-    // Запускает фоновый перевод ОДНОЙ секции
+    /**
+     * Запускает фоновый перевод ОДНОЙ секции (или обновление).
+     * @param {string} sectionId - ID секции (файла).
+     */
     async function startSectionTranslation(sectionId) {
+        if (!languageSelect || !modelSelect) {
+             console.error("Language or Model select not found!");
+             return;
+        }
         console.log(`Requesting translation for ${sectionId}`);
-        updateSectionStatusUI(sectionId, 'processing');
-        startPolling(); // Начинаем опрос
+        // Обновляем только ОДИН элемент на processing
+        updateSectionStatusUI(sectionId, 'processing', false);
+        startPolling();
+
+        const selectedLanguage = languageSelect.value;
+        const selectedModel = modelSelect.value;
+
+        if (!selectedModel) {
+            console.error("Модель не выбрана!");
+            displayTranslatedText("Ошибка: Модель для перевода не выбрана.");
+            updateSectionStatusUI(sectionId, 'error_unknown', true);
+            return;
+        }
 
         try {
             const response = await fetchWithTimeout(`/translate_section/${currentBookId}/${sectionId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    target_language: defaultTargetLanguage,
-                    model_name: defaultModelName
+                    target_language: selectedLanguage,
+                    model_name: selectedModel
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 console.error(`Failed to start translation for ${sectionId}: ${response.status}`, errorData);
-                // Статус ошибки установится при следующем опросе book_status
-                translationContentPre.textContent = `Ошибка запуска перевода (${response.status})`;
+                if(activeSectionId === sectionId) displayTranslatedText(`Ошибка запуска перевода (${response.status})`);
+                updateSectionStatusUI(sectionId, 'error_translation', true); // Обновляем все на ошибку
             } else {
                 const data = await response.json();
                 console.log(`Translation started for ${sectionId}:`, data);
-                translationContentPre.textContent = 'Перевод запущен. Ожидайте обновления статуса...';
-                // Статус и результат обновятся при опросе book_status
+                if (sectionId === activeSectionId) {
+                    displayTranslatedText('Перевод запущен. Ожидайте обновления статуса...');
+                }
             }
         } catch (error) {
             console.error(`Network error starting translation for ${sectionId}:`, error);
-            updateSectionStatusUI(sectionId, 'error_translation', 'Сетевая ошибка');
-            translationContentPre.textContent = 'Сетевая ошибка при запуске перевода.';
+            updateSectionStatusUI(sectionId, 'error_translation', true);
+             if (sectionId === activeSectionId) {
+                displayTranslatedText('Сетевая ошибка при запуске перевода.');
+            }
         }
     }
 
-    // Запускает фоновый перевод ВСЕХ непереведенных
+    /**
+     * Запускает фоновый перевод ВСЕХ непереведенных/ошибочных секций.
+     */
     async function startTranslateAll() {
-        console.log('Requesting translation for all untranslated sections');
-        translateAllBtn.disabled = true;
+        if (!languageSelect || !modelSelect) {
+             console.error("Language or Model select not found!");
+             return;
+        }
+        console.log('Requesting translation for all remaining sections');
+        if (translateAllBtn) translateAllBtn.disabled = true;
         startPolling();
 
-        // Обновляем UI для всех "not_translated" или "error_*" секций
-        tocList.querySelectorAll('.toc-item').forEach(item => {
-             const status = item.dataset.status;
-             if (status === 'not_translated' || status.startsWith('error_')) {
-                  updateSectionStatusUI(item.dataset.sectionId, 'processing');
-             }
-        });
+        const selectedLanguage = languageSelect.value;
+        const selectedModel = modelSelect.value;
+
+        if (!selectedModel) {
+            console.error("Модель не выбрана для 'Перевести все'!");
+            if (translateAllBtn) translateAllBtn.disabled = false;
+            return;
+        }
+
+        // Обновляем UI для всех секций, которые будем пытаться перевести
+        if (tocList) {
+            tocList.querySelectorAll('.toc-item').forEach(item => {
+                 const status = item.dataset.status;
+                 if (status === 'not_translated' || status.startsWith('error_')) {
+                      updateSectionStatusUI(item.dataset.sectionId, 'processing', true);
+                 }
+            });
+        } else { return; }
 
         try {
             const response = await fetchWithTimeout(`/translate_all/${currentBookId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    target_language: defaultTargetLanguage,
-                    model_name: defaultModelName
+                    target_language: selectedLanguage,
+                    model_name: selectedModel
                 })
             });
             if (!response.ok) {
                  const errorData = await response.json().catch(() => ({}));
                 console.error(`Failed to start 'translate all': ${response.status}`, errorData);
-                 // Можно показать общее сообщение об ошибке
             } else {
                 const data = await response.json();
                 console.log(`'Translate all' request sent, ${data.launched_tasks} tasks launched.`);
             }
         } catch (error) {
              console.error(`Network error starting 'translate all':`, error);
-        } finally {
-            // Кнопка разблокируется при следующем обновлении статуса книги, если нужно
-            // translateAllBtn.disabled = false;
         }
     }
 
-    // Опрос статуса книги
+    /**
+     * Опрашивает статус книги с сервера.
+     */
     async function pollBookStatus() {
-        if (!currentPolling) return; // Не опрашивать, если остановлено
+        if (!currentPolling || typeof currentBookId === 'undefined' || currentBookId === null) {
+            stopPolling();
+            return;
+        }
         console.log("Polling book status...");
         try {
-            const response = await fetchWithTimeout(`/book_status/${currentBookId}`);
+            const timestamp = new Date().getTime();
+            const response = await fetchWithTimeout(`/book_status/${currentBookId}?t=${timestamp}`);
             if (!response.ok) {
                 console.error(`Error polling status: ${response.status}`);
-                // Возможно, не стоит останавливать опрос из-за временной ошибки
-                // stopPolling();
+                // Не останавливаем опрос при временных ошибках
                 return;
             }
             const data = await response.json();
-            console.log("Received book status:", data);
-            updateOverallBookStatusUI(data); // Эта функция решает, остановить ли опрос
-
-            // Если текущая отображаемая секция завершила обработку, обновим ее текст
-            const displayedSectionId = translationSectionIdSpan.textContent;
-            const displayedSectionItem = tocList.querySelector(`.toc-item[data-section-id="${displayedSectionId}"]`);
-            if (displayedSectionItem && displayedSectionItem.dataset.status !== 'processing') {
-                 const newStatus = data.sections[displayedSectionId];
-                 // Если статус изменился с processing на что-то другое
-                 if (newStatus && newStatus !== 'processing' ) {
-                      // Запросим текст заново, чтобы отобразить результат или ошибку
-                      const transResp = await fetchWithTimeout(`/get_translation/${currentBookId}/${displayedSectionId}?lang=${defaultTargetLanguage}`);
-                      if(transResp.ok){
-                           const transData = await transResp.json();
-                           displayTranslatedText(transData.text);
-                      } else {
-                           displayTranslatedText(`(Ошибка загрузки перевода: ${transResp.status})`);
-                      }
-                 }
-            }
-
+            // console.log("Received book status:", data); // Можно раскомментировать для отладки
+            updateOverallBookStatusUI(data); // Обновляет все статусы и решает, остановить ли опрос
         } catch (error) {
             console.error('Network error during polling:', error);
-            // stopPolling(); // Возможно, не стоит останавливать из-за временной ошибки
+            // Не останавливаем опрос при сетевых ошибках
         }
     }
 
+    /**
+     * Запускает периодический опрос статуса.
+     */
     function startPolling() {
         if (!pollInterval) {
             console.log("Starting status polling...");
             currentPolling = true;
-            pollBookStatus(); // Запросить статус немедленно
+            // Запускаем первый опрос почти сразу
+            setTimeout(pollBookStatus, 500);
             pollInterval = setInterval(pollBookStatus, 5000); // Опрос каждые 5 секунд
         }
     }
 
+    /**
+     * Останавливает периодический опрос статуса.
+     */
     function stopPolling() {
         if (pollInterval) {
             console.log("Stopping status polling.");
             clearInterval(pollInterval);
             pollInterval = null;
             currentPolling = false;
+            // Можно сделать финальный запрос статуса для обновления кнопок
+            // setTimeout(pollBookStatus, 1000);
         }
     }
 
-    // --- Назначение обработчиков событий ---
+    // --- Функция загрузки моделей ---
+    async function loadModels() {
+        if (!modelSelect) return;
+        console.log("Загрузка списка моделей...");
+        modelSelect.disabled = true;
+        modelSelect.innerHTML = '<option value="">Загрузка...</option>';
 
+        try {
+            const response = await fetchWithTimeout('/api/models');
+            if (!response.ok) {
+                console.error("Не удалось загрузить список моделей:", response.status);
+                modelSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+                return;
+            }
+            const models = await response.json();
+            console.log("Доступные модели:", models);
+            modelSelect.innerHTML = ''; // Очищаем
+
+            if (!models || models.length === 0) {
+                 modelSelect.innerHTML = '<option value="">Модели не найдены</option>';
+                 return;
+            }
+
+            let defaultModelFound = false;
+            const defaultModelValue = "models/gemini-1.5-flash"; // Имя модели по умолчанию
+
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.display_name} (${model.name.split('/')[1]})`;
+                option.title = `In: ${model.input_token_limit || 'N/A'}, Out: ${model.output_token_limit || 'N/A'}`;
+                modelSelect.appendChild(option);
+                if (model.name === defaultModelValue) {
+                     option.selected = true;
+                     defaultModelFound = true;
+                }
+            });
+            if (!defaultModelFound && modelSelect.options.length > 0) {
+                 modelSelect.options[0].selected = true; // Выбираем первую, если дефолтной нет
+            }
+             modelSelect.disabled = false;
+
+        } catch (error) {
+            console.error("Ошибка при выполнении запроса загрузки моделей:", error);
+            modelSelect.innerHTML = '<option value="">Ошибка сети</option>';
+        }
+    }
+
+
+    // --- Назначение обработчиков событий ---
     if (tocList) {
         tocList.addEventListener('click', (event) => {
             const link = event.target.closest('.toc-link');
-            if (link) {
-                event.preventDefault(); // Предотвращаем переход по #
-                const sectionItem = link.closest('.toc-item');
-                const sectionId = sectionItem.dataset.sectionId;
-                loadAndDisplaySection(sectionId); // Загружаем и показываем (или запускаем перевод)
-            }
-            // Обработчики для кнопок скачивания не нужны, т.к. это прямые ссылки <a>
-        });
-    }
+            const updateBtn = event.target.closest('.update-translation-btn');
 
+            if (link) { // Клик по названию главы
+                event.preventDefault();
+                const sectionItem = link.closest('.toc-item');
+                if (!sectionItem) return;
+                const sectionId = sectionItem.dataset.sectionId;
+                if (sectionItem.dataset.status !== 'processing') {
+                     loadAndDisplaySection(sectionId); // Показываем из кэша или запускаем ПЕРВЫЙ перевод
+                } else {
+                     console.log(`Section ${sectionId} is already processing.`);
+                     // Уже обрабатывается, просто показываем сообщение
+                     displayTranslatedText('(Раздел уже в процессе перевода...)');
+                     translationSectionIdSpan.textContent = sectionId;
+                     translationDisplay.style.display = 'block';
+                     activeSectionId = sectionId; // Устанавливаем как активную
+                     // Выделяем в TOC
+                      document.querySelectorAll('.toc-item').forEach(el => el.dataset.isActive = "false");
+                      sectionItem.dataset.isActive = "true";
+                }
+            } else if (updateBtn) { // Клик по кнопке "Обновить"
+                const sectionItem = updateBtn.closest('.toc-item');
+                 if (!sectionItem) return;
+                 const sectionId = sectionItem.dataset.sectionId;
+                 console.log(`Update requested for section ${sectionId}`);
+                 if (sectionItem.dataset.status !== 'processing') {
+                      // Запускаем перевод заново (бэкенд удалит кэш)
+                      startSectionTranslation(sectionId);
+                      // Показываем индикатор загрузки в основном окне
+                      displayTranslatedText('Запускаем обновление перевода...');
+                      translationSectionIdSpan.textContent = sectionId;
+                      translationDisplay.style.display = 'block';
+                      activeSectionId = sectionId;
+                      // Выделяем в TOC
+                      document.querySelectorAll('.toc-item').forEach(el => el.dataset.isActive = "false");
+                      sectionItem.dataset.isActive = "true";
+                 } else {
+                      console.log(`Section ${sectionId} is already processing.`);
+                 }
+            }
+            // Клик по ссылке скачивания раздела обрабатывается браузером
+        });
+    } else {
+        console.error("TOC list element (#toc-list) not found!");
+    }
 
     if (translateAllBtn) {
         translateAllBtn.addEventListener('click', startTranslateAll);
+    } else {
+         console.error("Translate All button (#translate-all-btn) not found!");
     }
 
     // --- Инициализация ---
-    // Запускаем опрос статуса сразу при загрузке страницы
-    startPolling();
+    if (typeof currentBookId !== 'undefined' && currentBookId) {
+         loadModels(); // Загружаем модели
+         startPolling(); // Начинаем опрос статуса
+    } else {
+         console.log("No current book ID found on page load.");
+         // Блокируем элементы управления
+          if(modelSelect) modelSelect.disabled = true;
+          if(languageSelect) languageSelect.disabled = true;
+          if(translateAllBtn) translateAllBtn.disabled = true;
+          if(downloadFullBtn) downloadFullBtn.disabled = true;
+          if(downloadFullLink) downloadFullLink.classList.add('hidden');
+    }
 
-});
+}); // Конец DOMContentLoaded
