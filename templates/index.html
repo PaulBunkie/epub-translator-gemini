@@ -2,30 +2,89 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>EPUB Translator</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>EPUB Translator - Загрузка книги</title>
+    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"> -->
+    <style>
+        /* Копируем стили из book_view.html для единообразия */
+        /* (html, body, #left-panel, #main-content (можно сделать одноколоночным), кнопки, списки и т.д.) */
+        body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; }
+        h1, h2 { border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 30px;}
+        h1:first-child { margin-top: 0; }
+        form p { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold;}
+        input[type="file"], select, button { padding: 8px 12px; width: 100%; max-width: 400px; box-sizing: border-box; margin-bottom: 5px;}
+        button { cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px;}
+        button:hover { background-color: #0056b3;}
+        button.delete-btn { background-color: #dc3545; margin-left: 10px; width: auto;}
+        button.delete-btn:hover { background-color: #c82333;}
+        ul { list-style: none; padding: 0; }
+        li { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center;}
+        li:last-child { border-bottom: none; }
+        .book-title { font-weight: bold; }
+        .book-status { font-size: 0.9em; color: #555; margin-left: 15px; }
+        .book-actions button { width: auto; } /* Кнопки действий меньше */
+
+    </style>
 </head>
 <body>
-    <h1>Загрузите EPUB для перевода</h1>
+    <h1>EPUB Переводчик</h1>
+
+    <h2>Загрузить новую книгу</h2>
+    {# Добавляем выбор языка при загрузке #}
     <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
         <p>
-            <label for="epub_file">Выберите файл EPUB:</label><br>
+            <label for="epub_file">Выберите файл EPUB:</label>
             <input type="file" id="epub_file" name="epub_file" accept=".epub" required>
         </p>
-        <!-- Можно добавить выбор языка/модели здесь, если нужно переопределять дефолты до загрузки -->
-        <!--
         <p>
-            <label for="target_language">Целевой язык (англ.):</label><br>
-            <input type="text" id="target_language" name="target_language" value="russian">
+            <label for="target_language">Язык перевода (по умолчанию):</label>
+             <select id="target_language" name="target_language">
+                 <option value="russian" selected>Russian</option>
+                 <option value="english">English</option>
+                 <option value="german">German</option>
+                 <option value="french">French</option>
+                 <option value="spanish">Spanish</option>
+                 <!-- Добавьте другие языки -->
+            </select>
         </p>
         <p>
-            <label for="model_name">Модель Gemini:</label><br>
-            <input type="text" id="model_name" name="model_name" value="gemini-1.5-flash">
-        </p>
-         -->
-        <p>
-            <button type="submit">Загрузить и просмотреть</button>
+            <button type="submit">Загрузить и начать перевод</button>
         </p>
     </form>
+
+    <h2>Загруженные книги</h2>
+    {% if books %}
+        <ul>
+            {% for book_id, book_data in books %}
+                <li>
+                    <div>
+                        <span class="book-title">{{ book_data.filename | default('Неизвестное имя') }}</span><br>
+                        <span class="book-status">
+                            {% set total = book_data.total_sections | default(0) %}
+                            {% if total > 0 %}
+                                Статус: {{ book_data.status | default('N/A') }}
+                                ({{ book_data.translated_count | default(0) }}/{{ total }})
+                            {% else %}
+                                Статус: Ошибка структуры
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="book-actions">
+                        {# Ссылка на просмотр/перевод #}
+                        <a href="{{ url_for('view_book', book_id=book_id, lang=request.args.get('lang', 'russian')) }}">
+                             <button>Просмотр/Перевод</button>
+                        </a>
+                        {# Форма для удаления книги #}
+                        <form action="{{ url_for('delete_book_request', book_id=book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Вы уверены, что хотите удалить эту книгу и ее кэш?');">
+                            <button type="submit" class="delete-btn">Удалить</button>
+                        </form>
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>Еще не загружено ни одной книги.</p>
+    {% endif %}
+
 </body>
 </html>

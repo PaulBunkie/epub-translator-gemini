@@ -6,6 +6,7 @@ from werkzeug.utils import secure_filename
 from concurrent.futures import ThreadPoolExecutor
 import time
 import hashlib 
+from cache_manager import delete_book_cache # Импортируем удаление кэша книги
 
 # Импортируем наши модули
 from translation_module import configure_api, translate_text, CONTEXT_LIMIT_ERROR, get_models_list
@@ -158,8 +159,47 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
 
 @app.route('/', methods=['GET'])
 def index():
-    """ Отображает главную страницу с формой загрузки """
-    return render_template('index.html')
+    """ Отображает главную страницу с формой загрузки и списком книг """
+    # Передаем словарь book_progress в шаблон
+    # Сортируем книги по имени файла для удобства
+    sorted_books = sorted(book_progress.items(), key=lambda item: item[1].get('filename', '').lower())
+    return render_template('index.html', books=sorted_books) # Передаем отсортированный список кортежей
+
+@app.route('/delete_book/<book_id>', methods=['POST'])
+def delete_book_request(book_id):
+    """ Удаляет книгу, ее файл и кэш """
+    if book_id in book_progress:
+        book_data = book_progress[book_id]
+        filepath = book_data.get("filepath")
+
+        print(f"Удаление книги ID: {book_id}, файл: {filepath}")
+
+        # 1. Удаляем файл из uploads
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+                print(f"Удален файл: {filepath}")
+            except OSError as e:
+                print(f"Ошибка удаления файла {filepath}: {e}")
+                # Продолжаем удаление остального
+
+        # 2. Удаляем кэш
+        if filepath: # Нужен путь для генерации ID в delete_book_cache
+             delete_book_cache(filepath) # Функция из cache_manager
+
+        # 3. Удаляем запись из памяти
+        del book_progress[book_id]
+        print(f"Удалена запись о книге {book_id} из памяти.")
+
+        # Можно добавить flash сообщение об успехе
+        # flash(f"Книга '{book_data.get('filename', book_id)}' успешно удалена.")
+
+    else:
+        print(f"Попытка удаления несуществующей книги ID: {book_id}")
+        # Можно добавить flash сообщение об ошибке
+        # flash(f"Книга с ID {book_id} не найдена.", "error")
+
+    return redirect(url_for('index')) # Возвращаемся на главную
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
