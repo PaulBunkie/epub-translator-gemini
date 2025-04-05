@@ -159,11 +159,33 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
 
 @app.route('/', methods=['GET'])
 def index():
-    """ Отображает главную страницу с формой загрузки и списком книг """
-    # Передаем словарь book_progress в шаблон
-    # Сортируем книги по имени файла для удобства
-    sorted_books = sorted(book_progress.items(), key=lambda item: item[1].get('filename', '').lower())
-    return render_template('index.html', books=sorted_books) # Передаем отсортированный список кортежей
+    """ Отображает главную страницу с формой загрузки и списком загруженных файлов ИЗ ПАМЯТИ. """
+    uploaded_books = [] # Список для передачи в шаблон
+    # --- ИЗМЕНЕНИЕ: Вместо сканирования папки, берем из словаря book_progress ---
+    print(f"Загрузка списка книг из book_progress (в памяти). Всего ключей: {len(book_progress)}") # Отладка
+    try:
+        # Итерируем по словарю в памяти
+        for book_id, data in book_progress.items():
+             print(f"  Найден book_id в памяти: {book_id}") # Отладка
+             uploaded_books.append({
+                 'book_id': book_id,
+                 'display_name': data.get('filename', book_id + ".epub"), # Используем сохраненное имя файла
+                 'status': data.get('status', 'N/A'), # Берем статус из памяти
+                 'total_sections': data.get('total_sections', 0),
+                 'default_language': data.get('default_language', 'russian')
+             })
+        # Сортируем по имени файла
+        uploaded_books.sort(key=lambda x: x['display_name'].lower())
+        print(f"Сформирован список uploaded_books: {len(uploaded_books)} книг") # Отладка
+
+    except Exception as e:
+        print(f"Ошибка при формировании списка книг из book_progress: {e}")
+        import traceback
+        traceback.print_exc() # Печатаем traceback ошибки
+
+    print(f"Передача в шаблон index.html: {uploaded_books}") # Отладка
+    # Передаем ИМЕННО uploaded_books
+    return render_template('index.html', uploaded_books=uploaded_books)
 
 @app.route('/delete_book/<book_id>', methods=['POST'])
 def delete_book_request(book_id):
