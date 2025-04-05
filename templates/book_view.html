@@ -162,7 +162,12 @@
         /* Стили для основного контента */
         #translation-display { margin-top: 0; padding: 15px; border: 1px solid #ddd; background-color: #f9f9f9; min-height: 100px; }
         #translation-display h3 { margin-top: 0; font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px; }
-        #translation-content p { margin: 0 0 1em 0; line-height: 1.6; text-indent: 1.5em; }
+        #translation-content p {
+             margin: 0 0 1em 0; /* Стандартный отступ снизу параграфа */
+             line-height: 1.6; /* Межстрочный интервал */
+             /* text-indent: 1.5em; */ /* <--- УБИРАЕМ ИЛИ КОММЕНТИРУЕМ ЭТУ СТРОКУ */
+             white-space: normal; /* Убедимся, что обработка пробелов стандартная */
+        }
 
         /* Сообщение о загрузке TOC */
         #toc-loading-message { font-style: italic; color: gray; margin-top: 10px; }
