@@ -19,23 +19,29 @@ def translate_chunk(model, text, target_language="russian", previous_context="")
     Возвращает переведенный текст или флаг ошибки контекста.
     Использует английский язык для промпта с улучшенными инструкциями.
     """
+def translate_chunk(model, text, target_language="russian", previous_context=""):
     # --- Формирование промпта ---
     prompt_lines = [
-        f"You are a professional literary translator. Your goal is to provide a high-quality translation into {target_language}, adhering to the following principles:",
+        f"You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:",
+        # ... (остальные принципы: стиль, консистентность, язык, аббревиатуры, неологизмы, диалоги для русского) ...
         "- Perform a literary translation, preserving the author's original style, tone, and nuances.",
-        "- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.", # Консистентность внутри чанка
-        "- Avoid softening or excessively censoring strong language or expressions used in the source text, unless culturally inappropriate for the target language.",
-        # Исправлено правило про аббревиатуры
-        f"- Translate common abbreviations (like 'e.g.', 'i.e.', 'etc.', 'CIA') according to their established equivalents in the {target_language} language (e.g., 'например', 'то есть', 'и т.д.', 'ЦРУ' for Russian).",
-        "- DO NOT translate uncommon or fictional abbreviations/acronyms (e.g., KPS, STFN) unless their meaning is explicitly provided in the text. Keep the original abbreviation.",
-        # Уточнено про неологизмы
-        "- For author neologisms or compound words, carefully find the most accurate and stylistically appropriate equivalent in the target language and use it consistently *within this response*.",
-        # Добавляем инструкцию для диалогов, если целевой язык - русский
+        "- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.",
+        "- Avoid softening strong language unless culturally necessary.",
+        f"- Translate common abbreviations (like 'e.g.', 'i.e.', 'CIA') according to their established {target_language} equivalents.",
+        "- Keep uncommon or fictional abbreviations/acronyms (e.g., KPS) in their original form.",
+        "- For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.",
         f"{' - When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.' if target_language.lower() == 'russian' else ''}",
-        # Добавляем предыдущий контекст, если он есть
-        # Уточняем его назначение
-        ("\nPrevious Context (use for style and recent terminology reference, but ensure consistency *within the current translation*):\n" + previous_context) if previous_context else "",
-        # Добавляем основной текст
+
+        # !!! ОБНОВЛЕННАЯ ИНСТРУКЦИЯ ПРО СНОСКИ С ПРИОРИТЕТОМ !!!
+        f"""- If clarification is needed for a {target_language} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
+  - **Format:** Insert a sequential footnote marker directly after the word/phrase.
+    - **Preferred format:** Use superscript numbers (like ¹, ², ³).
+    - **Alternative format (if superscript is not possible):** Use numbers in square brackets (like [1], [2], [3]).
+  - **Content:** At the very end of the translated section, add a separator ('---') and a heading ('{'Примечания переводчика' if target_language.lower() == 'russian' else 'Translator Notes'}'). List all notes sequentially by their marker (e.g., '¹ Explanation.' or '[1] Explanation.').
+  - Use footnotes sparingly.""",
+
+        # Контекст и текст
+        ("\nPrevious Context (use for style and recent terminology reference):\n" + previous_context) if previous_context else "",
         "\nText to Translate:",
         text,
         "\nTranslation:"
