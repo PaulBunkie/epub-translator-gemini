@@ -209,37 +209,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+
      /**
-      * Отображает текст в основной области, оборачивая параграфы в <p>.
-      * @param {string} text - Текст для отображения (ожидаются параграфы, разделенные \n\n).
+      * Отображает текст в основной области, оборачивая параграфы в <p>,
+      * заменяя одинарные переносы на <br> и обрабатывая базовый Markdown (*, **).
+      * @param {string} text - Текст для отображения.
       */
      function displayTranslatedText(text) {
          const translationContentDiv = document.getElementById('translation-content');
          if (!translationContentDiv) return;
-         translationContentDiv.innerHTML = ''; // Очищаем предыдущий контент
+         translationContentDiv.innerHTML = '';
 
-         const paragraphs = (text || "").split('\n\n'); // Разделяем на параграфы
+         let processedText = (text || "");
 
-         if (paragraphs.length === 1 && paragraphs[0].trim() === "") {
-             // Если текст пустой или состоит только из пробелов
+         // --- Обработка Markdown ---
+         // Сначала обрабатываем двойные звездочки (полужирный)
+         processedText = processedText.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+         // Затем одинарные звездочки (курсив) - важно делать после двойных!
+         processedText = processedText.replace(/\*(.*?)\*/g, '<em>$1</em>');
+         // --- Конец обработки Markdown ---
+
+
+         // --- Обработка переносов строк ---
+         const paragraphMarker = "%%%PARAGRAPH_BREAK%%%";
+         processedText = processedText
+                               .replace(/\n\n/g, paragraphMarker) // Заменяем двойные переносы
+                               .replace(/\n/g, '<br>'); // Заменяем одинарные на <br>
+
+         const paragraphsHtml = processedText.split(paragraphMarker); // Разделяем на параграфы
+
+         if (paragraphsHtml.length === 1 && paragraphsHtml[0].trim() === "") {
+              // ... (код для пустого текста) ...
              const pElement = document.createElement('p');
              pElement.textContent = "(Раздел пуст или перевод не содержит текста)";
              pElement.style.fontStyle = 'italic';
              translationContentDiv.appendChild(pElement);
          } else {
-             // Итерируем по параграфам и создаем для каждого тег <p>
-             paragraphs.forEach(pText => {
-                 const trimmedText = pText.trim(); // Убираем пробелы по краям параграфа
-                 if (trimmedText) { // Добавляем только не пустые параграфы
+             paragraphsHtml.forEach(pHtml => {
+                 const trimmedHtml = pHtml.trim();
+                  // Проверяем, что строка не пустая и не состоит только из <br> (после trim)
+                 if (trimmedHtml && trimmedHtml !== '<br>') {
                      const pElement = document.createElement('p');
-                     // Используем textContent для безопасной вставки ТЕКСТА параграфа
-                     pElement.textContent = trimmedText;
+                     // Используем innerHTML для вставки HTML с <br>, <em>, <strong>
+                     pElement.innerHTML = trimmedHtml;
                      translationContentDiv.appendChild(pElement);
                  }
-                 // Если нужно сохранить пустую строку между параграфами, можно добавить <br> или пустой <p>
-                 // else if (pText.length === 0 && paragraphs.length > 1) {
-                 //     // Можно добавить <br> или просто пропустить, как сейчас
-                 // }
              });
          }
      }
@@ -248,53 +262,66 @@ document.addEventListener('DOMContentLoaded', () => {
      * Запускает фоновый перевод ОДНОЙ секции (или обновление).
      * @param {string} sectionId - ID секции (файла).
      */
+    // --- Функция запуска перевода/обновления ОДНОЙ секции ---
     async function startSectionTranslation(sectionId) {
-        if (!languageSelect || !modelSelect) {
-             console.error("Language or Model select not found!");
-             return;
-        }
+        if (!languageSelect || !modelSelect) { console.error("Language or Model select not found!"); return; }
         console.log(`Requesting translation for ${sectionId}`);
         // Обновляем только ОДИН элемент на processing
         updateSectionStatusUI(sectionId, 'processing', false);
-        startPolling();
+        startPolling(); // Начинаем/продолжаем опрос
 
         const selectedLanguage = languageSelect.value;
         const selectedModel = modelSelect.value;
 
         if (!selectedModel) {
             console.error("Модель не выбрана!");
-            displayTranslatedText("Ошибка: Модель для перевода не выбрана.");
-            updateSectionStatusUI(sectionId, 'error_unknown', true);
+            if(activeSectionId === sectionId) displayTranslatedText("Ошибка: Модель для перевода не выбрана.");
+            updateSectionStatusUI(sectionId, 'error_user', true);
             return;
         }
 
+        // --- ДОБАВЛЯЕМ ПРЕДУПРЕЖДЕНИЕ В UI ---
+        if (sectionId === activeSectionId) {
+            displayTranslatedText(
+                'Перевод запущен. Ожидайте обновления статуса...\n\n' +
+                '(Перевод может занимать до нескольких минут в зависимости от выбранной модели и размера раздела. Пожалуйста, дождитесь завершения процесса.)'
+            );
+        }
+        // -------------------------------------
+
+        const apiUrl = `/translate_section/${currentBookId}/${sectionId}`;
+        const requestBody = JSON.stringify({
+            target_language: selectedLanguage,
+            model_name: selectedModel
+        });
+
+        console.log(`[startSectionTranslation] Sending POST to ${apiUrl}`);
+        console.log(`[startSectionTranslation] Request body:`, requestBody);
+
         try {
-            const response = await fetchWithTimeout(`/translate_section/${currentBookId}/${sectionId}`, {
+            const response = await fetchWithTimeout(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    target_language: selectedLanguage,
-                    model_name: selectedModel
-                })
+                body: requestBody
             });
 
+            console.log(`[startSectionTranslation] Response status for ${sectionId}: ${response.status}`);
             if (!response.ok) {
+                // ... (обработка ошибок ответа сервера как раньше) ...
                 const errorData = await response.json().catch(() => ({}));
-                console.error(`Failed to start translation for ${sectionId}: ${response.status}`, errorData);
-                if(activeSectionId === sectionId) displayTranslatedText(`Ошибка запуска перевода (${response.status})`);
-                updateSectionStatusUI(sectionId, 'error_translation', true); // Обновляем все на ошибку
+                console.error(`[startSectionTranslation] Failed to start translation for ${sectionId}: ${response.status}`, errorData);
+                if(activeSectionId === sectionId) displayTranslatedText(`Ошибка запуска перевода (${response.status}): ${errorData.error || ''}`);
+                updateSectionStatusUI(sectionId, `error_start_${response.status}`, true);
             } else {
                 const data = await response.json();
-                console.log(`Translation started for ${sectionId}:`, data);
-                if (sectionId === activeSectionId) {
-                    displayTranslatedText('Перевод запущен. Ожидайте обновления статуса...');
-                }
+                console.log(`[startSectionTranslation] Translation started successfully for ${sectionId}:`, data);
+                // Сообщение об ожидании уже выведено выше
             }
-        } catch (error) {
-            console.error(`Network error starting translation for ${sectionId}:`, error);
-            updateSectionStatusUI(sectionId, 'error_translation', true);
+        } catch (error) { // Ловим именно сетевую ошибку fetch
+            console.error(`[startSectionTranslation] FETCH FAILED for ${sectionId}:`, error);
+            updateSectionStatusUI(sectionId, 'error_network', true);
              if (sectionId === activeSectionId) {
-                displayTranslatedText('Сетевая ошибка при запуске перевода.');
+                displayTranslatedText(`Сетевая ошибка при запуске перевода: ${error.message}`);
             }
         }
     }
@@ -486,7 +513,10 @@ document.addEventListener('DOMContentLoaded', () => {
                       // Запускаем перевод заново (бэкенд удалит кэш)
                       startSectionTranslation(sectionId);
                       // Показываем индикатор загрузки в основном окне
-                      displayTranslatedText('Запускаем обновление перевода...');
+                      displayTranslatedText(
+                           'Запускаем обновление перевода...\n\n' +
+                           '(Перевод может занимать до нескольких минут в зависимости от выбранной модели и размера раздела. Пожалуйста, дождитесь завершения процесса.)'
+                      );
                       translationSectionIdSpan.textContent = sectionId;
                       translationDisplay.style.display = 'block';
                       activeSectionId = sectionId;

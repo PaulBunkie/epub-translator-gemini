@@ -17,78 +17,99 @@ def translate_chunk(model, text, target_language="russian", previous_context="")
     """
     Переводит один кусок текста с использованием предоставленной модели.
     Возвращает переведенный текст или флаг ошибки контекста.
-    Использует английский язык для промпта.
+    Использует английский язык для промпта с улучшенными инструкциями.
     """
-    # Формируем базовый промпт на английском
+    # --- Формирование промпта ---
     prompt_lines = [
-        f"You are a professional translator. Translate the following text into {target_language}."
-    ]
-
-    # Добавляем инструкцию для диалогов, если целевой язык - русский
-    # Сравниваем в нижнем регистре для надежности
-    if target_language.lower() == "russian":
-        prompt_lines.append("When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.")
-        # Можно добавить еще правил, если нужно
-
-    # Добавляем контекст, если он есть
-    if previous_context:
-        prompt_lines.extend([
-            "\nPrevious Context (if available):",
-            previous_context
-        ])
-
-    # Добавляем основной текст
-    prompt_lines.extend([
+        f"You are a professional literary translator. Your goal is to provide a high-quality translation into {target_language}, adhering to the following principles:",
+        "- Perform a literary translation, preserving the author's original style, tone, and nuances.",
+        "- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.", # Консистентность внутри чанка
+        "- Avoid softening or excessively censoring strong language or expressions used in the source text, unless culturally inappropriate for the target language.",
+        # Исправлено правило про аббревиатуры
+        f"- Translate common abbreviations (like 'e.g.', 'i.e.', 'etc.', 'CIA') according to their established equivalents in the {target_language} language (e.g., 'например', 'то есть', 'и т.д.', 'ЦРУ' for Russian).",
+        "- DO NOT translate uncommon or fictional abbreviations/acronyms (e.g., KPS, STFN) unless their meaning is explicitly provided in the text. Keep the original abbreviation.",
+        # Уточнено про неологизмы
+        "- For author neologisms or compound words, carefully find the most accurate and stylistically appropriate equivalent in the target language and use it consistently *within this response*.",
+        # Добавляем инструкцию для диалогов, если целевой язык - русский
+        f"{' - When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.' if target_language.lower() == 'russian' else ''}",
+        # Добавляем предыдущий контекст, если он есть
+        # Уточняем его назначение
+        ("\nPrevious Context (use for style and recent terminology reference, but ensure consistency *within the current translation*):\n" + previous_context) if previous_context else "",
+        # Добавляем основной текст
         "\nText to Translate:",
         text,
         "\nTranslation:"
-    ])
-
-    prompt = "\n".join(prompt_lines)
+    ]
+    # Убираем пустые строки из списка перед join
+    prompt = "\n".join(filter(None, prompt_lines))
 
     if not text.strip():
         print("Предупреждение: Попытка перевести пустой текст.")
-        return "" # Возвращаем пустую строку, если текст пустой
+        return ""
 
     try:
-        print(f"Отправка запроса к модели {model.model_name} (Целевой язык: {target_language})...")
+        print(f"Отправка запроса к модели {model.model_name} (Целевой язык: {target_language})... ({len(text)} симв.)")
         # print("--- Промпт ---") # Раскомментировать для отладки
-        # print(prompt)          # Раскомментировать для отладки
-        # print("--- Конец промпта ---") # Раскомментировать для отладки
+        # print(prompt)
+        # print("--- Конец промпта ---")
         response = model.generate_content(prompt)
 
-        # Проверка, есть ли текст в ответе
-        if hasattr(response, 'text') and response.text:
-             return response.text
+        # Отладка сырого ответа (можно закомментировать)
+        # print(f"--- RAW Response Object (для {model.model_name}) ---")
+        # print(response)
+
+        raw_text = getattr(response, 'text', None)
+
+        # print(f"--- RAW Response Text (для {model.model_name}) ---")
+        # print(repr(raw_text)) # Используем repr()
+        # print(f"--- END RAW (для {model.model_name}) ---")
+
+        if raw_text is not None:
+             finish_reason = None
+             if hasattr(response, 'candidates') and response.candidates:
+                  # Добавим проверку на наличие safety_ratings перед доступом к finish_reason
+                  candidate = response.candidates[0]
+                  finish_reason = getattr(candidate, 'finish_reason', None)
+                  if finish_reason == 'MAX_TOKENS':
+                       print("ПРЕДУПРЕЖДЕНИЕ: Ответ модели был обрезан из-за лимита выходных токенов!")
+                  elif finish_reason == 'SAFETY':
+                       print("ПРЕДУПРЕЖДЕНИЕ: Ответ модели заблокирован из-за безопасности.")
+                       safety_ratings = getattr(candidate, 'safety_ratings', [])
+                       if safety_ratings: print(f"  Safety Ratings: {safety_ratings}")
+                       # Возвращаем None, т.к. текст небезопасен или отсутствует
+                       return None
+                  # Добавить обработку других finish_reason при необходимости ('OTHER', 'RECITATION')
+
+             return raw_text # Возвращаем текст, даже если он обрезан
         else:
-             # Обработка случая, когда текст не сгенерирован (например, из-за фильтров)
+             # Обработка случая, когда текст не сгенерирован (например, из-за фильтров на ПРОМПТЕ)
              feedback = getattr(response, 'prompt_feedback', None)
-             block_reason = getattr(feedback, 'block_reason', None)
+             block_reason = getattr(feedback, 'block_reason', None) if feedback else None
              if block_reason:
-                  print(f"ОШИБКА: Генерация заблокирована: {block_reason}")
-                  # Можно добавить детализацию safety_ratings, если они есть
-                  safety_ratings = getattr(response, 'candidates', [{}])[0].get('safety_ratings', [])
-                  if safety_ratings:
-                       print(f"  Safety Ratings: {safety_ratings}")
+                  print(f"ОШИБКА: Генерация заблокирована на уровне промпта: {block_reason}")
+                  # Safety ratings для промпта могут быть в feedback
+                  safety_ratings = getattr(feedback, 'safety_ratings', [])
+                  if safety_ratings: print(f"  Prompt Safety Ratings: {safety_ratings}")
                   return None
              else:
-                  # Если причина блокировки не указана, но текста нет
                   print("ОШИБКА: Ответ API не содержит ожидаемого текста и нет явной причины блокировки.")
-                  # print(f"Полный ответ: {response}") # Раскомментировать для детальной отладки
+                  # Если есть candidates, но нет текста - странно
+                  # print(f"Полный ответ: {response}")
                   return None
 
     except Exception as e:
         error_text = str(e).lower()
-        # Ищем ключевые слова, связанные с лимитом токенов
         context_keywords = ["context window", "token limit", "maximum input length",
                             "превышен лимит токенов", "request payload size exceeds the limit",
-                            "resource exhausted", "limit exceeded"] # Добавим еще варианты
+                            "resource exhausted", "limit exceeded", "400 invalid argument"]
         if any(keyword in error_text for keyword in context_keywords):
-            print(f"ОШИБКА: Обнаружена ошибка, связанная с превышением лимита токенов! {e}")
-            return CONTEXT_LIMIT_ERROR # Сообщаем об ошибке контекста
+            print(f"ОШИБКА: Обнаружена ошибка, связанная с превышением лимита токенов/входных данных! {e}")
+            return CONTEXT_LIMIT_ERROR
         else:
-            print(f"ОШИБКА: Ошибка перевода: {e}")
-            return None # Другая ошибка
+            print(f"ОШИБКА: Неизвестная ошибка перевода: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
 def translate_text(text_to_translate, target_language="russian", model_name="gemini-1.5-flash"):
     """
