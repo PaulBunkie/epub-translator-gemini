@@ -8,6 +8,12 @@ import time
 import hashlib 
 from cache_manager import delete_book_cache # Импортируем удаление кэша книги
 
+from flask import send_file
+import io
+
+from epub_creator import create_translated_epub
+# from epub_creator_test import create_translated_epub # <-- Используем тестовую версию
+
 # Импортируем наши модули
 from translation_module import configure_api, translate_text, CONTEXT_LIMIT_ERROR, get_models_list
 # Импортируем новые и старые функции парсера
@@ -557,9 +563,45 @@ def api_get_models():
         # Возвращаем пустой список или ошибку сервера
         return jsonify({"error": "Could not retrieve models from API"}), 500
 
-# --- Запуск приложения ---
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
+# --- НОВЫЙ МАРШРУТ для скачивания EPUB ---
+@app.route('/download_epub/<book_id>', methods=['GET'])
+def download_epub(book_id):
+    """ Генерирует и отдает переведенную книгу в формате EPUB """
+    if book_id not in book_progress:
+        return "Book not found", 404
+
+    book_info = book_progress[book_id]
+    target_language = request.args.get('lang', 'russian') # Получаем язык из запроса
+
+    # Пересчитываем статус ПЕРЕД проверкой
+    update_overall_book_status(book_id)
+    print(f"Запрос на скачивание EPUB. Статус книги: {book_info['status']}") # Отладка
+
+    # Разрешаем скачивать, если статус 'complete' или 'complete_with_errors'
+    if book_info['status'] not in ["complete", "complete_with_errors"]:
+        print("Отказ в скачивании EPUB: перевод книги еще не завершен.")
+        message = f"Перевод книги еще не завершен. Статус: {book_info['status']}."
+        return message, 409 # 409 Conflict - состояние не позволяет выполнить
+
+    # Вызов функции создания EPUB
+    epub_content_bytes = create_translated_epub(book_info, target_language)
+
+    if epub_content_bytes is None:
+        print("Ошибка: Не удалось сгенерировать EPUB файл.")
+        return "Server error generating EPUB file.", 500
+
+    # Подготовка имени файла для скачивания
+    base_name = os.path.splitext(book_info.get('filename', 'translated_book'))[0]
+    output_filename = f"{base_name}_{target_language}_translated.epub"
+
+    print(f"Отправка сгенерированного EPUB файла: {output_filename}")
+    # Отправка файла из памяти
+    return send_file(
+        io.BytesIO(epub_content_bytes), # Создаем BytesIO из полученных байтов
+        mimetype='application/epub+zip',
+        as_attachment=True,
+        download_name=output_filename # Используем безопасное имя файла
+    )
 
 # --- Запуск приложения ---
 if __name__ == '__main__':
