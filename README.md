@@ -24,8 +24,7 @@
 
 *   **Бэкенд:** Python 3, Flask
 *   **API Перевода:** Google Gemini API (`google-generativeai`)
-*   **Парсинг EPUB:** `ebooklib`
-*   **Генерация EPUB:** `epubgen`
+*   **Парсинг и генерация EPUB:** `ebooklib`
 *   **Фронтенд:** HTML, CSS, JavaScript (без фреймворков)
 *   **Асинхронность:** `concurrent.futures.ThreadPoolExecutor` для фоновых задач.
 
