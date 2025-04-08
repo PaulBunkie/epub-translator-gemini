@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const translateAllBtn = document.getElementById('translate-all-btn');
     const downloadFullLink = document.getElementById('download-full-link');
     const downloadFullBtn = document.getElementById('download-full-btn');
+    const downloadEpubLink = document.getElementById('download-epub-link');
+    const downloadEpubBtn = document.getElementById('download-epub-btn'); 
     const modelSelect = document.getElementById('model-select');
     const languageSelect = document.getElementById('language-select');
 
@@ -23,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if(translateAllBtn) translateAllBtn.disabled = true;
         if(downloadFullBtn) downloadFullBtn.disabled = true;
         if(downloadFullLink) downloadFullLink.classList.add('hidden');
+        if(downloadEpubBtn) downloadEpubBtn.disabled = true; 
+        if(downloadEpubLink) downloadEpubLink.classList.add('hidden');
         if(modelSelect) modelSelect.disabled = true;
         if(languageSelect) languageSelect.disabled = true;
         return; // Прекращаем выполнение остального скрипта
@@ -111,8 +115,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCompleteOrErrors = bookData.status === 'complete' || bookData.status === 'complete_with_errors';
         const anythingTranslated = (bookData.translated_count || 0) > 0 || (bookData.error_count || 0) > 0; // Считаем завершенной, если есть хоть что-то обработанное
 
-        if (downloadFullBtn) downloadFullBtn.disabled = !(isCompleteOrErrors && anythingTranslated);
-        if (downloadFullLink) downloadFullLink.classList.toggle('hidden', !(isCompleteOrErrors && anythingTranslated));
+        // --- Обновляем видимость и состояние кнопок Скачать ---
+        const showDownloadButtons = isCompleteOrErrors && anythingTranslated;
+
+        if (downloadFullBtn) downloadFullBtn.disabled = !showDownloadButtons;
+        if (downloadFullLink) downloadFullLink.classList.toggle('hidden', !showDownloadButtons);
+
+        if (downloadEpubBtn) downloadEpubBtn.disabled = !showDownloadButtons;
+        if (downloadEpubLink) downloadEpubLink.classList.toggle('hidden', !showDownloadButtons);
 
         const canTranslateMore = bookData.status !== 'processing' && bookData.status !== 'complete';
         if (translateAllBtn) translateAllBtn.disabled = !canTranslateMore;
@@ -551,6 +561,8 @@ document.addEventListener('DOMContentLoaded', () => {
           if(translateAllBtn) translateAllBtn.disabled = true;
           if(downloadFullBtn) downloadFullBtn.disabled = true;
           if(downloadFullLink) downloadFullLink.classList.add('hidden');
+          if(downloadEpubBtn) downloadEpubBtn.disabled = true; 
+          if(downloadEpubLink) downloadEpubLink.classList.add('hidden'); 
     }
 
 }); // Конец DOMContentLoaded
