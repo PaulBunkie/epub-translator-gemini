@@ -1,4 +1,4 @@
-# epub_creator.py (ПОЛНЫЙ ФАЙЛ С ИСПРАВЛЕННЫМИ ОТСТУПАМИ В TOC v12)
+# epub_creator.py (ПОЛНЫЙ ФАЙЛ С ИСПРАВЛЕННЫМИ ОТСТУПАМИ В TOC v13 - УЛУЧШЕННАЯ РЕГУЛЯРКА ДЛЯ ИНДЕКСОВ)
 import ebooklib
 from ebooklib import epub
 from cache_manager import get_translation_from_cache, _get_epub_id
@@ -14,13 +14,14 @@ import tempfile
 INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
 BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
 ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
-SUPERSCRIPT_MARKER_RE = re.compile(r'(\¹|\²|\³|[\u2074-\u2079]+)')
+# УЛУЧШЕННАЯ РЕГУЛЯРКА: Ищем ЛЮБЫЕ числа в верхнем индексе
+SUPERSCRIPT_NUMBER_RE = re.compile(r'([\u2070-\u2079]+)', re.UNICODE)
 SUPERSCRIPT_DIGITS_MAP = {'¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9, '⁰': 0}
-NOTE_TEXT_START_RE = re.compile(r"^\s*(\¹|\²|\³|[\u2074-\u2079]+)\s+", re.UNICODE)
+NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079]+)\s+", re.UNICODE) # Обновлено для соответствия новой регулярке
 
 # --- Основная функция ---
 def create_translated_epub(book_info, target_language):
-    print(f"Запуск создания EPUB с ebooklib (Двусторонние ссылки v12) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
+    print(f"Запуск создания EPUB с ebooklib (Двусторонние ссылки v13 - Улучш. Regex) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
 
     original_filepath = book_info.get("filepath"); section_ids = book_info.get("section_ids_list", []); toc_data = book_info.get("toc", [])
     book_title_orig = os.path.splitext(book_info.get('filename', 'Untitled'))[0]; epub_id_str = _get_epub_id(original_filepath)
@@ -70,7 +71,7 @@ def create_translated_epub(book_info, target_language):
 
                 # 3. Замена маркеров на ссылки
                 final_text_with_links = text_with_md_html; offset = 0; replaced_count = 0
-                markers_found = list(SUPERSCRIPT_MARKER_RE.finditer(text_with_md_html)); markers_found.sort(key=lambda m: m.start())
+                markers_found = list(SUPERSCRIPT_NUMBER_RE.finditer(text_with_md_html)); markers_found.sort(key=lambda m: m.start()) # Используем SUPERSCRIPT_NUMBER_RE
                 for match in markers_found:
                     marker = match.group(1); current_note_num = -1
                     try: num_str = "".join([str(SUPERSCRIPT_DIGITS_MAP.get(c, '')) for c in marker]); current_note_num = int(num_str) if num_str else -1
@@ -80,7 +81,7 @@ def create_translated_epub(book_info, target_language):
                         replacement = f'<a id="{ref_id}" href="#{note_anchor_id}">{marker}</a>'; final_text_with_links = final_text_with_links[:start] + replacement + final_text_with_links[end:]; offset += len(replacement)-(end-start); replaced_count += 1
                 if replaced_count > 0: print(f"      Заменено маркеров ссылками в гл.{chapter_index}: {replaced_count}")
 
-# 4. Генерация финального HTML по параграфам (ИСПРАВЛЕНА ЛОГИКА)
+                # 4. Генерация финального HTML по параграфам (ИСПРАВЛЕНА ЛОГИКА)
                 final_paragraphs_html = []
                 # Итерируемся по ОРИГИНАЛЬНЫМ параграфам, чтобы знать индекс
                 for para_idx, para_original_raw in enumerate(original_paragraphs):
@@ -130,7 +131,7 @@ def create_translated_epub(book_info, target_language):
                         # Заменяем маркеры ТОЛЬКО в этом параграфе
                         current_para_with_links = text_with_md_html
                         offset = 0; replaced_count_para = 0
-                        markers_in_para = list(SUPERSCRIPT_MARKER_RE.finditer(text_with_md_html))
+                        markers_in_para = list(SUPERSCRIPT_NUMBER_RE.finditer(text_with_md_html)) # Используем SUPERSCRIPT_NUMBER_RE
                         for match in markers_in_para:
                             marker = match.group(1); current_note_num = -1
                             try: num_str = "".join([str(SUPERSCRIPT_DIGITS_MAP.get(c, '')) for c in marker]); current_note_num = int(num_str) if num_str else -1
