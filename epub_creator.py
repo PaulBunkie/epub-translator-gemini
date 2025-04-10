@@ -1,4 +1,4 @@
-# epub_creator.py (ПОЛНЫЙ ФАЙЛ С ИСПРАВЛЕННЫМИ ОТСТУПАМИ В TOC v13 - УЛУЧШЕННАЯ РЕГУЛЯРКА ДЛЯ ИНДЕКСОВ)
+# epub_creator.py (ПОЛНЫЙ ФАЙЛ С ИСПРАВЛЕННЫМИ ОТСТУПАМИ В TOC v14 - УНИВЕРСАЛЬНЫЕ СНОСКИ)
 import ebooklib
 from ebooklib import epub
 from cache_manager import get_translation_from_cache, _get_epub_id
@@ -14,14 +14,13 @@ import tempfile
 INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
 BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
 ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
-# УЛУЧШЕННАЯ РЕГУЛЯРКА: Ищем ЛЮБЫЕ числа в верхнем индексе
-SUPERSCRIPT_NUMBER_RE = re.compile(r'([\u2070-\u2079]+)', re.UNICODE)
-SUPERSCRIPT_DIGITS_MAP = {'¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9, '⁰': 0}
-NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079]+)\s+", re.UNICODE) # Обновлено для соответствия новой регулярке
+# УНИВЕРСАЛЬНАЯ РЕГУЛЯРКА: Ищем ЛЮБЫЕ символы в верхнем индексе
+SUPERSCRIPT_MARKER_RE = re.compile(r'([\u2070-\u2079\u00B9-\u00B3\u02B0-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u1D2C-\u1D6A\u1D78-\u1D7C\u2070-\u207C\u207F-\u2089\u2090-\u209C\u2C7C\u2C7D\uA770\uA771\uA788\uA789]+)', re.UNICODE) # Расширенный диапазон Unicode для верхних индексов
+NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079\u00B9-\u00B3\u02B0-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u1D2C-\u1D6A\u1D78-\u1D7C\u2070-\u207C\u207F-\u2089\u2090-\u209C\u2C7C\u2C7D\uA770\uA771\uA788\uA789]+)\s+", re.UNICODE) # Обновлено для универсальных маркеров
 
 # --- Основная функция ---
 def create_translated_epub(book_info, target_language):
-    print(f"Запуск создания EPUB с ebooklib (Двусторонние ссылки v13 - Улучш. Regex) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
+    print(f"Запуск создания EPUB с ebooklib (Двусторонние ссылки v14 - Универс. Сноски) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
 
     original_filepath = book_info.get("filepath"); section_ids = book_info.get("section_ids_list", []); toc_data = book_info.get("toc", [])
     book_title_orig = os.path.splitext(book_info.get('filename', 'Untitled'))[0]; epub_id_str = _get_epub_id(original_filepath)
@@ -53,63 +52,59 @@ def create_translated_epub(book_info, target_language):
             stripped_text = translated_text.strip()
             if not stripped_text: final_html_body_content = header_html + "<p> </p>"
             else:
-                # --- Логика Двусторонних Ссылок ---
-                note_targets_found = set(); note_paragraph_indices = {}
+                # --- Логика УНИВЕРСАЛЬНЫХ Двусторонних Ссылок ---
+                note_markers_found = {}; note_paragraph_indices = {} # Используем маркер как ключ
                 original_paragraphs = stripped_text.split('\n\n')
-                # 1. Найти номера параграфов-сносок
+
+                # 1. Найти маркеры параграфов-сносок и их первое появление
                 for para_idx, para_text_raw in enumerate(original_paragraphs):
                     match_start = NOTE_TEXT_START_RE.match(para_text_raw.strip())
                     if match_start:
-                        marker = match_start.group(1); current_note_num = -1
-                        try: num_str = "".join([str(SUPERSCRIPT_DIGITS_MAP.get(c, '')) for c in marker]); current_note_num = int(num_str) if num_str else -1
-                        except: pass
-                        if current_note_num > 0: note_targets_found.add(current_note_num); note_paragraph_indices[current_note_num] = para_idx
+                        marker = match_start.group(1)
+                        if marker not in note_markers_found: # Первое упоминание маркера - это "reference"
+                            note_markers_found[marker] = {'ref_para_index': para_idx, 'text_para_indices': []}
+                        note_paragraph_indices[para_idx] = marker # Сохраняем индекс параграфа и маркер
 
                 # 2. Очистка и Markdown -> HTML
                 text_normalized = unicodedata.normalize('NFC', stripped_text); text_cleaned_xml = INVALID_XML_CHARS_RE.sub('', text_normalized)
                 text_with_md_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', text_cleaned_xml); text_with_md_html = ITALIC_MD_RE.sub(r'<em>\1</em>', text_with_md_html)
 
-                # 3. Замена маркеров на ссылки
+                # 3. Замена маркеров на ссылки в ОСНОВНОМ ТЕКСТЕ
                 final_text_with_links = text_with_md_html; offset = 0; replaced_count = 0
-                markers_found = list(SUPERSCRIPT_NUMBER_RE.finditer(text_with_md_html)); markers_found.sort(key=lambda m: m.start()) # Используем SUPERSCRIPT_NUMBER_RE
-                for match in markers_found:
-                    marker = match.group(1); current_note_num = -1
-                    try: num_str = "".join([str(SUPERSCRIPT_DIGITS_MAP.get(c, '')) for c in marker]); current_note_num = int(num_str) if num_str else -1
-                    except: pass
-                    if current_note_num > 0 and current_note_num in note_targets_found:
-                        start, end = match.start() + offset, match.end() + offset; note_anchor_id = f"note_para_{chapter_index}_{current_note_num}"; ref_id = f"ref_{chapter_index}_{current_note_num}"
-                        replacement = f'<a id="{ref_id}" href="#{note_anchor_id}">{marker}</a>'; final_text_with_links = final_text_with_links[:start] + replacement + final_text_with_links[end:]; offset += len(replacement)-(end-start); replaced_count += 1
+                markers_found_in_text = list(SUPERSCRIPT_MARKER_RE.finditer(text_with_md_html)); markers_found_in_text.sort(key=lambda m: m.start())
+                for match in markers_found_in_text:
+                    marker = match.group(1)
+                    for note_marker, note_data in note_markers_found.items(): # Ищем маркер в списке найденных сносок
+                        if marker == note_marker:
+                            start, end = match.start() + offset, match.end() + offset
+                            ref_para_index = note_data['ref_para_index']
+                            note_anchor_id = f"note_para_{chapter_index}_{marker}_{ref_para_index}"; ref_id = f"ref_{chapter_index}_{marker}_{ref_para_index}" # ID теперь включает маркер
+                            replacement = f'<a id="{ref_id}" href="#{note_anchor_id}">{marker}</a>'; final_text_with_links = final_text_with_links[:start] + replacement + final_text_with_links[end:]; offset += len(replacement)-(end-start); replaced_count += 1
+                            break # Нашли соответствие, выходим из внутреннего цикла
                 if replaced_count > 0: print(f"      Заменено маркеров ссылками в гл.{chapter_index}: {replaced_count}")
 
                 # 4. Генерация финального HTML по параграфам (ИСПРАВЛЕНА ЛОГИКА)
                 final_paragraphs_html = []
-                # Итерируемся по ОРИГИНАЛЬНЫМ параграфам, чтобы знать индекс
                 for para_idx, para_original_raw in enumerate(original_paragraphs):
                     para_strip = para_original_raw.strip()
                     if not para_strip: continue # Пропускаем пустые
 
                     p_id_attribute = ""; backlink_html = ""
                     is_note_paragraph = False
-                    note_num_for_this_para = None
+                    marker_for_this_para = note_paragraph_indices.get(para_idx) # Получаем маркер для этого параграфа, если есть
 
-                    # Проверяем, является ли этот параграф сноской по его ИНДЕКСУ
-                    for num, idx in note_paragraph_indices.items():
-                        if idx == para_idx:
-                             is_note_paragraph = True
-                             note_num_for_this_para = num
-                             break
-
-                    # --- Обработка контента параграфа ---
-                    final_para_content_html = "" # Контент для вставки в <p>
+                    if marker_for_this_para:
+                        is_note_paragraph = True
 
                     if is_note_paragraph:
                         # --- ЭТО АБЗАЦ-СНОСКА ---
-                        note_anchor_id = f"note_para_{chapter_index}_{note_num_for_this_para}"
+                        ref_para_index = note_markers_found[marker_for_this_para]['ref_para_index']
+                        note_anchor_id = f"note_para_{chapter_index}_{marker_for_this_para}_{ref_para_index}" # ID для параграфа
                         p_id_attribute = f' id="{note_anchor_id}"' # ID для параграфа
-                        ref_id = f"ref_{chapter_index}_{note_num_for_this_para}"
+                        ref_id = f"ref_{chapter_index}_{marker_for_this_para}_{ref_para_index}"
                         backlink_html = f' <a href="#{ref_id}">↩</a>' # Обратная ссылка
 
-                        # Берем ОРИГИНАЛЬНЫЙ текст параграфа (он уже содержит маркер ¹ в начале)
+                        # Берем ОРИГИНАЛЬНЫЙ текст параграфа (он уже содержит маркер в начале)
                         # Применяем к нему ТОЛЬКО очистку XML и нормализацию Unicode
                         # НЕ применяем Markdown и НЕ заменяем маркер на ссылку
                         text_normalized = unicodedata.normalize('NFC', para_strip)
@@ -118,7 +113,7 @@ def create_translated_epub(book_info, target_language):
                         final_para_content_html = text_cleaned_xml.replace('\n', '<br/>')
                         # Добавляем обратную ссылку в конец
                         final_para_content_html += backlink_html
-                        print(f"        Обработан параграф сноски {note_num_for_this_para} с ID '{note_anchor_id}'")
+                        print(f"        Обработан параграф сноски с маркером '{marker_for_this_para}', ID '{note_anchor_id}'")
 
                     else:
                         # --- ЭТО ОБЫЧНЫЙ АБЗАЦ ---
@@ -128,24 +123,17 @@ def create_translated_epub(book_info, target_language):
                         text_with_md_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', text_cleaned_xml)
                         text_with_md_html = ITALIC_MD_RE.sub(r'<em>\1</em>', text_with_md_html)
 
-                        # Заменяем маркеры ТОЛЬКО в этом параграфе
-                        current_para_with_links = text_with_md_html
-                        offset = 0; replaced_count_para = 0
-                        markers_in_para = list(SUPERSCRIPT_NUMBER_RE.finditer(text_with_md_html)) # Используем SUPERSCRIPT_NUMBER_RE
-                        for match in markers_in_para:
-                            marker = match.group(1); current_note_num = -1
-                            try: num_str = "".join([str(SUPERSCRIPT_DIGITS_MAP.get(c, '')) for c in marker]); current_note_num = int(num_str) if num_str else -1
-                            except: pass
-                            if current_note_num > 0 and current_note_num in note_targets_found: # Заменяем, если есть цель
-                                start, end = match.start() + offset, match.end() + offset
-                                note_anchor_id = f"note_para_{chapter_index}_{current_note_num}"; ref_id = f"ref_{chapter_index}_{current_note_num}"
-                                replacement = f'<a id="{ref_id}" href="#{note_anchor_id}">{marker}</a>'
-                                current_para_with_links = current_para_with_links[:start] + replacement + current_para_with_links[end:]
-                                offset += len(replacement) - (end - start); replaced_count_para += 1
-                        # if replaced_count_para > 0: print(f"      Заменено маркеров в параграфе {para_idx}: {replaced_count_para}")
+                        # Вставляем уже обработанный текст с ссылками из final_text_with_links
+                        # Находим соответствующий параграф в original_paragraphs и берем его часть из final_text_with_links
+                        start_index = 0
+                        for i in range(para_idx): # Находим начало параграфа в final_text_with_links
+                            start_index += len(original_paragraphs[i]) + 2 # +2 для разделителя '\n\n'
+                        end_index = start_index + len(para_strip)
+                        para_content_with_links = final_text_with_links[start_index:end_index]
 
                         # Заменяем переносы строк на <br/> в тексте с ссылками
-                        final_para_content_html = current_para_with_links.replace('\n', '<br/>')
+                        final_para_content_html = para_content_with_links.replace('\n', '<br/>')
+
 
                     # Добавляем готовый параграф
                     final_paragraphs_html.append(f"<p{p_id_attribute}>{final_para_content_html}</p>")
