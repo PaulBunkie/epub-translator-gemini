@@ -16,8 +16,8 @@ BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
 ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
 # УНИВЕРСАЛЬНАЯ РЕГУЛЯРКА: Ищем ЛЮБЫЕ символы в верхнем индексе
 # УПРОЩЕННАЯ РЕГУЛЯРКА: Основные символы и диапазоны верхних индексов
-SUPERSCRIPT_MARKER_RE = re.compile(r'([\u2070-\u2079\u00B9-\u00B3]+)', re.UNICODE)
-NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079\u00B9-\u00B3]+)\s+", re.UNICODE)
+SUPERSCRIPT_MARKER_RE = re.compile(r'([\u2070-\u2079]+)', re.UNICODE)
+NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079]+)\s+", re.UNICODE)
 # --- Основная функция ---
 def create_translated_epub(book_info, target_language):
     print(f"Запуск создания EPUB с ebooklib (Двусторонние ссылки v14 - Универс. Сноски) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
