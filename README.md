@@ -131,7 +131,7 @@
 
 ├── cache_manager.py # Функции для работы с кэшем
 
-├── epub_creator.py # Функции для генерации нового EPUB файла (с epubgen)
+├── epub_creator.py # Функции для генерации нового EPUB файла
 
 ├── epub_parser.py # Функции для парсинга EPUB (структура, текст, TOC)
 
