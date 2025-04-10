@@ -15,9 +15,9 @@ INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
 BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
 ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
 # УНИВЕРСАЛЬНАЯ РЕГУЛЯРКА: Ищем ЛЮБЫЕ символы в верхнем индексе
-SUPERSCRIPT_MARKER_RE = re.compile(r'([\u2070-\u2079\u00B9-\u00B3\u02B0-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u1D2C-\u1D6A\u1D78-\u1D7C\u2070-\u207C\u207F-\u2089\u2090-\u209C\u2C7C\u2C7D\uA770\uA771\uA788\uA789]+)', re.UNICODE) # Расширенный диапазон Unicode для верхних индексов
-NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079\u00B9-\u00B3\u02B0-\u02C1\u02C6-\u02D1\u02E0-\u02E4\u1D2C-\u1D6A\u1D78-\u1D7C\u2070-\u207C\u207F-\u2089\u2090-\u209C\u2C7C\u2C7D\uA770\uA771\uA788\uA789]+)\s+", re.UNICODE) # Обновлено для универсальных маркеров
-
+# УПРОЩЕННАЯ РЕГУЛЯРКА: Основные символы и диапазоны верхних индексов
+SUPERSCRIPT_MARKER_RE = re.compile(r'([\u2070-\u2079\u00B9-\u00B3]+)', re.UNICODE)
+NOTE_TEXT_START_RE = re.compile(r"^\s*([\u2070-\u2079\u00B9-\u00B3]+)\s+", re.UNICODE)
 # --- Основная функция ---
 def create_translated_epub(book_info, target_language):
     print(f"Запуск создания EPUB с ebooklib (Двусторонние ссылки v14 - Универс. Сноски) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
