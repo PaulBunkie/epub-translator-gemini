@@ -1,4 +1,5 @@
-# epub_creator.py (ИСПРАВЛЕННЫЙ ФАЙЛ - v25 - обработка ДО HTML, с <br/> в сносках)
+# epub_creator.py (v28 - Поддержка непоследовательной нумерации сносок)
+
 from ebooklib import epub
 from cache_manager import get_translation_from_cache, _get_epub_id
 import os
@@ -7,27 +8,27 @@ import html
 import re
 import unicodedata
 import tempfile
+from collections import defaultdict # Импортируем defaultdict
 
-# Регулярные выражения (как в v22 - должны быть верны)
+# Регулярные выражения (как в v25)
 INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
 BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
 ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
 SUPERSCRIPT_MARKER_RE = re.compile(r"([\¹\²\³\u2070\u2074-\u2079]+)")
-# NOTE_TEXT_START_RE используется для поиска начала строк ВНУТРИ блока сносок
 NOTE_LINE_START_RE = re.compile(r"^\s*([\¹\²\³\u2070\u2074-\u2079]+)\s*(.*)", re.UNICODE)
 
-# --- Карта для преобразования надстрочных цифр в обычные ---
+# --- Карта для преобразования ---
 SUPERSCRIPT_INT_MAP = {'¹': 1, '²': 2, '³': 3, '⁰': 0, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9}
 
 def get_int_from_superscript(marker_str):
-    """Преобразует строку надстрочных цифр в int."""
+    if not marker_str: return -1
     num_str = "".join(str(SUPERSCRIPT_INT_MAP.get(c, '')) for c in marker_str)
     try: return int(num_str) if num_str else -1
     except ValueError: return -1
 
-# --- Основная функция (изменения для пост-процессинга) ---
+# --- Основная функция ---
 def create_translated_epub(book_info, target_language):
-    print(f"Запуск создания EPUB с ebooklib (Обработка ДО HTML v25 - с <br/> в сносках) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
+    print(f"Запуск создания EPUB с ebooklib (v28 - непослед. нумерация) для книги: {book_info.get('filename', 'N/A')}, язык: {target_language}")
 
     original_filepath = book_info.get("filepath"); section_ids = book_info.get("section_ids_list", []); toc_data = book_info.get("toc", [])
     book_title_orig = os.path.splitext(book_info.get('filename', 'Untitled'))[0]; epub_id_str = _get_epub_id(original_filepath)
@@ -57,46 +58,67 @@ def create_translated_epub(book_info, target_language):
 
         if translated_text is not None:
             stripped_text = translated_text.strip()
-            if not stripped_text: final_html_body_content = header_html + "<p> </p>"
+            if not stripped_text: final_html_body_content = header_html + "<p> </p>"
             else:
-                # --- Логика Двусторонних Ссылок ---
-                note_targets_found = set(); note_paragraph_indices = {}
+                # --- Этап 1: Сбор информации о сносках ---
+                note_definitions = defaultdict(list) # {note_num: [text1, text2,...]}
+                note_targets_found = set()           # {1, 2, 3, ...}
+                note_paragraph_indices = set()       # {index1, index2, ...} - Индексы параграфов с определениями
+                reference_markers_data = []          # [(para_idx, match_obj, note_num), ...] - Ссылки в тексте
+
                 original_paragraphs = stripped_text.split('\n\n')
-                # 1. Найти индексы параграфов, содержащих НАЧАЛО блока сносок
                 for para_idx, para_text_raw in enumerate(original_paragraphs):
-                    # Ищем самое первое совпадение в начале параграфа
-                    first_line = para_text_raw.strip().split('\n')[0]
-                    match_start = NOTE_LINE_START_RE.match(first_line)
-                    if match_start:
-                        marker = match_start.group(1)
-                        note_num = get_int_from_superscript(marker)
-                        if note_num > 0:
-                            # Запоминаем индекс параграфа для КАЖДОГО номера сноски в нем
-                            note_paragraph_indices[note_num] = para_idx
-                            # Добавляем все номера сносок из этого параграфа в targets
-                            for line in para_text_raw.strip().split('\n'):
-                                line_match = NOTE_LINE_START_RE.match(line.strip())
-                                if line_match:
-                                    line_marker = line_match.group(1)
-                                    line_note_num = get_int_from_superscript(line_marker)
-                                    if line_note_num > 0:
-                                        note_targets_found.add(line_note_num)
+                    para_strip_orig = para_text_raw.strip()
+                    if not para_strip_orig: continue
 
-                print(f"note_targets_found: {note_targets_found}") # Проверяем найденные номера
+                    is_definition_para = False
+                    lines = para_strip_orig.split('\n')
+                    for line in lines:
+                        match_line = NOTE_LINE_START_RE.match(line.strip())
+                        if match_line:
+                            is_definition_para = True
+                            marker = match_line.group(1)
+                            note_text = match_line.group(2).strip()
+                            note_num = get_int_from_superscript(marker)
+                            if note_num > 0:
+                                note_definitions[note_num].append(note_text)
+                                note_targets_found.add(note_num)
+                    if is_definition_para:
+                        note_paragraph_indices.add(para_idx)
 
-                # 2. Генерация HTML с обработкой сносок ДО HTML
+                    # Ищем ссылки во всех параграфах (даже в блоках сносок, если вдруг)
+                    # Важно: finditer, а не search/match
+                    for match in SUPERSCRIPT_MARKER_RE.finditer(para_strip_orig):
+                         marker = match.group(1)
+                         note_num = get_int_from_superscript(marker)
+                         if note_num > 0:
+                             reference_markers_data.append((para_idx, match, note_num))
+
+                print(f"note_targets_found: {note_targets_found}")
+
+                # --- Этап 2: Генерация HTML ---
                 final_content_blocks = []
                 processed_markers_count = 0
+                reference_occurrence_counters = defaultdict(int) # Счетчик для ссылок {note_num: count}
+                definition_occurrence_counters = defaultdict(int)# Счетчик для определений {note_num: count}
+
                 for para_idx, para_original_raw in enumerate(original_paragraphs):
                     para_strip = para_original_raw.strip()
                     if not para_strip:
                         final_content_blocks.append("<p> </p>")
                         continue
 
-                    is_footnote_para = para_idx in note_paragraph_indices.values()
+                    # is_footnote_para = para_idx in note_paragraph_indices
+                    # Проверяем немного иначе: содержит ли *этот* параграф определения?
+                    is_footnote_para = False
+                    lines_for_check = para_strip.split('\n')
+                    for line_check in lines_for_check:
+                        if NOTE_LINE_START_RE.match(line_check.strip()):
+                            is_footnote_para = True
+                            break # Достаточно одного совпадения
 
                     if is_footnote_para:
-                        # --- Обработка параграфа-сноски (возможно, многострочного) ---
+                        # --- Обработка параграфа-сноски ---
                         footnote_lines_html = []
                         lines = para_strip.split('\n')
                         for line in lines:
@@ -110,49 +132,60 @@ def create_translated_epub(book_info, target_language):
                                 note_num = get_int_from_superscript(marker)
 
                                 if note_num > 0:
-                                    note_anchor_id = f"note_para_{chapter_index}_{note_num}"
-                                    ref_id = f"ref_{chapter_index}_{note_num}"
-                                    backlink_html = f' <a href="#{ref_id}">↩</a>'
-                                    # Очищаем текст сноски от XML и Markdown (на всякий случай)
+                                    # Увеличиваем счетчик определений для этого номера
+                                    definition_occurrence_counters[note_num] += 1
+                                    occ = definition_occurrence_counters[note_num]
+
+                                    note_anchor_id = f"note_para_{chapter_index}_{note_num}_{occ}"
+                                    ref_id = f"ref_{chapter_index}_{note_num}_{occ}" # ID для обратной ссылки
+                                    backlink_html = f' <a href="#{ref_id}">↩</a>' # Ссылка указывает на ID ссылки в тексте
+
                                     note_text_cleaned = INVALID_XML_CHARS_RE.sub('', note_text)
                                     note_text_md = BOLD_MD_RE.sub(r'<strong>\1</strong>', note_text_cleaned)
                                     note_text_md = ITALIC_MD_RE.sub(r'<em>\1</em>', note_text_md)
-
+                                    # Формируем параграф определения с уникальным ID
                                     footnote_lines_html.append(f'<p id="{note_anchor_id}">{marker} {note_text_md}{backlink_html}</p>')
-                                else: # Строка не начинается с маркера сноски, но внутри блока
-                                     footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>') # Просто экранируем
-                            else: # Строка не начинается с маркера сноски
-                                footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>') # Просто экранируем
+                                else:
+                                     footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
+                            else:
+                                footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
 
                         if footnote_lines_html:
                             final_content_blocks.append(f'<div class="footnote-block">\n{"\n".join(footnote_lines_html)}\n</div>')
 
                     else:
                         # --- Обработка обычного параграфа ---
-                        # Очистка XML
                         text_normalized = unicodedata.normalize('NFC', para_strip)
                         text_cleaned_xml = INVALID_XML_CHARS_RE.sub('', text_normalized)
-                        # Markdown
                         text_with_md_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', text_cleaned_xml)
-                        text_with_md_html = ITALIC_MD_RE.sub(r'<em>\1</em>', text_with_md_html)
+                        text_with_md_html = ITALIC_MD_RE.sub(r'<em>\1</em>', text_cleaned_xml)
 
                         # Замена маркеров сносок на ссылки <a>
                         current_para_html = text_with_md_html
                         offset = 0
+                        # Используем finditer для поиска всех маркеров
                         markers_in_para = list(SUPERSCRIPT_MARKER_RE.finditer(text_with_md_html))
-                        markers_in_para.sort(key=lambda m: m.start()) # Сортируем по позиции
+                        markers_in_para.sort(key=lambda m: m.start())
 
                         for match in markers_in_para:
                             marker = match.group(1)
                             note_num = get_int_from_superscript(marker)
 
+                            # Проверяем, есть ли вообще такое определение
                             if note_num > 0 and note_num in note_targets_found:
+                                # Увеличиваем счетчик ССЫЛОК для этого номера
+                                reference_occurrence_counters[note_num] += 1
+                                occ = reference_occurrence_counters[note_num]
+
                                 start, end = match.start() + offset, match.end() + offset
-                                note_anchor_id = f"note_para_{chapter_index}_{note_num}"
-                                ref_id = f"ref_{chapter_index}_{note_num}"
+                                # Генерируем ID на основе номера и ПОРЯДКОВОГО НОМЕРА ССЫЛКИ
+                                note_anchor_id = f"note_para_{chapter_index}_{note_num}_{occ}" # Куда ссылаемся
+                                ref_id = f"ref_{chapter_index}_{note_num}_{occ}" # ID самой ссылки
                                 replacement = f'<a id="{ref_id}" href="#{note_anchor_id}">{marker}</a>'
+
                                 current_para_html = current_para_html[:start] + replacement + current_para_html[end:]
-                                offset += len(replacement) - (end - start)
+                                original_length = match.end() - match.start()
+                                offset += len(replacement) - original_length
                                 processed_markers_count += 1
 
                         # Замена \n на <br/> и обертка в <p>
@@ -176,7 +209,7 @@ def create_translated_epub(book_info, target_language):
         book.add_item(epub_chapter); chapters.append(epub_chapter)
     # --- КОНЕЦ ЦИКЛА FOR ---
 
-    # --- Создание TOC (без изменений) ---
+    # ... (Создание TOC, NCX/Nav, Spine, Запись файла - без изменений) ...
     book_toc = []
     processed_toc_items = 0
     if toc_data:
@@ -201,14 +234,10 @@ def create_translated_epub(book_info, target_language):
         print("Нет данных TOC, создаем плоский TOC из глав...")
         book_toc = chapters[:]
     book.toc = tuple(book_toc)
-    # --- КОНЕЦ СОЗДАНИЯ TOC ---
 
-    # --- Добавляем NCX и Nav (без изменений) ---
     book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
-    # --- Определение Spine (без изменений) ---
     book.spine = ['nav'] + chapters; print(f"Spine установлен: {[ (item if isinstance(item, str) else item.file_name) for item in book.spine]}")
 
-    # --- ЗАПИСЬ EPUB ВО ВРЕМЕННЫЙ ФАЙЛ (без изменений) ---
     print(f"Запись EPUB (ebooklib, {target_language}) во ВРЕМЕННЫЙ ФАЙЛ...")
     epub_content_bytes = None; temp_epub_path = None
     try:
