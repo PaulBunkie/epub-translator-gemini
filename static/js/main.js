@@ -129,9 +129,95 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Обновляем статусы всех секций в TOC
         if (bookData.sections && tocList) {
-            for (const [sectionId, status] of Object.entries(bookData.sections)) {
-                updateSectionStatusUI(sectionId, status, true);
+            // --- НОВЫЙ КОД (ЗАМЕНИТЬ СТАРЫЙ ЦИКЛ): ---
+            for (const [sectionId, sectionInfo] of Object.entries(bookData.sections)) { // Получаем sectionInfo (объект), а не просто status
+                 if (!sectionInfo) continue; // Пропускаем, если данных нет
+
+                 const status = sectionInfo.status || 'not_translated';
+                 const modelName = sectionInfo.model_name; // <--- Получаем имя модели
+                 const errorMessage = sectionInfo.error_message; // <--- Получаем сообщение об ошибке
+
+                 // Находим соответствующий элемент в DOM
+                 const sectionItem = tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`);
+                 if (!sectionItem) continue; // Пропускаем, если элемент не найден
+
+                 const statusSpan = sectionItem.querySelector('.toc-status');
+                 const downloadLink = sectionItem.querySelector('.download-section-link');
+                 const processingIndicator = sectionItem.querySelector('.processing-indicator');
+                 const updateBtn = sectionItem.querySelector('.update-translation-btn');
+
+                 // Проверяем наличие элементов перед обновлением
+                 if (!statusSpan || !downloadLink || !processingIndicator || !updateBtn) {
+                     console.warn(`Missing UI elements within TOC item for section ${sectionId}`);
+                     continue;
+                 }
+
+                 // --- Обновляем текст, класс и тултип статуса ---
+                 let statusText = '???';
+                 let statusClass = 'status-unknown';
+                 let tooltip = '';
+
+                 if (status === 'translated' || status === 'cached') {
+                     if (modelName) {
+                         // --- ЕСЛИ ЕСТЬ МОДЕЛЬ ---
+                         statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
+                         statusClass = 'status-translated-model'; // Новый CSS класс
+                         tooltip = `Translated by: ${modelName}`;
+                     } else {
+                         // --- ЕСЛИ МОДЕЛИ НЕТ ---
+                         statusText = 'Translated';
+                         statusClass = 'status-translated'; // Старый CSS класс
+                     }
+                 } else if (status === 'completed_empty') {
+                     statusText = 'Empty Section'; // Текст как в твоем старом коде
+                     statusClass = 'status-completed-empty';
+                     tooltip = 'Section was empty or contained no translatable text.';
+                 } else if (status && status.startsWith('error_')) {
+                      statusText = 'Error'; // Базовый текст
+                      if (status === 'error_context_limit') statusText = 'Error (Too Large)';
+                      else if (status === 'error_translation') statusText = 'Error (Translate)';
+                      else if (status === 'error_caching') statusText = 'Error (Cache)';
+                      else if (status === 'error_unknown') statusText = 'Error (Unknown)';
+                      statusClass = 'status-error';
+                      tooltip = errorMessage || status; // Добавляем ошибку в тултип
+                 } else if (status === 'processing') {
+                     statusText = 'Processing'; // Текст как в твоем старом коде
+                     statusClass = 'status-processing';
+                 } else { // not_translated, idle, etc.
+                     statusText = 'Not Translated'; // Текст как в твоем старом коде
+                     statusClass = 'status-not-translated';
+                 }
+
+                 statusSpan.className = `toc-status ${statusClass}`; // Обновляем класс
+                 statusSpan.textContent = statusText; // Обновляем текст
+                 if (tooltip) {
+                     statusSpan.title = tooltip; // Устанавливаем тултип
+                 } else {
+                     statusSpan.removeAttribute('title'); // Удаляем, если нет
+                 }
+
+                 // --- Обновляем видимость кнопок и индикатора (как в твоем старом коде updateSectionStatusUI) ---
+                 const isReady = ['translated', 'completed_empty', 'cached'].includes(status); // 'cached' тоже готов
+                 const canUpdate = isReady || status.startsWith('error_');
+
+                 downloadLink.classList.toggle('hidden', !isReady);
+                 updateBtn.classList.toggle('hidden', !canUpdate);
+                 processingIndicator.style.display = status === 'processing' ? 'inline' : 'none';
+
+                 // --- Обновление контента активной секции (можно оставить как было) ---
+                 const previousStatus = sectionItem.dataset.status; // Используем data-атрибут для хранения предыдущего статуса
+                 if (sectionId === activeSectionId && previousStatus === 'processing' && status !== 'processing') {
+                    console.log(`Polling update finished for active section ${sectionId}, new status: ${status}. Reloading content.`);
+                     if (!status.startsWith('error_')) {
+                         loadAndDisplaySection(sectionId, true); // Обновляем контент, если не ошибка
+                     } else {
+                          displayTranslatedText(`(Ошибка перевода раздела: ${errorMessage || status})`);
+                     }
+                 }
+                 sectionItem.dataset.status = status; // Сохраняем текущий статус в data-атрибут
+
             }
+            // --- КОНЕЦ НОВОГО КОДА ---
         } else if (!tocList) {
              console.error("TOC list element not found for status update!");
         }
