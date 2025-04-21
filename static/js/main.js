@@ -527,16 +527,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Функция загрузки моделей ---
     async function loadModels() {
         if (!modelSelect) return;
         console.log("Загрузка списка моделей...");
         modelSelect.disabled = true;
         modelSelect.innerHTML = '<option value="">Загрузка...</option>';
 
+        // --- ИЗМЕНЕНИЕ: Используем initialSelectedModel, переданный из шаблона ---
+        // Убедимся, что initialSelectedModel доступна в этой области видимости
+        // Если она объявлена глобально в HTML, то будет доступна.
+        // const selectedModelFromServer = initialSelectedModel; // Можно присвоить локальной переменной для ясности
+        console.log("Модель, которая должна быть выбрана (из сессии):", initialSelectedModel);
+
         try {
             const response = await fetchWithTimeout('/api/models');
             if (!response.ok) {
+                // ... обработка ошибки ...
                 console.error("Не удалось загрузить список моделей:", response.status);
                 modelSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
                 return;
@@ -550,30 +556,54 @@ document.addEventListener('DOMContentLoaded', () => {
                  return;
             }
 
-            let defaultModelFound = false;
-            const defaultModelValue = "models/gemini-1.5-flash"; // Имя модели по умолчанию
+            let modelToSelectFound = false; // Переименовали для ясности
 
             models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model.name;
-                option.textContent = `${model.display_name} (${model.name.split('/')[1]})`;
+                option.value = model.name; // Предполагаем, что API возвращает объекты с полем name
+                 // Используем display_name, если есть, иначе name
+                 option.textContent = model.display_name ? `${model.display_name} (${model.name.split('/')[1]})` : model.name;
+                 // Добавляем title с лимитами токенов, если есть
                 option.title = `In: ${model.input_token_limit || 'N/A'}, Out: ${model.output_token_limit || 'N/A'}`;
+
                 modelSelect.appendChild(option);
-                if (model.name === defaultModelValue) {
+
+                // --- ИЗМЕНЕНИЕ: Сравниваем с initialSelectedModel, а не с defaultModelValue ---
+                if (model.name === initialSelectedModel) {
                      option.selected = true;
-                     defaultModelFound = true;
+                     modelToSelectFound = true; // Отмечаем, что нашли нужную модель
+                     console.log(`Модель ${initialSelectedModel} найдена и выбрана.`);
                 }
             });
-            if (!defaultModelFound && modelSelect.options.length > 0) {
-                 modelSelect.options[0].selected = true; // Выбираем первую, если дефолтной нет
+
+            // --- ИЗМЕНЕНИЕ: Если модель из сессии не найдена, выбираем первую ---
+            // (Или можно выбрать 'gemini-1.5-flash', если он есть, как fallback)
+            if (!modelToSelectFound && modelSelect.options.length > 0) {
+                 // Попробуем найти 'gemini-1.5-flash' как запасной вариант
+                 let fallbackDefaultFound = false;
+                 for(let i=0; i < modelSelect.options.length; i++){
+                     if(modelSelect.options[i].value === "models/gemini-1.5-flash"){
+                         modelSelect.options[i].selected = true;
+                         fallbackDefaultFound = true;
+                         console.warn(`Модель из сессии (${initialSelectedModel}) не найдена в списке. Выбрана дефолтная 'gemini-1.5-flash'.`);
+                         break;
+                     }
+                 }
+                 // Если и дефолтной нет, выбираем первую
+                 if(!fallbackDefaultFound){
+                    modelSelect.options[0].selected = true;
+                    console.warn(`Модель из сессии (${initialSelectedModel}) и дефолтная 'gemini-1.5-flash' не найдены. Выбрана первая модель: ${modelSelect.options[0].value}`);
+                 }
             }
              modelSelect.disabled = false;
 
         } catch (error) {
-            console.error("Ошибка при выполнении запроса загрузки моделей:", error);
-            modelSelect.innerHTML = '<option value="">Ошибка сети</option>';
+            // ... обработка ошибки ...
+             console.error("Ошибка при выполнении запроса загрузки моделей:", error);
+             modelSelect.innerHTML = '<option value="">Ошибка сети</option>';
         }
     }
+
 
 
     // --- Назначение обработчиков событий ---

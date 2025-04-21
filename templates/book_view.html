@@ -178,6 +178,11 @@
             flex-shrink: 0;
         }
         .action-btn:hover { color: #0056b3; }
+        .action-btn:disabled { /* Стиль для неактивной кнопки обновления */
+             color: #ccc;
+             cursor: not-allowed;
+        }
+
 
         .download-section-link { /* Ссылка "Скачать" 💾 */
              margin-left: 8px; /* Отступ от кнопки "Обновить" */
@@ -188,6 +193,10 @@
              flex-shrink: 0;
          }
          .download-section-link:hover { color: #000; }
+         .download-section-link.hidden { /* Скрытие неактивной ссылки */
+             visibility: hidden; /* Скрываем, но оставляем место */
+             pointer-events: none; /* Делаем некликабельной */
+         }
 
         /* Индикатор обработки (...) */
         .processing-indicator {
@@ -216,7 +225,7 @@
         #translation-content p {
              margin: 0 0 1em 0; /* Отступ снизу параграфа */
              line-height: 1.6; /* Межстрочный интервал */
-             white-space: normal; /* Стандартная обработка пробелов */
+             white-space: pre-wrap; /* Сохраняем пробелы и переносы */
              word-wrap: break-word; /* Перенос длинных слов */
         }
         #translation-content strong { font-weight: bold; }
@@ -243,21 +252,34 @@
         {% if book_info %}
             <p>
                 <label for="model-select">Модель:</label><br>
+                {# --- ИЗМЕНЕНИЕ: Исправляем цикл для работы с объектами/словарями --- #}
                 <select id="model-select" name="model_name">
-                    <option value="">Загрузка...</option>
-                    {# Модели будут загружены через JS #}
+                    {% if available_models %}
+                        {# Используем .name (или ['name']) для доступа к имени #}
+                        {% for model_obj in available_models %} {# Переименовал переменную цикла #}
+                        <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
+                            {{ model_obj.name }} {# Отображаем имя #}
+                        </option>
+                        {% endfor %}
+                    {% else %}
+                        {# Fallback, если список моделей не загрузился #}
+                        <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>
+                            {{ selected_model | default('gemini-1.5-flash') }}
+                        </option>
+                        <option disabled>Не удалось загрузить список моделей</option>
+                    {% endif %}
                 </select>
+                {# --- КОНЕЦ ИЗМЕНЕНИЯ --- #}
             </p>
             <p>
                 <label for="language-select">Язык перевода:</label><br>
-                {# Определяем текущий язык из запроса или по умолчанию #}
-                {% set current_lang = target_language | default('russian') %}
+                {# --- ИЗМЕНЕНИЕ: Используем target_language для selected --- #}
                 <select id="language-select" name="target_language">
-                     <option value="russian" {% if current_lang == 'russian' %}selected{% endif %}>Russian</option>
-                     <option value="english" {% if current_lang == 'english' %}selected{% endif %}>English</option>
-                     <option value="german" {% if current_lang == 'german' %}selected{% endif %}>German</option>
-                     <option value="french" {% if current_lang == 'french' %}selected{% endif %}>French</option>
-                     <option value="spanish" {% if current_lang == 'spanish' %}selected{% endif %}>Spanish</option>
+                     <option value="russian" {% if target_language == 'russian' %}selected{% endif %}>Russian</option>
+                     <option value="english" {% if target_language == 'english' %}selected{% endif %}>English</option>
+                     <option value="german" {% if target_language == 'german' %}selected{% endif %}>German</option>
+                     <option value="french" {% if target_language == 'french' %}selected{% endif %}>French</option>
+                     <option value="spanish" {% if target_language == 'spanish' %}selected{% endif %}>Spanish</option>
                      <!-- Добавьте другие языки при необходимости -->
                 </select>
             </p>
@@ -267,17 +289,18 @@
             </p>
             <p>
                 {# Кнопки "Скачать" - видимость и активность определяются JS #}
+                {# --- ИЗМЕНЕНИЕ: Используем target_language в начальных href --- #}
                 {% set can_download_initially = book_info.status in ['complete', 'complete_with_errors'] %}
                 {# Ссылка для TXT #}
                 <a id="download-full-link"
-                   href="{{ url_for('download_full', book_id=book_id, lang=current_lang) }}"
+                   href="{{ url_for('download_full', book_id=book_id, lang=target_language) }}"
                    class="button-like-link {{ '' if can_download_initially else 'hidden' }}"
                    target="_blank" rel="noopener noreferrer">
                      <button id="download-full-btn" {% if not can_download_initially %}disabled{% endif %}>Скачать TXT</button>
                 </a>
                 {# Ссылка для EPUB #}
                 <a id="download-epub-link"
-                   href="{{ url_for('download_epub', book_id=book_id, lang=current_lang) }}"
+                   href="{{ url_for('download_epub', book_id=book_id, lang=target_language) }}"
                    class="button-like-link {{ '' if can_download_initially else 'hidden' }}"
                    target="_blank" rel="noopener noreferrer">
                      <button id="download-epub-btn" {% if not can_download_initially %}disabled{% endif %}>Скачать EPUB</button>
@@ -309,7 +332,6 @@
                                  data-section-id="{{ section_id }}"
                                  data-href="{{ item.href }}" {# Href может быть полезен для JS #}
                                  data-is-active="false" {# Атрибут для выделения активной секции #}
-                                 {# data-status убран, т.к. статус определяется динамически ниже #}
                                  >
 
                                  {# --- Контейнер для ссылки и статуса --- #}
@@ -330,8 +352,9 @@
                                          {% set display_text = '???' %}
                                          {% set status_class = 'status-unknown' %}
                                          {% set tooltip = '' %}
+                                         {% set is_processing = false %}
 
-                                         {# --- Логика определения статуса/модели (ИДЕНТИЧНА ЛОГИКЕ В JS) --- #}
+                                         {# --- Логика определения статуса/модели (ИДЕНТИЧНА ЛОГИКЕ В JS updateSectionStatus) --- #}
                                          {% if section_status == 'translated' %}
                                              {% if model_name %}
                                                  {% set display_text = model_name.split('/')[-1] %}
@@ -343,7 +366,8 @@
                                              {% endif %}
                                          {% elif section_status == 'cached' %}
                                               {% set display_text = 'Cached' %}
-                                              {% set status_class = 'status-translated' %}
+                                              {% set status_class = 'status-translated' %} {# Отображаем как translated #}
+                                              {% set tooltip = 'Translation loaded from cache.' %}
                                          {% elif section_status == 'completed_empty' %}
                                              {% set display_text = 'Empty' %}
                                              {% set status_class = 'status-completed-empty' %}
@@ -356,10 +380,12 @@
                                              {% elif section_status == 'error_translation' %} {% set display_text = 'Err:API' %}
                                              {% elif section_status == 'error_caching' %} {% set display_text = 'Err:Cache' %}
                                              {% elif section_status == 'error_extraction' %} {% set display_text = 'Err:Extract' %}
+                                             {% elif section_status == 'error_unknown' %} {% set display_text = 'Err:Unk' %}
                                              {% endif %}
                                          {% elif section_status == 'processing' %}
                                              {% set display_text = 'Processing' %}
                                              {% set status_class = 'status-processing' %}
+                                             {% set is_processing = true %}
                                          {% elif section_status == 'not_translated' or section_status == 'idle' %}
                                              {% set display_text = 'Not Translated' %}
                                              {% set status_class = 'status-not-translated' %}
@@ -372,7 +398,7 @@
                                          <span class="toc-status {{ status_class }}" {% if tooltip %}title="{{ tooltip }}"{% endif %}>
                                              {{ display_text }}
                                          </span>
-                                         <span class="processing-indicator" style="{{ 'display: none;' if section_status != 'processing' else 'display: inline;' }}">
+                                         <span class="processing-indicator" style="{{ 'display: none;' if not is_processing else 'display: inline;' }}">
                                              (...)
                                          </span>
 
@@ -387,18 +413,22 @@
 
                                  {# --- Контейнер для кнопок действий --- #}
                                  <div class="toc-actions">
-                                     {# Определяем видимость кнопок на основе начального статуса #}
+                                     {# Определяем видимость и активность кнопок на основе начального статуса #}
                                      {% set initial_status = section_data.get('status', 'not_translated') if section_data else 'not_translated' %}
-                                     {% set show_update_initially = initial_status not in ['not_translated', 'processing', 'idle'] %}
+                                     {% set is_processing_initially = initial_status == 'processing' %}
+                                     {# Кнопка обновления видна всегда, кроме "processing" (ее JS будет блокировать) #}
+                                     {# Ссылка скачивания видна только для 'translated', 'completed_empty', 'cached' #}
                                      {% set show_download_initially = initial_status in ['translated', 'completed_empty', 'cached'] %}
 
                                      {# Кнопка "Обновить" 🔄 #}
-                                     <button class="action-btn update-translation-btn {{ 'hidden' if not show_update_initially }}"
-                                             title="Перевести заново / Обновить перевод">🔄</button>
+                                     <button class="action-btn update-translation-btn"
+                                             title="Перевести заново / Обновить перевод"
+                                             {% if is_processing_initially %}disabled{% endif %}>🔄</button>
 
                                      {# Ссылка "Скачать" 💾 #}
-                                     <a href="{{ url_for('download_section', book_id=book_id, section_id=section_id, lang=current_lang) }}"
-                                        class="download-section-link {{ 'hidden' if not show_download_initially }}"
+                                     {# --- ИЗМЕНЕНИЕ: Используем target_language в начальном href --- #}
+                                     <a href="{{ url_for('download_section', book_id=book_id, section_id=section_id, lang=target_language) }}"
+                                        class="download-section-link {{ 'hidden' if not show_download_initially else '' }}"
                                         title="Скачать раздел">💾</a>
                                  </div> {# Конец toc-actions #}
 
@@ -437,9 +467,12 @@
         </div>
     </div> <!-- Конец main-content -->
 
-    {# --- Передача book_id в JavaScript --- #}
+    {# Передача данных из Flask/Jinja в JavaScript #}
     <script>
         const currentBookId = "{{ book_id | default('None') | escape }}";
+        const initialTargetLanguage = "{{ target_language | default('russian') | escape }}";
+        // --- ДОБАВЛЯЕМ ЭТУ СТРОКУ ---
+        const initialSelectedModel = "{{ selected_model | default('gemini-1.5-flash') | escape }}";
     </script>
     {# --- Подключение основного скрипта --- #}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

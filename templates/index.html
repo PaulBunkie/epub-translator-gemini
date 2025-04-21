@@ -11,20 +11,26 @@
         label { display: block; margin-bottom: 5px; font-weight: bold;}
         /* Стили для полей формы */
         input[type="file"], select { padding: 8px 12px; width: 100%; max-width: 400px; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;}
+        /* Стиль для неактивного select */
+        select:disabled {
+            background-color: #e9ecef; /* Светло-серый фон */
+            opacity: 0.7; /* Немного прозрачности */
+            cursor: not-allowed;
+        }
         /* Единый стиль для кнопок */
-        button, .button-link { /* Добавим класс для ссылок-кнопок */
+        button, .button-link {
             cursor: pointer;
             background-color: #007bff; /* Синий */
             color: white;
             border: none;
             border-radius: 4px;
-            padding: 8px 15px; /* Немного больше отступы */
+            padding: 8px 15px;
             font-size: 1em;
             text-align: center;
-            text-decoration: none; /* Для ссылок-кнопок */
-            display: inline-block; /* Для правильных отступов */
+            text-decoration: none;
+            display: inline-block;
             line-height: 1.5;
-            margin-bottom: 5px; /* Отступ снизу */
+            margin-bottom: 5px;
         }
         button:hover, .button-link:hover {
             background-color: #0056b3;
@@ -37,7 +43,7 @@
         /* Специфичные кнопки */
         button.delete-btn { background-color: #dc3545; width: auto; margin-left: 5px;}
         button.delete-btn:hover { background-color: #c82333;}
-        form button[type="submit"] { width: 100%; max-width: 400px; } /* Кнопка загрузки на всю ширину */
+        form button[type="submit"] { width: 100%; max-width: 400px; }
 
         /* Список книг */
         ul { list-style: none; padding: 0; }
@@ -47,36 +53,22 @@
         .book-title { font-weight: bold; display: block; margin-bottom: 3px;}
         .book-status { font-size: 0.9em; color: #555; }
         .book-actions { flex-shrink: 0; display: flex; gap: 5px;}
-        .book-actions a { text-decoration: none; } /* Убрать подчеркивание у ссылки */
-        .book-actions button { width: auto; } /* Кнопки действий по размеру контента */
+        .book-actions a { text-decoration: none; }
+        .book-actions button { width: auto; }
 
         /* Оверлей для загрузки */
         #loading-overlay {
-            position: fixed; /* Фиксированное позиционирование */
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(255, 255, 255, 0.8); /* Полупрозрачный белый фон */
-            z-index: 1000; /* Поверх всего */
-            display: none; /* Скрыт по умолчанию */
-            justify-content: center;
-            align-items: center;
-            text-align: center;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            z-index: 1000; display: none; justify-content: center; align-items: center; text-align: center;
         }
         #loading-overlay div {
-             background-color: #fff;
-             padding: 30px 40px;
-             border-radius: 8px;
-             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-             font-size: 1.2em;
+             background-color: #fff; padding: 30px 40px; border-radius: 8px;
+             box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-size: 1.2em;
         }
-        /* Простая анимация (можно добавить спиннер) */
         .loader {
-             border: 4px solid #f3f3f3;
-             border-top: 4px solid #3498db;
-             border-radius: 50%;
-             width: 40px;
-             height: 40px;
-             animation: spin 1s linear infinite;
-             margin: 0 auto 15px auto;
+             border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+             width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -96,7 +88,6 @@
     <h1>EPUB Переводчик</h1>
 
     <h2>Загрузить новую книгу</h2>
-    {# Добавляем id к форме для JS #}
     <form id="upload-form" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
         <p>
             <label for="epub_file">Выберите файл EPUB:</label>
@@ -105,12 +96,32 @@
         <p>
             <label for="target_language">Язык перевода по умолчанию:</label>
              <select id="target_language" name="target_language">
-                 <option value="russian" selected>Russian</option>
-                 <option value="english">English</option>
-                 <option value="german">German</option>
-                 <option value="french">French</option>
-                 <option value="spanish">Spanish</option>
+                 <option value="russian" {% if default_language == 'russian' %}selected{% endif %}>Russian</option>
+                 <option value="english" {% if default_language == 'english' %}selected{% endif %}>English</option>
+                 <option value="german" {% if default_language == 'german' %}selected{% endif %}>German</option>
+                 <option value="french" {% if default_language == 'french' %}selected{% endif %}>French</option>
+                 <option value="spanish" {% if default_language == 'spanish' %}selected{% endif %}>Spanish</option>
             </select>
+        </p>
+        <p>
+            <label for="model-display">Текущая модель перевода:</label>
+            <select id="model-display" name="model_display_disabled" disabled>
+                {% if available_models %}
+                    {# --- ИЗМЕНЕНИЕ: Используем .name для доступа к имени модели --- #}
+                    {% for model_obj in available_models %} {# Переименовал переменную цикла для ясности #}
+                    <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
+                        {{ model_obj.name }} {# Отображаем имя #}
+                    </option>
+                    {% endfor %}
+                    {# --- КОНЕЦ ИЗМЕНЕНИЯ --- #}
+                {% else %}
+                    <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>
+                        {{ selected_model | default('gemini-1.5-flash') }}
+                    </option>
+                    <option disabled>Не удалось загрузить список моделей</option>
+                {% endif %}
+            </select>
+             <small style="display: block; margin-top: -5px; color: #555;">Модель выбирается на странице просмотра книги.</small>
         </p>
         <p>
             <button type="submit">Загрузить</button>
@@ -118,11 +129,10 @@
     </form>
 
     <h2>Ранее загруженные книги</h2>
-    {# Убираем отладку про sorted_books #}
 
-    {% if uploaded_books %} {# <--- Проверяем uploaded_books #}
+    {% if uploaded_books %}
         <ul>
-            {% for book in uploaded_books %} {# <--- Итерируем по uploaded_books #}
+            {% for book in uploaded_books %}
                 <li class="book-item">
                     <div class="book-info">
                         <span class="book-title">{{ book.display_name | default('No Name') }}</span>
@@ -131,12 +141,12 @@
                              {% if total > 0 %}
                                  Статус: {{ book.status | default('N/A') | replace('_', ' ') | capitalize }}
                              {% else %}
-                                 Статус: Ошибка структуры?
+                                 Статус: Ошибка структуры? ({{ book.total_sections }} секций)
                              {% endif %}
                          </span>
                     </div>
                     <div class="book-actions">
-                        <a href="{{ url_for('view_book', book_id=book.book_id, lang=book.default_language | default('russian')) }}">
+                        <a href="{{ url_for('view_book', book_id=book.book_id) }}">
                              <button>Просмотр/Перевод</button>
                         </a>
                         <form action="{{ url_for('delete_book_request', book_id=book.book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Удалить книгу \'{{ book.display_name | escape }}\'?');">
@@ -147,8 +157,8 @@
             {% endfor %}
         </ul>
     {% else %}
-        <p>Еще не загружено ни одной книги (в текущей сессии).</p> {# Уточнили сообщение #}
-    {% endif %} {# <--- Конец if uploaded_books #}
+        <p>Еще не загружено ни одной книги.</p>
+    {% endif %}
 
 <script>
     // Скрипт для показа оверлея при отправке формы
@@ -158,28 +168,21 @@
 
     if (uploadForm && loadingOverlay && fileInput) {
         uploadForm.addEventListener('submit', function(event) {
-            // Проверяем, выбран ли файл
             if (fileInput.files.length === 0) {
                 alert('Пожалуйста, выберите файл EPUB для загрузки.');
-                event.preventDefault(); // Отменяем отправку формы
+                event.preventDefault();
                 return;
             }
-            // Показываем оверлей
             loadingOverlay.style.display = 'flex';
-            // Стандартная отправка формы не отменяется (нет event.preventDefault())
         });
     } else {
         console.error("Не найдены элементы формы или оверлея для JS.");
     }
 
-    // Если пользователь нажимает "Назад" после ошибки или долгой загрузки,
-    // оверлей может остаться видимым. Скрываем его при загрузке страницы.
+    // Скрытие оверлея при навигации назад/вперед
     window.addEventListener('pageshow', function(event) {
         if (loadingOverlay && loadingOverlay.style.display === 'flex') {
-            // Если оверлей был виден и страница показана из кэша навигации
-            if (event.persisted) {
-                loadingOverlay.style.display = 'none';
-            }
+            loadingOverlay.style.display = 'none';
         }
     });
 </script>
