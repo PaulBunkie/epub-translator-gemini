@@ -1,41 +1,62 @@
 # --- START OF FILE db_manager.py ---
 import sqlite3
 import json
-import time
+import time # Оставляем time на случай, если понадобится для отладки или будущих функций
 
 DATABASE_FILE = "epub_translator.db"
 
 def init_db():
-    """Инициализирует базу данных, создает таблицы, если их нет."""
+    """
+    Инициализирует базу данных: создает таблицы books и sections, если их нет,
+    и добавляет столбец prompt_ext в таблицу books, если он отсутствует.
+    """
     conn = None
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
 
         # --- Создание таблицы books ---
+        print("[DB] Checking/Creating 'books' table...")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS books (
                 book_id TEXT PRIMARY KEY,
                 filename TEXT NOT NULL,
                 filepath TEXT NOT NULL,
                 original_language TEXT,
-                status TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'idle',
                 toc_json TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                -- prompt_ext будет добавлен ниже, если его нет
             )
         """)
+        conn.commit() # Коммит после CREATE TABLE IF NOT EXISTS
+
+        # --- Проверка и добавление столбца prompt_ext в таблицу books ---
+        print("[DB] Checking 'prompt_ext' column in 'books' table...")
+        cursor.execute("PRAGMA table_info(books)")
+        fetched_rows = cursor.fetchall()
+        columns = [info[1] for info in fetched_rows]
+        # print(f"[DEBUG DB] Columns found in 'books': {columns}") # Отладка списка столбцов
+
+        if 'prompt_ext' not in columns:
+            print("[DB] Column 'prompt_ext' not found. Adding column...")
+            cursor.execute("ALTER TABLE books ADD COLUMN prompt_ext TEXT NULL DEFAULT ''")
+            conn.commit() # Коммит после ALTER TABLE
+            print("[DB] Column 'prompt_ext' added successfully.")
+        else:
+            print("[DB] Column 'prompt_ext' already exists.")
+        # --- Конец добавления столбца ---
 
         # --- Создание таблицы sections ---
+        print("[DB] Checking/Creating 'sections' table...")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sections (
                 internal_section_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 book_id TEXT NOT NULL,
                 epub_section_id TEXT NOT NULL,
-                status TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'not_translated',
                 error_message TEXT,
                 target_language TEXT,
                 model_name TEXT,
@@ -46,13 +67,12 @@ def init_db():
                 FOREIGN KEY (book_id) REFERENCES books(book_id) ON DELETE CASCADE
             )
         """)
-        # ON DELETE CASCADE - важно для удаления связанных секций при удалении книги
+        conn.commit() # Коммит после CREATE TABLE IF NOT EXISTS
 
-        conn.commit()
-        print("База данных инициализирована, таблицы созданы (если их не было).")
+        print("[DB] Database initialization/update complete.")
 
     except sqlite3.Error as e:
-        print(f"Ошибка инициализации базы данных: {e}")
+        print(f"[DB ERROR] Database initialization failed: {e}")
     finally:
         if conn:
             conn.close()
@@ -63,11 +83,8 @@ def create_book(book_id, filename, filepath, toc):
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        toc_json_str = json.dumps(toc, ensure_ascii=False)
+        toc_json_str = json.dumps(toc, ensure_ascii=False) if toc else None
 
         cursor.execute("""
             INSERT INTO books (book_id, filename, filepath, status, toc_json)
@@ -75,376 +92,362 @@ def create_book(book_id, filename, filepath, toc):
         """, (book_id, filename, filepath, 'idle', toc_json_str))
 
         conn.commit()
-        print(f"Книга '{filename}' (ID: {book_id}) добавлена в базу данных.")
+        print(f"[DB] Book '{filename}' (ID: {book_id}) added.")
         return True
 
     except sqlite3.Error as e:
-        print(f"Ошибка при добавлении книги в базу данных: {e}")
+        print(f"[DB ERROR] Failed to add book '{book_id}': {e}")
         return False
     finally:
         if conn:
             conn.close()
 
 def get_book(book_id):
-    """Извлекает данные книги по book_id из базы данных, включая переведенный TOC и список ID секций.""" # <--- ОБНОВЛЕНО ОПИСАНИЕ
+    """
+    Извлекает данные книги по book_id, включая prompt_ext, TOC, ID секций и словарь секций.
+    Возвращает словарь или None, если книга не найдена.
+    """
     conn = None
+    book_info = None # Инициализируем результат
     try:
         conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row # Используем Row factory для удобства
         cursor = conn.cursor()
         cursor.execute("PRAGMA foreign_keys = ON;")
-        cursor.row_factory = sqlite3.Row
 
         cursor.execute("SELECT * FROM books WHERE book_id = ?", (book_id,))
         row = cursor.fetchone()
 
         if row:
-            book_info = {
-                'book_id': row['book_id'],
-                'filename': row['filename'],
-                'filepath': row['filepath'],
-                'original_language': row['original_language'],
-                'status': row['status'],
-                'toc_json': row['toc_json'],
-                'created_at': row['created_at'],
-                'updated_at': row['updated_at']
-            }
+            book_info = dict(row) # Преобразуем в словарь
 
-            sections_list = get_sections_for_book(book_id) # Получаем словарь секций
+            # Гарантируем наличие ключа prompt_ext (для старых записей или если DEFAULT не сработал)
+            if 'prompt_ext' not in book_info:
+                 book_info['prompt_ext'] = ''
 
+            # Получаем секции и добавляем их в результат
+            sections_dict = get_sections_for_book(book_id)
+            book_info['sections'] = sections_dict
+
+            # Обрабатываем TOC, добавляя переведенные заголовки
             toc_data = []
             if book_info.get('toc_json'):
                 try:
-                    toc_data = json.loads(book_info['toc_json'])
-                    for item in toc_data:
+                    original_toc = json.loads(book_info['toc_json'])
+                    for item in original_toc:
                          section_id = item.get('id')
-                         if section_id and section_id in sections_list:
-                              section_data = sections_list[section_id]
+                         if section_id and section_id in sections_dict:
+                              section_data = sections_dict[section_id]
                               translated_title = section_data.get('translated_title')
                               if translated_title:
                                    item['translated_title'] = translated_title
+                         toc_data.append(item)
                 except json.JSONDecodeError:
-                    print(f"Ошибка декодирования toc_json для книги {book_id}")
+                    print(f"[DB WARN] Failed to decode toc_json for book {book_id}")
                     toc_data = []
 
             book_info['toc'] = toc_data
-            # --- ДОБАВЛЕНИЕ: Возвращаем section_ids_list из ключей словаря секций ---
-            book_info['section_ids_list'] = list(sections_list.keys()) # <--- Добавляем список ID секций
+            book_info['section_ids_list'] = list(sections_dict.keys())
 
-            # book_info.pop('toc_json', None) # Можно удалить
+            # Удаляем ненужное поле из результата
+            book_info.pop('toc_json', None)
 
-            return book_info
-        else:
-            return None
     except sqlite3.Error as e:
-        print(f"Ошибка при получении книги из базы данных: {e}")
-        return None
+        print(f"[DB ERROR] Failed to get book '{book_id}': {e}")
+        book_info = None # Сбрасываем результат в случае ошибки
     finally:
         if conn:
             conn.close()
+    return book_info # Возвращаем словарь или None
 
 def get_all_books():
-    """Извлекает список всех книг из базы данных."""
+    """Извлекает список всех книг из базы данных (в виде списка словарей)."""
     conn = None
+    books = [] # Инициализируем пустой список
     try:
         conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
 
-        conn.row_factory = sqlite3.Row # Для доступа к столбцам по имени
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM books ORDER BY filename
-        """)
+        cursor.execute("SELECT * FROM books ORDER BY filename")
         rows = cursor.fetchall()
-        books = []
+
         for row in rows:
             book_data = dict(row)
+            # Гарантируем наличие prompt_ext
+            if 'prompt_ext' not in book_data:
+                 book_data['prompt_ext'] = ''
+            # Обрабатываем TOC
             if book_data.get('toc_json'):
-                book_data['toc'] = json.loads(book_data['toc_json']) # Десериализация TOC
-            else:
-                book_data['toc'] = [] # или None, если toc_json пустой/null в БД
+                 try: book_data['toc'] = json.loads(book_data['toc_json'])
+                 except json.JSONDecodeError: book_data['toc'] = []
+            else: book_data['toc'] = []
+            book_data.pop('toc_json', None) # Удаляем исходный JSON
             books.append(book_data)
-        return books
 
     except sqlite3.Error as e:
-        print(f"Ошибка при получении списка книг из базы данных: {e}")
-        return [] # Возвращаем пустой список в случае ошибки
+        print(f"[DB ERROR] Failed to get all books: {e}")
+        books = [] # Возвращаем пустой список при ошибке
     finally:
         if conn:
             conn.close()
+    return books
 
 def update_book_status(book_id, status):
     """Обновляет статус книги в базе данных."""
     conn = None
+    success = False
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        cursor.execute("""
-            UPDATE books SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE book_id = ?
-        """, (status, book_id))
-
+        cursor.execute("UPDATE books SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE book_id = ?", (status, book_id))
         conn.commit()
-        print(f"Статус книги '{book_id}' обновлен на '{status}'.")
-        return True
-
+        if cursor.rowcount > 0: # Проверяем, была ли обновлена хотя бы одна строка
+            # print(f"[DB] Book status updated for '{book_id}' to '{status}'.") # Убрал лог
+            success = True
+        # else: print(f"[DB WARN] No book found with ID '{book_id}' to update status.")
     except sqlite3.Error as e:
-        print(f"Ошибка при обновлении статуса книги в базе данных: {e}")
-        return False
+        print(f"[DB ERROR] Failed to update book status for '{book_id}': {e}")
     finally:
         if conn:
             conn.close()
+    return success
+
+def update_book_prompt_ext(book_id, prompt_text):
+    """Обновляет поле prompt_ext для указанной книги."""
+    conn = None
+    success = False
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        # Нормализуем None к пустой строке для БД
+        prompt_text_to_save = prompt_text if prompt_text is not None else ""
+        cursor.execute("UPDATE books SET prompt_ext = ?, updated_at = CURRENT_TIMESTAMP WHERE book_id = ?", (prompt_text_to_save, book_id))
+        conn.commit()
+        if cursor.rowcount > 0:
+            print(f"[DB] prompt_ext updated for book '{book_id}'.")
+            success = True
+        # else: print(f"[DB WARN] No book found with ID '{book_id}' to update prompt_ext.")
+    except sqlite3.Error as e:
+        print(f"[DB ERROR] Failed to update prompt_ext for book '{book_id}': {e}")
+    finally:
+        if conn:
+            conn.close()
+    return success
 
 def delete_book(book_id):
-    """Удаляет книгу и связанные секции из базы данных."""
+    """Удаляет книгу и связанные секции (через CASCADE) из базы данных."""
     conn = None
+    success = False
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        # Сначала удаляем секции, связанные с книгой (благодаря ON DELETE CASCADE, это не обязательно)
-        # cursor.execute("""
-        #     DELETE FROM sections WHERE book_id = ?
-        # """, (book_id,))
-
-        # Затем удаляем книгу
-        cursor.execute("""
-            DELETE FROM books WHERE book_id = ?
-        """, (book_id,))
-
+        cursor.execute("DELETE FROM books WHERE book_id = ?", (book_id,))
         conn.commit()
-        print(f"Книга '{book_id}' и связанные данные удалены из базы данных.")
-        return True
-
+        if cursor.rowcount > 0:
+             print(f"[DB] Book '{book_id}' and related data deleted.")
+             success = True
+        else:
+             print(f"[DB WARN] No book found with ID '{book_id}' to delete.")
     except sqlite3.Error as e:
-        print(f"Ошибка при удалении книги из базы данных: {e}")
-        return False
+        print(f"[DB ERROR] Failed to delete book '{book_id}': {e}")
     finally:
         if conn:
             conn.close()
+    return success
 
-def create_section(book_id, epub_section_id, translated_title=None): # <--- ПАРАМЕТР translated_title
+def create_section(book_id, epub_section_id, translated_title=None):
     """Создает запись о секции в базе данных."""
     conn = None
+    success = False
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        # --- ИЗМЕНЕНИЕ: Добавляем translated_title в INSERT запрос ---
+        # --- ИЗМЕНЕНИЕ: Добавляем status в INSERT ---
         cursor.execute("""
-            INSERT INTO sections (book_id, epub_section_id, status, translated_title) 
+            INSERT INTO sections (book_id, epub_section_id, status, translated_title)
             VALUES (?, ?, ?, ?)
-        """, (book_id, epub_section_id, 'not_translated', translated_title)) # <--- Передаем translated_title
-
+        """, (book_id, epub_section_id, 'not_translated', translated_title)) # <-- Указываем 'not_translated'
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         conn.commit()
-        # print(f"Секция '{epub_section_id}' (книга ID: {book_id}) добавлена в базу данных.") # Too verbose
-        return True
-
+        success = True
     except sqlite3.Error as e:
-        print(f"Ошибка при добавлении секции в базу данных: {e}")
-        return False
+        # Обрабатываем ошибку UNIQUE constraint отдельно, если нужно
+        if "UNIQUE constraint failed" in str(e):
+             print(f"[DB WARN] Section '{epub_section_id}' for book '{book_id}' already exists.")
+             # Можно считать это успехом, если мы хотим идемпотентности
+             # success = True
+        else:
+             print(f"[DB ERROR] Failed to add section '{epub_section_id}' for book '{book_id}': {e}")
     finally:
         if conn:
             conn.close()
+    return success
 
 def get_sections_for_book(book_id):
-    """Извлекает словарь секций для данной книги из базы данных.""" # <--- ИЗМЕНЕН ЗАГОЛОВОК
+    """Извлекает словарь секций {epub_section_id: section_data} для данной книги."""
     conn = None
+    sections_dict = {}
     try:
         conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей для этого соединения ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        conn.row_factory = sqlite3.Row # Для доступа к столбцам по имени
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT * FROM sections WHERE book_id = ? ORDER BY internal_section_id
-        """, (book_id,)) # ordering by internal_section_id for consistent order
+        cursor.execute("SELECT * FROM sections WHERE book_id = ? ORDER BY internal_section_id", (book_id,))
         rows = cursor.fetchall()
-        sections_dict = {} # <--- ИЗМЕНЕНИЕ: Создаем словарь, а не список
         for row in rows:
-            section_data = dict(row) # Преобразуем sqlite3.Row в словарь
-            sections_dict[section_data['epub_section_id']] = section_data # <--- Ключ - epub_section_id
-        return sections_dict # <--- ВОЗВРАЩАЕМ СЛОВАРЬ
-
+            section_data = dict(row)
+            sections_dict[section_data['epub_section_id']] = section_data
     except sqlite3.Error as e:
-        print(f"Ошибка при получении списка секций из базы данных: {e}")
-        return {} # Return empty dict in case of error # <--- Возвращаем пустой словарь
+        print(f"[DB ERROR] Failed to get sections for book '{book_id}': {e}")
+        sections_dict = {} # Возвращаем пустой словарь при ошибке
     finally:
         if conn:
             conn.close()
+    return sections_dict
 
 def update_section_status(book_id, epub_section_id, status, model_name=None, target_language=None, error_message=None):
-    """Обновляет статус, модель, язык и сообщение об ошибке секции в базе данных.""" # <--- Обновлен Docstring
+    """Обновляет статус и другие метаданные секции в базе данных."""
     conn = None
+    success = False
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        # --- Обновляем все релевантные поля ---
         cursor.execute("""
             UPDATE sections
-            SET status = ?,
-                model_name = ?,
-                target_language = ?,
-                error_message = ?,
-                updated_at = CURRENT_TIMESTAMP
+            SET status = ?, model_name = ?, target_language = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
             WHERE book_id = ? AND epub_section_id = ?
-        """, (status, model_name, target_language, error_message, book_id, epub_section_id)) # <--- Передаем все параметры
-
+        """, (status, model_name, target_language, error_message, book_id, epub_section_id))
         conn.commit()
-        # Можно сделать лог чуть подробнее, если нужно
-        # print(f"Статус секции '{epub_section_id}' (книга ID: {book_id}) обновлен на '{status}' (Модель: {model_name}, Язык: {target_language}).")
-        return True
-
+        if cursor.rowcount > 0:
+            success = True
+        # else: print(f"[DB WARN] Section '{epub_section_id}' for book '{book_id}' not found for status update.")
     except sqlite3.Error as e:
-        print(f"Ошибка при обновлении статуса/данных секции '{epub_section_id}' (книга ID: {book_id}): {e}") # <--- Уточнено сообщение об ошибке
-        return False
+        print(f"[DB ERROR] Failed to update section status for '{book_id}/{epub_section_id}': {e}")
     finally:
         if conn:
             conn.close()
+    return success
 
-def reset_stuck_processing_sections(active_processing_sections=None): # <--- ДОБАВЛЯЕМ ПАРАМЕТР active_processing_sections
-    """Сбрасывает статусы 'processing' секций (КРОМЕ АКТИВНЫХ) на 'error_unknown' при запуске приложения.""" # <--- ОБНОВЛЕНО ОПИСАНИЕ
+def reset_stuck_processing_sections(active_processing_sections=None):
+    """Сбрасывает статусы 'processing' секций (кроме активных) на 'error_unknown' при запуске."""
     conn = None
-    updated_count = 0 # Инициализируем
+    updated_count = 0
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей ---
         cursor.execute("PRAGMA foreign_keys = ON;")
 
-        # --- Формируем SQL-запрос для сброса статусов, ИСКЛЮЧАЯ АКТИВНЫЕ ---
-        sql_query = """
-            UPDATE sections SET status = 'error_unknown', updated_at = CURRENT_TIMESTAMP
-            WHERE status = 'processing'
-        """
+        sql_query = "UPDATE sections SET status = 'error_unknown', updated_at = CURRENT_TIMESTAMP WHERE status = 'processing'"
         params = []
 
-        # --- ИЗМЕНЕНИЕ: Добавляем условие WHERE для исключения активных секций ---
-        if active_processing_sections: # Если есть список активных секций
-            # Формируем строку плейсхолдеров (?,?,?) для IN (...)
-            placeholders = ','.join('?' for _ in active_processing_sections)
-            # Формируем условие NOT IN ((book_id, epub_section_id), ...)
-            # Важно: SQLite не поддерживает кортежи в IN напрямую, используем book_id || '-' || epub_section_id
+        if active_processing_sections:
             active_keys = [f"{book_id}-{section_id}" for book_id, section_id in active_processing_sections]
-            placeholders_keys = ','.join('?' for _ in active_keys)
-            sql_query += f" AND (book_id || '-' || epub_section_id) NOT IN ({placeholders_keys})"
-            params.extend(active_keys)
-            print(f"[DEBUG] Исключаем активные секции: {active_keys}")
+            if active_keys: # Только если список не пуст
+                placeholders_keys = ','.join('?' for _ in active_keys)
+                sql_query += f" AND (book_id || '-' || epub_section_id) NOT IN ({placeholders_keys})"
+                params.extend(active_keys)
 
-        cursor.execute(sql_query, params) # <--- Выполняем запрос с параметрами
-
-        updated_count = conn.total_changes # Получаем количество обновленных строк
+        cursor.execute(sql_query, params)
+        updated_count = cursor.rowcount
         conn.commit()
 
-        print(f"При запуске приложения сброшено {updated_count} зависших статусов секций 'processing' (исключая активные) на 'error_unknown'.")
-        return updated_count
-
+        if updated_count > 0:
+            print(f"[DB] Reset {updated_count} stuck 'processing' sections to 'error_unknown'.")
     except sqlite3.Error as e:
-        print(f"Ошибка при сбросе зависших статусов секций: {e}")
-        return -1 # Возвращаем -1 в случае ошибки
+        print(f"[DB ERROR] Failed to reset stuck processing sections: {e}")
+        updated_count = -1 # Возвращаем -1 в случае ошибки
     finally:
         if conn:
             conn.close()
-
-
-# Инициализация БД при импорте модуля
-init_db()
-
-if __name__ == '__main__':
-    # --- Пример использования (для тестирования) ---
-    test_book_id = "test_book_123" # Используем тот же ID, что и раньше
-    test_filename = "Test Book Title.epub"
-    test_filepath = "/path/to/test/book.epub"
-    test_toc = [
-        {'level': 1, 'title': 'Глава 1', 'href': 'chapter1.xhtml', 'id': 'chapter1', 'anchor': None},
-        {'level': 2, 'title': 'Раздел 1.1', 'href': 'chapter1.xhtml#sec1', 'id': 'sec1', 'anchor': 'sec1'}
-    ]
-
-    # --- Создание книги (если еще не создана) ---
-    if not get_book(test_book_id): # Проверяем, существует ли книга
-        if create_book(test_book_id, test_filename, test_filepath, test_toc):
-            print("Тестовая книга успешно добавлена.")
-        else:
-            print("Не удалось добавить тестовую книгу.")
-    else:
-        print(f"Книга '{test_book_id}' уже существует, пропуск создания.")
-
-    # --- Создание секций для книги ---
-    test_section_ids = ["section_1", "section_2", "section_3"]
-    for sec_id in test_section_ids:
-        create_section(test_book_id, sec_id)
-    print(f"Создано {len(test_section_ids)} секций для книги '{test_book_id}'.")
-
-    # --- Получение списка секций для книги ---
-    book_sections = get_sections_for_book(test_book_id)
-    if book_sections:
-        print(f"\n--- Секции для книги '{test_book_id}' (get_sections_for_book) ---")
-        for section in book_sections:
-            print(f"  - Section ID: {section['epub_section_id']}, Status: {section['status']}")
-    else:
-        print(f"Нет секций для книги '{test_book_id}' (get_sections_for_book).")
-
-    # --- Удаление книги (и связанных секций) ---
-    if delete_book(test_book_id): # <--- УБЕДИТЕСЬ, ЧТО ЗДЕСЬ ИМЕННО delete_book(test_book_id) !!!
-        print(f"\nКнига '{test_book_id}' и связанные данные удалены из базы данных.")
-        deleted_book_data = get_book(test_book_id)
-        if not deleted_book_data:
-            print(f"Подтверждение удаления: книга '{test_book_id}' не найдена после удаления (get_book).")
-        # --- Проверка, что секции тоже удалены ---
-        time.sleep(0.1) # <--- Паузу пока оставляем
-        deleted_sections = get_sections_for_book(test_book_id)
-        if not deleted_sections:
-            print(f"Подтверждение удаления: секции книги '{test_book_id}' также удалены (get_sections_for_book).")
-        else:
-            print(f"ОШИБКА: Секции книги '{test_book_id}' все еще существуют после удаления книги!")
-    else:
-        print(f"Не удалось удалить книгу '{test_book_id}'.")
-
-
+    return updated_count
 
 def get_section_count_for_book(book_id):
-    """Возвращает количество секций для данной книги из базы данных."""
+    """Возвращает количество секций для данной книги."""
     conn = None
+    count = 0
     try:
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
-
-        # --- Включаем поддержку внешних ключей (на всякий случай, хотя здесь не критично) ---
         cursor.execute("PRAGMA foreign_keys = ON;")
-
-        cursor.execute("""
-            SELECT COUNT(*) FROM sections WHERE book_id = ?
-        """, (book_id,))
-        count = cursor.fetchone()[0] # Получаем результат COUNT(*)
-        return count
-
+        cursor.execute("SELECT COUNT(*) FROM sections WHERE book_id = ?", (book_id,))
+        result = cursor.fetchone()
+        if result:
+            count = result[0]
     except sqlite3.Error as e:
-        print(f"Ошибка при получении количества секций из базы данных: {e}")
-        return 0 # Возвращаем 0 в случае ошибки
+        print(f"[DB ERROR] Failed to get section count for book '{book_id}': {e}")
+        count = 0 # Возвращаем 0 при ошибке
     finally:
         if conn:
             conn.close()
+    return count
 
+# --- Блок для тестирования модуля ---
+if __name__ == '__main__':
+     print("\n--- Running DB Manager Tests ---")
+     # Убедимся, что БД инициализирована для тестов
+     init_db()
+
+     test_book_id = "test_db_main_book"
+     test_filename = "Test Main DB Book.epub"
+     test_filepath = "/fake/path/main_test.epub"
+     test_toc = [{'id': 'ch1_main', 'title': 'Chapter 1 Main'}]
+
+     # --- Создание книги ---
+     print("\nTesting book creation...")
+     if not get_book(test_book_id):
+         create_book(test_book_id, test_filename, test_filepath, test_toc)
+     else:
+          print(f"Book '{test_book_id}' already exists, skipping creation.")
+
+     # --- Получение книги и проверка prompt_ext ---
+     print("\nTesting get_book and initial prompt_ext...")
+     book = get_book(test_book_id)
+     if book:
+         print(f"  Book found. Initial prompt_ext: '{book.get('prompt_ext')}' (Type: {type(book.get('prompt_ext'))})")
+
+         # --- Обновление prompt_ext ---
+         print("\nTesting update_book_prompt_ext...")
+         new_prompt = "Rule 1\nRule 2"
+         if update_book_prompt_ext(test_book_id, new_prompt):
+             updated_book = get_book(test_book_id)
+             if updated_book and updated_book.get('prompt_ext') == new_prompt:
+                  print(f"  Update successful. New prompt_ext: '{updated_book.get('prompt_ext')}'")
+             else:
+                  print("  [FAIL] Book prompt_ext did not update correctly after saving.")
+         else:
+              print("  [FAIL] update_book_prompt_ext returned False.")
+
+         # --- Очистка prompt_ext ---
+         print("\nTesting clearing prompt_ext...")
+         if update_book_prompt_ext(test_book_id, ""):
+              cleaned_book = get_book(test_book_id)
+              if cleaned_book and cleaned_book.get('prompt_ext') == "":
+                   print(f"  Clear successful. Cleared prompt_ext: '{cleaned_book.get('prompt_ext')}'")
+              else:
+                   print("  [FAIL] Book prompt_ext did not clear correctly.")
+         else:
+              print("  [FAIL] update_book_prompt_ext returned False while clearing.")
+
+     else:
+         print(f"  [FAIL] Could not retrieve book '{test_book_id}' for testing.")
+
+     # --- Удаление тестовой книги ---
+     print("\nTesting book deletion...")
+     if delete_book(test_book_id):
+          if not get_book(test_book_id):
+              print(f"  Deletion successful. Book '{test_book_id}' not found after delete.")
+          else:
+              print(f"  [FAIL] Book '{test_book_id}' still exists after delete attempt.")
+     else:
+         print(f"  [FAIL] delete_book returned False for '{test_book_id}'.")
+
+     print("\n--- DB Manager Tests Complete ---")
 
 # --- END OF FILE db_manager.py ---

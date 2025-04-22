@@ -2,17 +2,12 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Перевод: {{ book_info.filename if book_info else 'Загрузка книги' }}</title>
-    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"> -->
+    <title>Перевод: {{ (book_info.filename.replace('.epub', '').replace('_', ' ')) if book_info else 'Загрузка книги' }}</title>
     <style>
         /* Базовые стили для двух колонок */
         html, body {
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            font-family: sans-serif;
-            display: flex;
-            overflow: hidden; /* Предотвращаем общую прокрутку body */
+            height: 100%; margin: 0; padding: 0; font-family: sans-serif;
+            display: flex; overflow: hidden; /* Предотвращаем общую прокрутку body */
         }
 
         /* Левая панель */
@@ -20,10 +15,12 @@
             width: 350px; /* Фиксированная ширина */
             flex-shrink: 0; /* Не сжиматься */
             height: 100vh; /* Занять всю высоту окна просмотра */
-            overflow-y: auto; /* Включить прокрутку для панели, если контент не влезает */
+            overflow-y: auto; /* Включить прокрутку для панели */
             border-right: 1px solid #ccc;
             padding: 15px; /* Внутренние отступы */
             box-sizing: border-box; /* Учитывать padding и border в ширине */
+            display: flex; /* Используем flex для внутреннего расположения */
+            flex-direction: column; /* Элементы идут сверху вниз */
         }
 
         /* Основной контент */
@@ -36,445 +33,225 @@
         }
 
         /* Стили для элементов управления в левой панели */
-        #left-panel h2 { margin-top: 0; font-size: 1.1em; word-break: break-word;}
-        #left-panel h3 { margin-top: 15px; margin-bottom: 5px; font-size: 1em; border-bottom: 1px solid #eee; padding-bottom: 3px;}
-        #left-panel p { margin: 10px 0; }
+        #left-panel h2 { margin-top: 0; font-size: 1.1em; word-break: break-word; flex-shrink: 0; } /* Заголовок не сжимается */
+        #left-panel h3 { margin-top: 15px; margin-bottom: 5px; font-size: 1em; border-bottom: 1px solid #eee; padding-bottom: 3px; flex-shrink: 0; }
+        #left-panel p { margin: 5px 0; flex-shrink: 0; } /* Уменьшил вертикальные отступы параграфов */
         #left-panel label { display: block; margin-bottom: 3px; font-size: 0.9em; font-weight: bold; }
-        /* Единый стиль для кнопок (кроме иконок действий) */
-        #left-panel button:not(.action-btn), #left-panel .button-like-link button { /* Применяем ко всем кнопкам, кроме иконок */
-             cursor: pointer;
-             background-color: #007bff; /* Синий */
-             color: white;
-             border: none;
-             border-radius: 4px;
-             padding: 6px 10px;
-             box-sizing: border-box;
-             margin-bottom: 5px;
-             text-align: center;
-             font-size: 0.95em;
-             width: 100%; /* Кнопки в левой панели на всю ширину */
-         }
-         #left-panel button:not(.action-btn):hover, #left-panel .button-like-link button:hover {
-             background-color: #0056b3;
-         }
-         #left-panel button:disabled { /* Стиль для ВСЕХ неактивных кнопок */
-             background-color: #ccc !important; /* !important для переопределения */
-             opacity: 0.7;
-             cursor: not-allowed;
-        }
 
-         /* Контейнер для кнопок скачивания */
-         #left-panel p > a.button-like-link {
-              display: block; /* Чтобы ссылки занимали всю ширину родителя <p> */
-              text-decoration: none;
-              margin-bottom: 5px; /* Добавим отступ между кнопками */
+        /* Стиль для всех кнопок управления (кроме TOC actions) */
+        #left-panel button:not(.action-btn),
+        #left-panel .button-like-link button,
+        #left-panel #save-prompt-ext-btn {
+             cursor: pointer; background-color: #007bff; color: white; border: none;
+             border-radius: 4px; padding: 6px 10px; box-sizing: border-box;
+             margin-bottom: 5px; text-align: center; font-size: 0.95em;
+             width: 100%; display: block; flex-shrink: 0; /* Кнопки не сжимаются */
          }
-         #left-panel p > a.button-like-link:last-child {
-              margin-bottom: 0; /* Уберем отступ у последней кнопки в параграфе */
-         }
+         #left-panel button:not(.action-btn):hover,
+         #left-panel .button-like-link button:hover,
+         #left-panel #save-prompt-ext-btn:hover { background-color: #0056b3; }
+         #left-panel button:disabled { background-color: #ccc !important; opacity: 0.7; cursor: not-allowed; }
 
-         /* Применяем стили к кнопкам внутри ссылок */
-         #left-panel p > a.button-like-link button {
-             width: 100%;
-             box-sizing: border-box; /* На всякий случай */
-         }
+         /* Ссылки-кнопки */
+         #left-panel p > a.button-like-link { margin-bottom: 0; display: block; text-decoration: none; flex-shrink: 0; }
+         #left-panel p > a.button-like-link button { margin-bottom: 5px; }
+         #left-panel p > a.button-like-link:last-of-type button { margin-bottom: 0; }
 
-         /* Стиль для скрытия через класс hidden */
          .hidden { display: none !important; }
+         #left-panel select { width: 100%; padding: 6px 10px; box-sizing: border-box; margin-bottom: 5px; border: 1px solid #ccc; border-radius: 4px; flex-shrink: 0; }
+         #left-panel hr { margin: 10px 0; border: 0; border-top: 1px solid #eee; flex-shrink: 0; }
 
-        #left-panel select {
-            width: 100%;
-            padding: 6px 10px;
-            box-sizing: border-box;
-            margin-bottom: 5px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        #left-panel hr { margin: 15px 0; border: 0; border-top: 1px solid #eee; }
+         /* Контейнер инструкций */
+         #prompt-ext-container { margin-top: 10px; margin-bottom: 10px; flex-shrink: 0; }
+         #prompt-ext-container label { font-weight: normal; /* Убрал жирный, т.к. h3 выше */ display: block; margin-bottom: 5px; }
+         #prompt-ext-container textarea { width: 100%; box-sizing: border-box; margin-top: 5px; font-family: monospace; font-size: 0.9em; border: 1px solid #ccc; border-radius: 4px; padding: 5px; }
+         #prompt-ext-container span#save-prompt-status { display: block; margin-top: 3px; margin-left: 0; font-style: italic; font-size: 0.9em; text-align: center; min-height: 1.2em; }
 
-        /* Стили для оглавления */
-        #toc-list { list-style: none; padding-left: 0; margin-top: 5px; }
-        .toc-item {
-            padding: 5px 0;
-            padding-left: calc(var(--level, 1) * 18px - 18px); /* Отступ для уровня вложенности */
-            border-bottom: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: nowrap;
-            font-size: 0.95em;
-            line-height: 1.4;
-            min-height: 28px; /* Минимальная высота строки */
+        /* Стили для оглавления (TOC) */
+        #toc-container { /* Новый контейнер для TOC */
+            flex-grow: 1; /* Занимает оставшееся место */
+            overflow-y: auto; /* Прокрутка только для TOC */
+            margin-top: 5px; /* Небольшой отступ сверху */
         }
+        #toc-list { list-style: none; padding-left: 0; margin: 0; } /* Убрали margin-top */
+        /* ... остальные стили .toc-item, .toc-link-container и т.д. без изменений ... */
+        .toc-item { padding: 5px 0; padding-left: calc(var(--level, 1) * 18px - 18px); border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; font-size: 0.95em; line-height: 1.4; min-height: 28px; }
         .toc-item:last-child { border-bottom: none; }
-
-        .toc-link-container {
-             display: flex;
-             align-items: center;
-             flex-grow: 1; /* Занимает доступное пространство */
-             margin-right: 10px; /* Отступ справа до кнопок */
-             overflow: hidden; /* Скрываем то, что не влезло */
-        }
-
-        .toc-link {
-            cursor: pointer;
-            text-decoration: none;
-            color: #0056b3;
-            white-space: nowrap; /* Не переносить текст ссылки */
-            overflow: hidden; /* Скрыть выходящий текст */
-            text-overflow: ellipsis; /* Добавить троеточие */
-            display: inline-block; /* Нужно для text-overflow */
-            max-width: 100%; /* Ограничиваем ширину, чтобы троеточие работало */
-        }
+        .toc-link-container { display: flex; align-items: center; flex-grow: 1; margin-right: 10px; overflow: hidden; }
+        .toc-link { cursor: pointer; text-decoration: none; color: #0056b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; }
         .toc-link:hover { text-decoration: underline; }
-        /* Используем data-атрибут для выделения активного элемента */
-        .toc-item[data-is-active="true"] > .toc-link-container > .toc-link {
-            font-weight: bold;
-            color: #000;
-        }
+        .toc-item[data-is-active="true"] > .toc-link-container > .toc-link { font-weight: bold; color: #000; }
+        .toc-status { margin-left: 8px; font-size: 0.8em; border-radius: 3px; padding: 1px 4px; white-space: nowrap; flex-shrink: 0; max-width: 15ch; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
+        /* ... стили статусов .status-* ... */
+        .status-not-translated { background-color: #eee; color: #555; } .status-translated-model { background-color: #dfd; color: #070; } .status-translated { background-color: #dfd; color: #070; } .status-cached { background-color: #dfd; color: #070; } .status-processing { background-color: #ffe082; color: #a80; } .status-error { background-color: #fcc; color: #a00; font-weight: bold; } .status-completed_empty { background-color: #e0e0e0; color: #777; } .status-unknown { background-color: #f0f0f0; color: #888; }
+        .toc-actions { display: flex; align-items: center; flex-shrink: 0; min-width: 60px; justify-content: flex-end; }
+        .action-btn { margin-left: 5px; font-size: 1.1em; cursor: pointer; vertical-align: middle; border: none; background: none; padding: 0; color: #007bff; flex-shrink: 0; }
+        .action-btn:hover { color: #0056b3; } .action-btn:disabled { color: #ccc; cursor: not-allowed; }
+        .download-section-link { margin-left: 8px; text-decoration: none; font-size: 0.9em; vertical-align: middle; color: #555; flex-shrink: 0; }
+        .download-section-link:hover { color: #000; } .download-section-link.hidden { visibility: hidden; pointer-events: none; }
+        .processing-indicator { margin-left: 5px; font-style: italic; color: #a80; flex-shrink: 0; }
+        #toc-loading-message, #toc-loading-message-alt { font-style: italic; color: gray; margin-top: 10px; flex-shrink: 0; }
 
-        .toc-status {
-             margin-left: 8px; /* Отступ слева от названия главы */
-             font-size: 0.8em;
-             border-radius: 3px;
-             padding: 1px 4px;
-             white-space: nowrap; /* Не переносить текст статуса */
-             flex-shrink: 0; /* Не сжиматься */
-             max-width: 15ch;   /* Ограничиваем макс. ширину (15 символов, можно подобрать другое значение) */
-             overflow: hidden;  /* Скрываем то, что не влезло */
-             text-overflow: ellipsis; /* Добавляем троеточие (...) */
-             display: inline-block; /* Необходимо для text-overflow с max-width */
-             vertical-align: middle; /* Выравниваем по вертикали с текстом ссылки */
-        }
-        /* Стили статусов */
-        .status-not-translated { background-color: #eee; color: #555; }
-        .status-translated-model { background-color: #dfd; color: #070; } /* Статус: Модель */
-        .status-translated { background-color: #dfd; color: #070; } /* Статус: Translated (без модели) */
-        .status-cached { background-color: #dfd; color: #070; } /* Статус: Cached (покажем как Translated) */
-        .status-processing { background-color: #ffe082; color: #a80; } /* Статус: Processing */
-        .status-error { background-color: #fcc; color: #a00; font-weight: bold; } /* Статус: Error (общий) */
-        .status-completed_empty { background-color: #e0e0e0; color: #777; } /* Статус: Empty */
-        .status-unknown { background-color: #f0f0f0; color: #888; } /* Статус: Unknown */
-
-        /* Контейнер для кнопок действий справа */
-        .toc-actions {
-             display: flex;
-             align-items: center;
-             flex-shrink: 0; /* Не сжиматься */
-             min-width: 60px; /* Минимальная ширина для кнопок */
-             justify-content: flex-end; /* Кнопки прижаты вправо */
-        }
-
-        /* Стили для иконок действий (кнопки и ссылки) */
-        .action-btn { /* Кнопка "Обновить" 🔄 */
-            margin-left: 5px;
-            font-size: 1.1em;
-            cursor: pointer;
-            vertical-align: middle;
-            border: none;
-            background: none;
-            padding: 0;
-            color: #007bff;
-            flex-shrink: 0;
-        }
-        .action-btn:hover { color: #0056b3; }
-        .action-btn:disabled { /* Стиль для неактивной кнопки обновления */
-             color: #ccc;
-             cursor: not-allowed;
-        }
-
-
-        .download-section-link { /* Ссылка "Скачать" 💾 */
-             margin-left: 8px; /* Отступ от кнопки "Обновить" */
-             text-decoration: none;
-             font-size: 0.9em;
-             vertical-align: middle;
-             color: #555;
-             flex-shrink: 0;
-         }
-         .download-section-link:hover { color: #000; }
-         .download-section-link.hidden { /* Скрытие неактивной ссылки */
-             visibility: hidden; /* Скрываем, но оставляем место */
-             pointer-events: none; /* Делаем некликабельной */
-         }
-
-        /* Индикатор обработки (...) */
-        .processing-indicator {
-            margin-left: 5px;
-            font-style: italic;
-            color: #a80;
-            flex-shrink: 0;
-        }
 
         /* Стили для основного контента */
-        #translation-display {
-            margin-top: 0;
-            padding: 15px;
-            border: 1px solid #ddd;
-            background-color: #f9f9f9;
-            min-height: 100px;
-        }
-        #translation-display h3 {
-            margin-top: 0;
-            font-size: 1.1em;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 5px;
-            margin-bottom: 10px;
-            word-break: break-all; /* Перенос длинных ID секций */
-        }
-        #translation-content p {
-             margin: 0 0 1em 0; /* Отступ снизу параграфа */
-             line-height: 1.6; /* Межстрочный интервал */
-             white-space: pre-wrap; /* Сохраняем пробелы и переносы */
-             word-wrap: break-word; /* Перенос длинных слов */
-        }
+        #translation-display { margin-top: 0; padding: 15px; border: 1px solid #ddd; background-color: #f9f9f9; min-height: 100px; }
+        #translation-display h3 { margin-top: 0; font-size: 1.1em; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px; word-break: break-all; }
+        #translation-content p { margin: 0 0 1em 0; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; }
         #translation-content strong { font-weight: bold; }
         #translation-content em { font-style: italic; }
-
-        /* Сообщение о загрузке TOC */
-        #toc-loading-message, #toc-loading-message-alt {
-            font-style: italic;
-            color: gray;
-            margin-top: 10px;
-        }
 
     </style>
 </head>
 <body>
-    <div id="left-panel">
-        <h2>{{ book_info.filename if book_info else 'Книга не загружена' }}</h2>
+    <div id="left-panel"> {# Левая панель теперь flex-контейнер с direction: column #}
+        {# 0. Название книги #}
+        <h2>{{ (book_info.filename.replace('.epub', '').replace('_', ' ')) if book_info else 'Книга не загружена' }}</h2>
+        {# Кнопка "Открыть другую книгу" #}
         <p>
             <button onclick="document.getElementById('upload-redirect-form').submit();">Открыть другую книгу</button>
             <form id="upload-redirect-form" action="{{ url_for('index') }}" method="get" style="display: none;"></form>
         </p>
 
-        {# --- Блок управления книгой (если она загружена) --- #}
+        {# --- Блок управления книгой --- #}
         {% if book_info %}
+            {# 1. Выбор языка перевода #}
             <p>
-                <label for="model-select">Модель:</label><br>
-                {# --- ИЗМЕНЕНИЕ: Исправляем цикл для работы с объектами/словарями --- #}
-                <select id="model-select" name="model_name">
-                    {% if available_models %}
-                        {# Используем .name (или ['name']) для доступа к имени #}
-                        {% for model_obj in available_models %} {# Переименовал переменную цикла #}
-                        <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
-                            {{ model_obj.name }} {# Отображаем имя #}
-                        </option>
-                        {% endfor %}
-                    {% else %}
-                        {# Fallback, если список моделей не загрузился #}
-                        <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>
-                            {{ selected_model | default('gemini-1.5-flash') }}
-                        </option>
-                        <option disabled>Не удалось загрузить список моделей</option>
-                    {% endif %}
-                </select>
-                {# --- КОНЕЦ ИЗМЕНЕНИЯ --- #}
-            </p>
-            <p>
-                <label for="language-select">Язык перевода:</label><br>
-                {# --- ИЗМЕНЕНИЕ: Используем target_language для selected --- #}
+                <label for="language-select">Язык перевода:</label>
                 <select id="language-select" name="target_language">
                      <option value="russian" {% if target_language == 'russian' %}selected{% endif %}>Russian</option>
                      <option value="english" {% if target_language == 'english' %}selected{% endif %}>English</option>
                      <option value="german" {% if target_language == 'german' %}selected{% endif %}>German</option>
                      <option value="french" {% if target_language == 'french' %}selected{% endif %}>French</option>
                      <option value="spanish" {% if target_language == 'spanish' %}selected{% endif %}>Spanish</option>
-                     <!-- Добавьте другие языки при необходимости -->
                 </select>
             </p>
+            {# 2. Выбор модели #}
             <p>
-                {# Кнопка "Перевести все" - активность определяется JS #}
+                <label for="model-select">Модель:</label>
+                <select id="model-select" name="model_name">
+                    {% if available_models %} {% for model_obj in available_models %}
+                        <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>{{ model_obj.name }}</option>
+                    {% endfor %} {% else %}
+                        <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>{{ selected_model | default('gemini-1.5-flash') }}</option>
+                        <option disabled>Ошибка загрузки моделей</option>
+                    {% endif %}
+                </select>
+            </p>
+            {# 3. Дополнительные инструкции #}
+            <div id="prompt-ext-container">
+                <label for="prompt-ext-input" style="font-weight: bold;">Дополнительные инструкции:</label>
+                <textarea id="prompt-ext-input" name="prompt_ext" rows="6" placeholder="Пример: Enae = Энея (ж)">{{ prompt_ext | default('') | escape }}</textarea>
+                <button id="save-prompt-ext-btn">Сохранить инструкции</button>
+                <span id="save-prompt-status"></span>
+            </div>
+            {# 4. Кнопки действий #}
+            <p>
                 <button id="translate-all-btn" disabled>Перевести все непереведенные</button>
             </p>
-            <p>
-                {# Кнопки "Скачать" - видимость и активность определяются JS #}
-                {# --- ИЗМЕНЕНИЕ: Используем target_language в начальных href --- #}
+            <p> {# Группа кнопок скачивания #}
                 {% set can_download_initially = book_info.status in ['complete', 'complete_with_errors'] %}
-                {# Ссылка для TXT #}
-                <a id="download-full-link"
-                   href="{{ url_for('download_full', book_id=book_id, lang=target_language) }}"
-                   class="button-like-link {{ '' if can_download_initially else 'hidden' }}"
-                   target="_blank" rel="noopener noreferrer">
+                <a id="download-full-link" href="{{ url_for('download_full', book_id=book_id, lang=target_language) }}" class="button-like-link {{ '' if can_download_initially else 'hidden' }}" target="_blank" rel="noopener noreferrer">
                      <button id="download-full-btn" {% if not can_download_initially %}disabled{% endif %}>Скачать TXT</button>
                 </a>
-                {# Ссылка для EPUB #}
-                <a id="download-epub-link"
-                   href="{{ url_for('download_epub', book_id=book_id, lang=target_language) }}"
-                   class="button-like-link {{ '' if can_download_initially else 'hidden' }}"
-                   target="_blank" rel="noopener noreferrer">
+                <a id="download-epub-link" href="{{ url_for('download_epub', book_id=book_id, lang=target_language) }}" class="button-like-link {{ '' if can_download_initially else 'hidden' }}" target="_blank" rel="noopener noreferrer">
                      <button id="download-epub-btn" {% if not can_download_initially %}disabled{% endif %}>Скачать EPUB</button>
                 </a>
             </p>
+        {% endif %} {# Конец if book_info #}
 
-            <hr>
-            <h3>Оглавление</h3>
-
-            {# Сообщение о загрузке TOC (будет скрыто JS, если TOC есть) #}
-            <p id="toc-loading-message" style="font-style: italic; color: gray;">Загрузка и перевод оглавления...</p>
-
-            {# --- Список оглавления (TOC) --- #}
+        {# --- Оглавление --- #}
+        <hr>
+        <h3>Оглавление</h3>
+        {# Обертка для скролла TOC #}
+        <div id="toc-container">
+            <p id="toc-loading-message" style="font-style: italic; color: gray;">Загрузка оглавления...</p>
             <ul id="toc-list">
+                {# --- Код генерации TOC (без изменений) --- #}
                 {% if book_info and 'toc' in book_info and book_info.toc %}
-                    {# Скрипт для скрытия сообщения "Загрузка...", т.к. TOC есть #}
-                    <script>
-                        (function() {
-                            var msg = document.getElementById('toc-loading-message');
-                            if (msg) msg.style.display = 'none';
-                        })();
-                    </script>
-                    {# --- Цикл по элементам TOC --- #}
-                    {% for item in book_info.toc %}
-                        {% set section_id = item.id %}
-                        {% if section_id %} {# Убедимся, что у элемента TOC есть ID #}
-                             {# --- Элемент списка для секции --- #}
-                             <li class="toc-item" style="--level: {{ item.level }};"
-                                 data-section-id="{{ section_id }}"
-                                 data-href="{{ item.href }}" {# Href может быть полезен для JS #}
-                                 data-is-active="false" {# Атрибут для выделения активной секции #}
-                                 >
-
-                                 {# --- Контейнер для ссылки и статуса --- #}
-                                 <div class="toc-link-container">
-                                     {# Ссылка на секцию #}
-                                     <a href="#" class="toc-link" title="{{ item.title | default('') }} (ID: {{ section_id }})">
-                                         {# Показываем переведенное название, если есть, иначе оригинальное #}
-                                         {{ item.translated_title if item.translated_title else item.title | default('(Без названия)') }}
-                                     </a>
-
-                                     {# --- Блок отображения статуса (генерируется Jinja при загрузке) --- #}
-                                     {% set section_data = book_info.sections.get(section_id) %} {# Получаем данные секции #}
-                                     {% if section_data %}
-                                         {% set section_status = section_data.get('status', 'not_translated') %}
-                                         {% set model_name = section_data.get('model_name') %}
-                                         {% set error_message = section_data.get('error_message', section_status) %}
-
-                                         {% set display_text = '???' %}
-                                         {% set status_class = 'status-unknown' %}
-                                         {% set tooltip = '' %}
-                                         {% set is_processing = false %}
-
-                                         {# --- Логика определения статуса/модели (ИДЕНТИЧНА ЛОГИКЕ В JS updateSectionStatus) --- #}
-                                         {% if section_status == 'translated' %}
-                                             {% if model_name %}
-                                                 {% set display_text = model_name.split('/')[-1] %}
-                                                 {% set status_class = 'status-translated-model' %}
-                                                 {% set tooltip = 'Translated by: ' + model_name %}
-                                             {% else %}
-                                                 {% set display_text = 'Translated' %}
-                                                 {% set status_class = 'status-translated' %}
-                                             {% endif %}
-                                         {% elif section_status == 'cached' %}
-                                              {% set display_text = 'Cached' %}
-                                              {% set status_class = 'status-translated' %} {# Отображаем как translated #}
-                                              {% set tooltip = 'Translation loaded from cache.' %}
-                                         {% elif section_status == 'completed_empty' %}
-                                             {% set display_text = 'Empty' %}
-                                             {% set status_class = 'status-completed-empty' %}
-                                             {% set tooltip = 'Section was empty or contained no translatable text.' %}
-                                         {% elif section_status.startswith('error_') %}
-                                             {% set display_text = 'Error' %}
-                                             {% set status_class = 'status-error' %}
-                                             {% set tooltip = error_message | default('Translation error occurred.') %}
-                                             {% if section_status == 'error_context_limit' %} {% set display_text = 'Err:Limit' %}
-                                             {% elif section_status == 'error_translation' %} {% set display_text = 'Err:API' %}
-                                             {% elif section_status == 'error_caching' %} {% set display_text = 'Err:Cache' %}
-                                             {% elif section_status == 'error_extraction' %} {% set display_text = 'Err:Extract' %}
-                                             {% elif section_status == 'error_unknown' %} {% set display_text = 'Err:Unk' %}
-                                             {% endif %}
-                                         {% elif section_status == 'processing' %}
-                                             {% set display_text = 'Processing' %}
-                                             {% set status_class = 'status-processing' %}
-                                             {% set is_processing = true %}
-                                         {% elif section_status == 'not_translated' or section_status == 'idle' %}
-                                             {% set display_text = 'Not Translated' %}
-                                             {% set status_class = 'status-not-translated' %}
-                                         {% else %}
-                                             {% set display_text = section_status %}
-                                             {% set status_class = 'status-unknown' %}
-                                         {% endif %}
-
-                                         {# --- Вывод статуса и индикатора --- #}
-                                         <span class="toc-status {{ status_class }}" {% if tooltip %}title="{{ tooltip }}"{% endif %}>
-                                             {{ display_text }}
-                                         </span>
-                                         <span class="processing-indicator" style="{{ 'display: none;' if not is_processing else 'display: inline;' }}">
-                                             (...)
-                                         </span>
-
-                                     {% else %}
-                                         {# Если для секции из TOC нет данных в БД #}
-                                         <span class="toc-status status-unknown" title="Section data not found in DB for ID: {{ section_id }}">Unknown</span>
-                                         <span class="processing-indicator" style="display: none;">(...)</span>
-                                     {% endif %} {# Конец if section_data #}
-                                     {# --- Конец блока отображения статуса --- #}
-
-                                 </div> {# Конец toc-link-container #}
-
-                                 {# --- Контейнер для кнопок действий --- #}
-                                 <div class="toc-actions">
-                                     {# Определяем видимость и активность кнопок на основе начального статуса #}
-                                     {% set initial_status = section_data.get('status', 'not_translated') if section_data else 'not_translated' %}
-                                     {% set is_processing_initially = initial_status == 'processing' %}
-                                     {# Кнопка обновления видна всегда, кроме "processing" (ее JS будет блокировать) #}
-                                     {# Ссылка скачивания видна только для 'translated', 'completed_empty', 'cached' #}
-                                     {% set show_download_initially = initial_status in ['translated', 'completed_empty', 'cached'] %}
-
-                                     {# Кнопка "Обновить" 🔄 #}
-                                     <button class="action-btn update-translation-btn"
-                                             title="Перевести заново / Обновить перевод"
-                                             {% if is_processing_initially %}disabled{% endif %}>🔄</button>
-
-                                     {# Ссылка "Скачать" 💾 #}
-                                     {# --- ИЗМЕНЕНИЕ: Используем target_language в начальном href --- #}
-                                     <a href="{{ url_for('download_section', book_id=book_id, section_id=section_id, lang=target_language) }}"
-                                        class="download-section-link {{ 'hidden' if not show_download_initially else '' }}"
-                                        title="Скачать раздел">💾</a>
-                                 </div> {# Конец toc-actions #}
-
-                             </li> {# Конец элемента списка для секции #}
-                        {% endif %} {# Конец if section_id #}
-                    {% endfor %} {# Конец цикла по TOC #}
+                     <script>document.getElementById('toc-loading-message').style.display = 'none';</script>
+                     {% for item in book_info.toc %} {% set section_id = item.id %} {% if section_id %}
+                          <li class="toc-item" style="--level: {{ item.level }};" data-section-id="{{ section_id }}" data-href="{{ item.href }}" data-is-active="false">
+                              <div class="toc-link-container">
+                                  <a href="#" class="toc-link" title="{{ item.title | default('') }} (ID: {{ section_id }})">{{ item.translated_title if item.translated_title else item.title | default('(Без названия)') }}</a>
+                                  {% set section_data = book_info.sections.get(section_id) %} {% if section_data %}
+                                      {% set section_status = section_data.get('status', 'not_translated') %}{% set model_name = section_data.get('model_name') %}{% set error_message = section_data.get('error_message', section_status) %}
+                                      {% set display_text = '?' %}{% set status_class = 'status-unknown' %}{% set tooltip = '' %}{% set is_processing = false %}
+                                      {% if section_status == 'translated' %}{% if model_name %}{% set display_text = model_name.split('/')[-1] %}{% set status_class = 'status-translated-model' %}{% set tooltip = 'By: ' + model_name %}{% else %}{% set display_text = 'Translated' %}{% set status_class = 'status-translated' %}{% endif %}
+                                      {% elif section_status == 'cached' %}{% set display_text = 'Cached' %}{% set status_class = 'status-translated' %}{% set tooltip = 'From cache' %}
+                                      {% elif section_status == 'completed_empty' %}{% set display_text = 'Empty' %}{% set status_class = 'status-completed-empty' %}{% set tooltip = 'Empty section' %}
+                                      {% elif section_status.startswith('error_') %}{% set display_text = 'Error' %}{% set status_class = 'status-error' %}{% set tooltip = error_message | default('Error') %}{% if section_status == 'error_context_limit' %} {% set display_text = 'Err:Limit' %}{% elif section_status == 'error_translation' %} {% set display_text = 'Err:API' %}{% elif section_status == 'error_caching' %} {% set display_text = 'Err:Cache' %}{% elif section_status == 'error_extraction' %} {% set display_text = 'Err:Extract' %}{% elif section_status == 'error_unknown' %} {% set display_text = 'Err:Unk' %}{% endif %}
+                                      {% elif section_status == 'processing' %}{% set display_text = 'Processing' %}{% set status_class = 'status-processing' %}{% set is_processing = true %}
+                                      {% elif section_status == 'not_translated' or section_status == 'idle' %}{% set display_text = 'Not Translated' %}{% set status_class = 'status-not-translated' %}
+                                      {% else %}{% set display_text = section_status %}{% set status_class = 'status-unknown' %}{% endif %}
+                                      <span class="toc-status {{ status_class }}" {% if tooltip %}title="{{ tooltip }}"{% endif %}>{{ display_text }}</span>
+                                      <span class="processing-indicator" style="{{ 'display: none;' if not is_processing else 'display: inline;' }}">(...)</span>
+                                  {% else %}
+                                      <span class="toc-status status-unknown" title="No data for ID: {{ section_id }}">?</span>
+                                      <span class="processing-indicator" style="display: none;">(...)</span>
+                                  {% endif %}
+                              </div>
+                              <div class="toc-actions">
+                                  {% set initial_status = section_data.get('status', '?') if section_data else '?' %}{% set is_processing_initially = initial_status == 'processing' %}{% set show_download_initially = initial_status in ['translated', 'completed_empty', 'cached'] %}
+                                  <button class="action-btn update-translation-btn" title="Перевести заново" {% if is_processing_initially %}disabled{% endif %}>🔄</button>
+                                  <a href="{{ url_for('download_section', book_id=book_id, section_id=section_id, lang=target_language) }}" class="download-section-link {{ 'hidden' if not show_download_initially else '' }}" title="Скачать раздел">💾</a>
+                              </div>
+                          </li>
+                     {% endif %} {% endfor %}
                 {% else %}
-                     {# --- Если TOC не найден или пуст --- #}
-                     <script>
-                        (function() {
-                            var msg = document.getElementById('toc-loading-message');
-                            if (msg) msg.style.display = 'none';
-                        })();
-                    </script>
-                    <li>Оглавление не найдено или пусто.</li>
-                {% endif %} {# Конец if book_info.toc #}
-            </ul> {# Конец списка TOC #}
-        {% else %}
-             {# --- Если информация о книге отсутствует (book_info is None) --- #}
-             <p id="toc-loading-message-alt">Загрузите книгу, чтобы увидеть оглавление и элементы управления.</p>
-             {# Скрипт для скрытия основного сообщения о загрузке, если book_info нет #}
-              <script>
-                 (function() {
-                     var msg = document.getElementById('toc-loading-message');
-                     if (msg) msg.style.display = 'none';
-                 })();
-             </script>
-        {% endif %} {# Конец внешнего if book_info #}
+                     <script>document.getElementById('toc-loading-message').style.display = 'none';</script>
+                     <li>Оглавление не найдено или пусто.</li>
+                {% endif %}
+            </ul>
+        </div> {# Конец toc-container #}
+
+        {# Запасной блок сообщения для случая, когда книга не загружена #}
+        {% if not book_info %}
+             <p id="toc-loading-message-alt">Загрузите книгу для просмотра.</p>
+             <script> if(document.getElementById('toc-loading-message')) document.getElementById('toc-loading-message').style.display = 'none'; </script>
+        {% endif %}
+
     </div> <!-- Конец left-panel -->
 
-    {# --- Правая панель для отображения контента --- #}
+    <!-- ================== Правая панель ================== -->
     <div id="main-content">
-         <div id="translation-display" style="display: none;"> {# Скрываем по умолчанию #}
+         <!-- Контейнер для отображения перевода -->
+         <div id="translation-display" style="display: none;">
              <h3><span id="translation-section-id">Раздел не выбран</span></h3>
-             <div id="translation-content"><p>Нажмите на главу в оглавлении для просмотра или перевода.</p></div>
+             <div id="translation-content">
+                 <p>Нажмите на главу в оглавлении для просмотра или перевода.</p>
+            </div>
         </div>
+        <!-- Конец контейнера для перевода -->
     </div> <!-- Конец main-content -->
 
-    {# Передача данных из Flask/Jinja в JavaScript #}
+    <!-- ================== Скрипты ================== -->
     <script>
+        // Передача данных из Flask в JS
         const currentBookId = "{{ book_id | default('None') | escape }}";
         const initialTargetLanguage = "{{ target_language | default('russian') | escape }}";
-        // --- ДОБАВЛЯЕМ ЭТУ СТРОКУ ---
         const initialSelectedModel = "{{ selected_model | default('gemini-1.5-flash') | escape }}";
     </script>
-    {# --- Подключение основного скрипта --- #}
+
+    <script> // Скрипт сохранения prompt_ext
+        document.addEventListener('DOMContentLoaded', function() {
+            const promptExtInput = document.getElementById('prompt-ext-input');
+            const savePromptBtn = document.getElementById('save-prompt-ext-btn');
+            const saveStatusSpan = document.getElementById('save-prompt-status');
+            if (savePromptBtn && promptExtInput && saveStatusSpan && currentBookId && currentBookId !== 'None') {
+                savePromptBtn.addEventListener('click', function() {
+                    const promptText = promptExtInput.value; saveStatusSpan.textContent = 'Сохранение...'; saveStatusSpan.style.color = 'orange'; savePromptBtn.disabled = true;
+                    fetch(`/save_prompt_ext/${currentBookId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt_text: promptText }) })
+                    .then(response => { if (!response.ok) { return response.text().then(text => { throw new Error(`Server error: ${response.status} - ${text || 'No details'}`); }); } return response.json(); })
+                    .then(data => { if (data.success) { saveStatusSpan.textContent = 'Сохранено!'; saveStatusSpan.style.color = 'green'; } else { saveStatusSpan.textContent = `Ошибка: ${data.error || 'Не удалось сохранить'}`; saveStatusSpan.style.color = 'red'; console.error("Save prompt error:", data); }})
+                    .catch(error => { saveStatusSpan.textContent = `Ошибка: ${error.message || 'Ошибка сети'}`; saveStatusSpan.style.color = 'red'; console.error('Save prompt error:', error); })
+                    .finally(() => { savePromptBtn.disabled = false; setTimeout(() => { if (saveStatusSpan) { saveStatusSpan.textContent = ''; saveStatusSpan.style.color = ''; } }, 4000); });
+                });
+            } else { console.warn("Prompt ext save elements not found or book_id missing."); /* ... (обработка ошибки инициализации) ... */ }
+        });
+    </script>
+
+    {# Подключение основного скрипта ПОСЛЕ встроенных #}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
 </body>
 </html>
