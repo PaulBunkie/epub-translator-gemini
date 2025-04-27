@@ -6,6 +6,8 @@ import json
 import io
 import time
 import traceback # Для вывода ошибок
+import atexit
+import threading
 
 # Flask и связанные утилиты
 from flask import (
@@ -16,6 +18,9 @@ from werkzeug.utils import secure_filename
 
 # Асинхронность
 from concurrent.futures import ThreadPoolExecutor
+
+# --- ДОБАВЛЯЕМ импорт APScheduler ---
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Наши модули
 from epub_creator import create_translated_epub
@@ -34,6 +39,7 @@ from cache_manager import (
     get_translation_from_cache, save_translation_to_cache, save_translated_chapter,
     delete_section_cache, delete_book_cache, _get_epub_id
 )
+import alice_handler
 
 # --- Настройки ---
 UPLOAD_FOLDER = 'uploads'
@@ -64,6 +70,33 @@ except ValueError as e:
 executor = ThreadPoolExecutor(max_workers=int(os.getenv("MAX_TRANSLATION_WORKERS", 3)))
 active_tasks = {} # Хранилище статусов активных задач {task_id: {"status": ..., "book_id": ..., "section_id": ...}}
 
+# --- ИЗМЕНЕНИЕ: Передаем executor в alice_handler ---
+alice_handler.initialize_alice_handler(executor)
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+# --- ИЗМЕНЕНИЕ: Настройка и запуск APScheduler ---
+scheduler = BackgroundScheduler(daemon=True)
+# Добавляем задачу обновления кеша новостей, выполняться каждый час
+scheduler.add_job(
+    alice_handler.update_translated_news_cache,
+    'interval',
+    hours=1,
+    id='bbc_news_updater_job', # Даем ID для управления
+    replace_existing=True     # Заменять задачу, если она уже есть с таким ID
+)
+# --- ИЗМЕНЕНИЕ: НЕ ЗАПУСКАЕМ задачу немедленно при старте ---
+# Убираем блок с initial_update_thread.start()
+try:
+    scheduler.start()
+    print("Планировщик APScheduler запущен (задача запустится через час или по расписанию).")
+except Exception as e:
+     print(f"ОШИБКА запуска APScheduler: {e}")
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+# Регистрируем функцию для остановки планировщика при выходе
+atexit.register(lambda: scheduler.shutdown())
+print("Зарегистрирована остановка планировщика при выходе.")
+# --- КОНЕЦ ИЗМЕНЕНИЯ APScheduler ---
 
 # --- Вспомогательные функции ---
 def allowed_file(filename):
@@ -384,12 +417,57 @@ def get_task_status(task_id):
 
 @app.route('/book_status/<book_id>', methods=['GET'])
 def get_book_status(book_id):
-    update_overall_book_status(book_id); book_info = get_book(book_id)
-    if book_info is None: return jsonify({"error": "Book not found"}), 404
-    sections_dict = book_info.get('sections', {}); translated_count=0; error_count=0; total_sections=len(sections_dict)
-    for data in sections_dict.values(): status = data.get('status'); translated_count += status in ["t","c","e"]; error_count += status and status.startswith("error_") # Сократил немного
-    sections_for_json = {id: {'status': d.get('status','?'), 'model_name': d.get('model_name'), 'error_message': d.get('error_message')} for id, d in sections_dict.items()}
-    return jsonify({"filename": book_info.get('filename'), "total_sections": total_sections, "translated_count": translated_count, "error_count": error_count, "status": book_info.get('status'), "sections": sections_for_json, "toc": book_info.get('toc', [])})
+    """
+    Возвращает JSON с текущим статусом книги и секций из БД.
+    Статус книги НЕ пересчитывается при каждом запросе, а берется как есть.
+    """
+    # --- КОММЕНТИРУЕМ ВЫЗОВ ПЕРЕСЧЕТА СТАТУСА ---
+    # update_overall_book_status(book_id) # Обновляем статус перед отдачей
+    # ---
+
+    # Просто получаем текущее состояние книги из БД
+    # get_book уже включает в себя получение секций ('sections') и их обработку для TOC
+    book_info = get_book(book_id)
+    if book_info is None:
+         return jsonify({"error": "Book not found"}), 404
+
+    # Получаем словарь секций из данных книги
+    sections_dict = book_info.get('sections', {})
+    total_sections = len(sections_dict) # Общее количество секций в БД для этой книги
+
+    # --- Подсчет переведенных и ошибочных секций (для информации) ---
+    # Этот подсчет не влияет на возвращаемый статус книги, он только для отображения прогресса
+    translated_count = 0
+    error_count = 0
+    for section_data in sections_dict.values():
+         status = section_data.get('status')
+         # Считаем переведенными также кэшированные и пустые
+         if status in ["translated", "completed_empty", "cached"]:
+              translated_count += 1
+         elif status and status.startswith("error_"):
+              error_count +=1
+    # --- Конец подсчета ---
+
+    # --- Формируем данные о секциях для JSON ответа ---
+    sections_for_json = {}
+    for epub_id, sec_data in sections_dict.items():
+        sections_for_json[epub_id] = {
+            'status': sec_data.get('status', 'unknown'),
+            'model_name': sec_data.get('model_name'), # Передаем имя модели
+            'error_message': sec_data.get('error_message') # Передаем сообщение об ошибке
+        }
+    # --- Конец формирования данных о секциях ---
+
+    # --- Возвращаем JSON ответ ---
+    return jsonify({
+         "filename": book_info.get('filename', 'N/A'),
+         "total_sections": total_sections, # Общее число секций в БД
+         "translated_count": translated_count, # Посчитано выше
+         "error_count": error_count,         # Посчитано выше
+         "status": book_info.get('status', 'unknown'), # <-- Берем статус книги КАК ОН ЕСТЬ в БД
+         "sections": sections_for_json, # Словарь статусов секций
+         "toc": book_info.get('toc', []) # Оглавление (уже с переведенными названиями из get_book)
+    })
 
 @app.route('/get_translation/<book_id>/<section_id>', methods=['GET'])
 def get_section_translation_text(book_id, section_id):
@@ -453,9 +531,52 @@ def download_epub(book_id):
     base_name = os.path.splitext(book_info.get('filename', 'tr_book'))[0]; out_fn = f"{base_name}_{target_language}_translated.epub"
     return send_file(io.BytesIO(epub_bytes), mimetype='application/epub+zip', as_attachment=True, download_name=out_fn)
 
+def get_bbc_news():
+    """Получает заголовки новостей BBC с NewsAPI."""
+    url = 'https://newsapi.org/v2/top-headlines?sources=bbc-news'
+    headers = {'x-api-key': '2126e6e18adb478fb9ade262cb1102af'}
+    news_titles = []
+    try:
+        response = requests.get(url, headers=headers, timeout=10) # Добавляем таймаут
+        response.raise_for_status() # Проверяем на HTTP ошибки (4xx, 5xx)
+
+        data = response.json()
+        articles = data.get("articles", [])
+        # --- Извлекаем ЗАГОЛОВКИ (title) ---
+        news_titles = [article["title"] for article in articles if "title" in article and article["title"]]
+        print(f"[BBC News] Получено {len(news_titles)} заголовков.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"[BBC News] Ошибка сети или API при получении новостей: {e}")
+    except Exception as e:
+        print(f"[BBC News] Неожиданная ошибка при обработке новостей: {e}")
+
+    return news_titles
+
+# --- Маршрут для Алисы (упрощенный) ---
+@app.route('/alice', methods=['POST'])
+def alice_webhook():
+    """ Обрабатывает запросы от Яндекс.Алисы, вызывая alice_handler. """
+    request_data = request.json
+    response_payload = alice_handler.handle_alice_request(request_data)
+    return jsonify(response_payload)
+# --- КОНЕЦ Маршрута для Алисы ---
+
+# --- НОВЫЙ МАРШРУТ для "умной" Алисы ---
+@app.route('/alice/smart', methods=['POST'])
+def alice_smart_webhook():
+    """ Обрабатывает запросы к Gemini через Алису. """
+    request_data = request.json
+    # Вызываем новую логику из alice_handler
+    response_payload = alice_handler.handle_smart_alice_request(request_data)
+    return jsonify(response_payload)
+# --- КОНЕЦ НОВОГО МАРШРУТА ---
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # use_reloader=False рекомендуется при использовании APScheduler в режиме отладки,
+    # чтобы избежать двойного запуска планировщика. Но можно попробовать и без него.
+    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
 
 # --- END OF FILE app.py ---
