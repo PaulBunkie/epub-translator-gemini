@@ -494,24 +494,90 @@ def download_section(book_id, section_id):
 
 @app.route('/download_full/<book_id>', methods=['GET'])
 def download_full(book_id):
-    book_info = get_book(book_id);
-    if book_info is None: return "Book not found", 404
-    filepath = book_info.get("filepath"); target_language = request.args.get('lang') or session.get('target_language', 'russian')
+    print(f"Запрос на скачивание полного текста для книги: {book_id}")
+    book_info = get_book(book_id)
+    if book_info is None:
+        print(f"  Ошибка: книга {book_id} не найдена.")
+        return "Book not found", 404
+
+    filepath = book_info.get("filepath")
+    target_language = request.args.get('lang') or session.get('target_language', 'russian')
+    print(f"  Язык для скачивания: {target_language}")
+
+    # Получаем упорядоченный список ID секций из spine
     section_ids = book_info.get("section_ids_list", [])
-    if not section_ids: section_ids = list(book_info.get('sections', {}).keys());
-    if not section_ids: return "No sections found", 500
-    update_overall_book_status(book_id); book_info = get_book(book_id)
-    if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
-    full_text_parts = []; missing = []; errors = []; sections_status = book_info.get('sections', {})
-    for id in section_ids: data = sections_status.get(id, {}); status = data.get('status', '?'); tr = get_translation_from_cache(filepath, id, target_language);
-    if tr is not None: full_text_parts.extend([f"\n\n==== {id} ({status}) ====\n\n", tr])
-    elif status.startswith("error_"): errors.append(id); full_text_parts.append(f"\n\n==== {id} (ОШИБКА: {data.get('error_message', status)}) ====\n\n")
-    else: missing.append(id); full_text_parts.append(f"\n\n==== {id} (ОШИБКА: Нет кэша {target_language}) ====\n\n")
-    if not full_text_parts: return f"Нет текста для '{target_language}'.", 404
-    if missing: full_text_parts.insert(0, f"ПРЕДУПРЕЖДЕНИЕ: Нет кэша {target_language} для: {', '.join(missing)}\n\n")
-    if errors: full_text_parts.insert(0, f"ПРЕДУПРЕЖДЕНИЕ: Ошибки в секциях: {', '.join(errors)}\n\n")
-    full_text = "".join(full_text_parts); base_name = os.path.splitext(book_info['filename'])[0]; out_fn = f"{base_name}_{target_language}_translated.txt"
-    return Response(full_text, mimetype="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{out_fn}"})
+    if not section_ids: # Fallback, если section_ids_list пуст
+        sections_dict_fallback = book_info.get('sections', {})
+        # Пытаемся сохранить порядок, если есть internal_section_id, но это не гарантировано
+        # Лучше полагаться на section_ids_list из get_book
+        section_ids = sorted(sections_dict_fallback.keys(), key=lambda x: sections_dict_fallback[x].get('internal_section_id', 0))
+        if not section_ids:
+             print(f"  Ошибка: нет секций для книги {book_id}.")
+             return "No sections found for this book", 500
+        else:
+             print(f"  WARN: section_ids_list был пуст, использованы ключи из sections_dict.")
+
+
+    # Пересчитываем статус книги перед проверкой
+    update_overall_book_status(book_id)
+    # Получаем обновленную информацию о книге (включая статус)
+    book_info = get_book(book_id) # Важно получить свежий статус
+
+    print(f"  Текущий статус книги: {book_info.get('status')}")
+    if book_info.get('status') not in ["complete", "complete_with_errors"]:
+        message = f"Перевод книги еще не завершен (Статус: {book_info.get('status')}). Скачивание полного текста недоступно."
+        print(f"  Отказ в скачивании: {message}")
+        return message, 409 # 409 Conflict
+
+    full_text_parts = []
+    missing_cache_sections = []
+    error_sections_included = []
+    sections_data_map = book_info.get('sections', {}) # Данные всех секций
+
+    print(f"  Сборка полного текста из {len(section_ids)} секций...")
+    # --- ИСПРАВЛЕНИЕ: Блок if/elif/else теперь ВНУТРИ ЦИКЛА ---
+    for section_id in section_ids: # Итерируем по УПОРЯДОЧЕННОМУ списку ID
+        section_data = sections_data_map.get(section_id, {}) # Получаем данные для текущей секции
+        section_status = section_data.get('status', 'unknown_status')
+
+        # Получаем перевод из кэша
+        translation = get_translation_from_cache(filepath, section_id, target_language)
+
+        if translation is not None:
+            # Добавляем заголовок секции и ее переведенный текст
+            full_text_parts.append(f"\n\n==== Section ID: {section_id} (Status: {section_status}) ====\n\n")
+            full_text_parts.append(translation)
+        elif section_status.startswith("error_"):
+            error_message = section_data.get('error_message', section_status)
+            full_text_parts.append(f"\n\n==== Section ID: {section_id} (ОШИБКА: {error_message}) ====\n\n")
+            error_sections_included.append(section_id)
+        else: # Перевода нет, и это не ошибка перевода (например, not_translated или completed_empty без кэша)
+            full_text_parts.append(f"\n\n==== Section ID: {section_id} (ОШИБКА: Кэш перевода отсутствует для языка {target_language}, статус секции: {section_status}) ====\n\n")
+            missing_cache_sections.append(section_id)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+    if not full_text_parts:
+        print(f"  Не найдено переведенного текста для языка '{target_language}'.")
+        return f"Не найдено переведенного текста для языка '{target_language}'.", 404
+
+    # Добавляем предупреждения в начало файла, если были проблемы
+    if missing_cache_sections:
+        warning_msg = f"ПРЕДУПРЕЖДЕНИЕ: Не найден кэш перевода для языка '{target_language}' для следующих секций: {', '.join(missing_cache_sections)}\nИх содержимое в этом файле будет отсутствовать или помечено как ошибка.\n\n"
+        full_text_parts.insert(0, warning_msg)
+    if error_sections_included:
+        warning_msg = f"ПРЕДУПРЕЖДЕНИЕ: Следующие секции содержат ошибки перевода и могут быть неполными или отсутствовать: {', '.join(error_sections_included)}\n\n"
+        full_text_parts.insert(0, warning_msg)
+
+    full_text = "".join(full_text_parts)
+    base_name = os.path.splitext(book_info.get('filename', 'translated_book'))[0]
+    output_filename = f"{base_name}_{target_language}_translated.txt"
+
+    print(f"  Отправка полного файла: {output_filename} ({len(full_text)} символов)")
+    return Response(
+        full_text,
+        mimetype="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{output_filename}"}
+    )
 
 @app.route('/api/models', methods=['GET'])
 def api_get_models():
