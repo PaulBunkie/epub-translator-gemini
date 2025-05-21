@@ -40,7 +40,7 @@ from cache_manager import (
     delete_section_cache, delete_book_cache, _get_epub_id
 )
 import alice_handler
-import location_finder 
+import location_finder
 
 # --- Настройки ---
 UPLOAD_FOLDER = 'uploads'
@@ -87,6 +87,23 @@ scheduler.add_job(
 )
 # --- ИЗМЕНЕНИЕ: НЕ ЗАПУСКАЕМ задачу немедленно при старте ---
 # Убираем блок с initial_update_thread.start()
+
+# --- НОВОЕ ЗАДАНИЕ для обновления локаций персон ---
+# Убедимся, что location_finder импортирован
+if hasattr(location_finder, 'update_locations_for_predefined_persons'):
+    scheduler.add_job(
+        location_finder.update_locations_for_predefined_persons,
+        trigger='interval', # Тип триггера - интервал
+        hours=1,            # Выполнять каждый час
+        id='person_locations_updater_job', # Уникальный ID задания
+        replace_existing=True, # Заменять существующее задание с таким ID
+        misfire_grace_time=600 # Секунд, на которые может опоздать выполнение (10 минут)
+    )
+    print("[Scheduler] Задание 'person_locations_updater_job' добавлено (обновление локаций персон каждый час).")
+else:
+    print("[Scheduler] ОШИБКА: Функция 'update_locations_for_predefined_persons' не найдена в location_finder. Задание не добавлено.")
+# --- КОНЕЦ НОВОГО ЗАДАНИЯ ---
+
 try:
     scheduler.start()
     print("Планировщик APScheduler запущен (задача запустится через час или по расписанию).")
@@ -574,7 +591,7 @@ def alice_smart_webhook():
 # --- КОНЕЦ НОВОГО МАРШРУТА ---
 
 # --- НОВЫЕ МАРШРУТЫ ДЛЯ ПОИСКА ЛОКАЦИЙ (вставляются в конец секции маршрутов) ---
-APP_PRINT_PREFIX = "[AppLF]" 
+APP_PRINT_PREFIX = "[AppLF]"
 
 @app.route('/find-locations-form', methods=['GET'])
 def find_locations_form_page():
@@ -584,19 +601,19 @@ def find_locations_form_page():
 @app.route('/api/locations', methods=['POST'])
 def api_find_persons_locations():
     print(f"\n{APP_PRINT_PREFIX} Поступил запрос на /api/locations (POST)")
-    
+
     if not request.is_json:
         print(f"{APP_PRINT_PREFIX}  Ошибка: Запрос не является JSON.")
         return jsonify({"error": "Request must be JSON"}), 400
-    
+
     try:
         data = request.get_json()
         print(f"{APP_PRINT_PREFIX}  Получено JSON тело: {json.dumps(data, ensure_ascii=False)}") # Можно и вывести тело для отладки
     except Exception as e_json:
         print(f"{APP_PRINT_PREFIX}  Ошибка парсинга JSON: {e_json}")
-        if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc() 
+        if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc()
         return jsonify({"error": f"Invalid JSON payload: {e_json}"}), 400
-        
+
     person_names_raw = data.get('persons')
     test_mode_flag = data.get('test_mode', False) # Получаем флаг тестового режима
 
@@ -606,7 +623,7 @@ def api_find_persons_locations():
         # ... (обработка ошибки списка person_names)
         print(f"{APP_PRINT_PREFIX}  Ошибка: Отсутствует или неверный список 'persons' в JSON. Получено: {person_names_raw}")
         return jsonify({"error": "Missing or invalid 'persons' list in JSON body"}), 400
-    
+
     valid_names = []
     # ... (валидация имен) ...
     for i, name_raw in enumerate(person_names_raw):
@@ -620,20 +637,20 @@ def api_find_persons_locations():
 
 
     print(f"{APP_PRINT_PREFIX}  Валидные имена для поиска: {valid_names}")
-    
+
     try:
         print(f"{APP_PRINT_PREFIX}  Вызов location_finder.find_persons_locations с {valid_names}, test_mode={test_mode_flag}...")
         # Передаем флаг test_mode
-        locations_map_with_coords = location_finder.find_persons_locations(valid_names, test_mode=test_mode_flag) 
-        
+        locations_map_with_coords = location_finder.find_persons_locations(valid_names, test_mode=test_mode_flag)
+
         print(f"{APP_PRINT_PREFIX}  Результат от location_finder: {json.dumps(locations_map_with_coords, ensure_ascii=False, indent=2)}")
         print(f"{APP_PRINT_PREFIX}  Отправка JSON ответа клиенту.")
         return jsonify(locations_map_with_coords)
-        
+
     except Exception as e:
         # ... (обработка общей ошибки) ...
         print(f"{APP_PRINT_PREFIX}  КРИТИЧЕСКАЯ ОШИБКА в /api/locations: {e}")
-        if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc() 
+        if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc()
         error_response = {name: f"Server error processing request for this person ({type(e).__name__})" for name in valid_names}
         print(f"{APP_PRINT_PREFIX}  Отправка JSON с общей ошибкой сервера: {json.dumps(error_response, ensure_ascii=False)}")
         return jsonify(error_response), 500

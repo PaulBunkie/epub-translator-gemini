@@ -5,6 +5,11 @@ import time # Оставляем time на случай, если понадоб
 
 DATABASE_FILE = "epub_translator.db"
 
+def get_db_connection():
+    conn = sqlite3.connect(DATABASE_FILE, check_same_thread=False, timeout=10) 
+    conn.row_factory = sqlite3.Row
+    return conn
+
 def init_db():
     """
     Инициализирует базу данных: создает таблицы books и sections, если их нет,
@@ -68,6 +73,22 @@ def init_db():
             )
         """)
         conn.commit() # Коммит после CREATE TABLE IF NOT EXISTS
+        
+        # --- НОВОЕ: Создание таблицы location_cache ---
+        print("[DB] Checking/Creating 'location_cache' table...") 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS location_cache (
+                person_name_key TEXT PRIMARY KEY,
+                location_name TEXT,
+                latitude REAL,
+                longitude REAL,
+                error_message TEXT,
+                last_updated INTEGER NOT NULL, 
+                source_news_summary TEXT 
+            )
+        ''')
+        print("{[DB] Table 'location_cache' checked/created.")
+        # --- КОНЕЦ НОВОГО ---        
 
         print("[DB] Database initialization/update complete.")
 
@@ -387,6 +408,77 @@ def get_section_count_for_book(book_id):
         if conn:
             conn.close()
     return count
+    
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С location_cache ---
+CACHE_PRINT_PREFIX = "[DB Cache]" # Или используйте ваш DB_PRINT_PREFIX
+
+def get_cached_location(person_name_key: str):
+    """Получает кэшированные данные о локации для персоны."""
+    print(f"{CACHE_PRINT_PREFIX} Запрос кэша для '{person_name_key}'")
+    conn = None # Объявляем conn здесь для использования в finally
+    try:
+        # Используйте вашу функцию get_db_connection(), если она есть, или создайте соединение
+        # Предполагаем, что get_db_connection() существует и настроена с row_factory
+        conn = get_db_connection() # Если такой функции нет, то: conn = sqlite3.connect(DATABASE_NAME); conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT location_name, latitude, longitude, error_message, last_updated, source_news_summary
+            FROM location_cache
+            WHERE person_name_key = ?
+        ''', (person_name_key,))
+        row = cursor.fetchone()
+        
+        if row:
+            print(f"{CACHE_PRINT_PREFIX} Найден кэш для '{person_name_key}': last_updated={row['last_updated']}")
+            return {
+                "location_name": row["location_name"],
+                "lat": row["latitude"],
+                "lon": row["longitude"],
+                "error": row["error_message"],
+                "last_updated": row["last_updated"],
+                "source_news_summary": row["source_news_summary"]
+            }
+        print(f"{CACHE_PRINT_PREFIX} Кэш для '{person_name_key}' не найден.")
+        return None
+    except sqlite3.Error as e:
+        print(f"{CACHE_PRINT_PREFIX} ОШИБКА SQLite при получении кэша для '{person_name_key}': {e}")
+        traceback.print_exc()
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def save_cached_location(person_name_key: str, location_data: dict, source_summary: str = None):
+    """Сохраняет или обновляет данные о локации в кэше."""
+    print(f"{CACHE_PRINT_PREFIX} Сохранение/обновление кэша для '{person_name_key}'")
+    
+    loc_name = location_data.get("location_name")
+    lat = location_data.get("lat")
+    lon = location_data.get("lon")
+    error_msg = location_data.get("error") 
+    current_timestamp = int(time.time())
+    summary_to_save = source_summary if source_summary else location_data.get("source_news_summary")
+
+    conn = None # Объявляем conn здесь
+    try:
+        conn = get_db_connection() # или conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO location_cache 
+            (person_name_key, location_name, latitude, longitude, error_message, last_updated, source_news_summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (person_name_key, loc_name, lat, lon, error_msg, current_timestamp, summary_to_save))
+        conn.commit()
+        print(f"{CACHE_PRINT_PREFIX} Кэш для '{person_name_key}' успешно сохранен/обновлен. Timestamp: {current_timestamp}")
+        return True
+    except sqlite3.Error as e:
+        print(f"{CACHE_PRINT_PREFIX} ОШИБКА SQLite при сохранении кэша для '{person_name_key}': {e}")
+        traceback.print_exc()
+        return False
+    finally:
+        if conn:
+            conn.close()
+# --- КОНЕЦ НОВЫХ ФУНКЦИЙ ---    
 
 # --- Блок для тестирования модуля ---
 if __name__ == '__main__':

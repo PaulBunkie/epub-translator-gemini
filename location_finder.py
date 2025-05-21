@@ -5,20 +5,22 @@ import os
 import traceback 
 import time 
 import json 
-import datetime
+import datetime 
 
-# --- Configuration ---
+from db_manager import get_cached_location, save_cached_location
+
 NEWS_API_KEY = "2126e6e18adb478fb9ade262cb1102af" 
 NEWS_API_URL = 'https://newsapi.org/v2/everything'
-GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "gemini-1.5-flash") 
+GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "gemini-2.5-flash-preview-05-20") 
 REQUEST_TIMEOUT_SECONDS = 20 
+NEWS_FETCH_DAYS_AGO = 3 
+LOCATION_CACHE_TTL_SECONDS = 3600  # 1 час
+# BAD_CACHE_TTL_SECONDS УБРАН
 
 _gemini_model_instance = None
 _is_gemini_api_configured = False
-
 LF_PRINT_PREFIX = "[LF]"
 
-# НЕ ДОЛЖНО БЫТЬ @app.route ЗДЕСЬ
 def _initialize_gemini():
     global _is_gemini_api_configured, _gemini_model_instance
     if _gemini_model_instance:
@@ -73,102 +75,58 @@ def _initialize_gemini():
         _gemini_model_instance = None
         return False
 
-# НЕ ДОЛЖНО БЫТЬ @app.route ЗДЕСЬ
-def _fetch_news(person_name: str, num_articles: int = 100):
+def _fetch_news(person_name: str, num_articles: int = 100, days_ago: int = NEWS_FETCH_DAYS_AGO):
     if not NEWS_API_KEY:
         print(f"{LF_PRINT_PREFIX} ОШИБКА: NEWS_API_KEY не установлен для '{person_name}'.")
         return []
-
-    # Вычисляем дату "3 дня назад"
-    date_three_days_ago = datetime.date.today() - datetime.timedelta(days=3)
-    from_date_iso = date_three_days_ago.strftime('%Y-%m-%d') # Формат ISO 8601 (только дата)
-
-    actual_page_size = min(num_articles, 100)
+    actual_page_size = min(num_articles, 100) 
+    from_date_str = (datetime.date.today() - datetime.timedelta(days=days_ago)).strftime('%Y-%m-%d')
     params = {
-        'qInTitle': person_name,
-        'language': 'en',
-        'sortBy': 'publishedAt',
-        'pageSize': actual_page_size,
-        'apiKey': NEWS_API_KEY,
-        'from': from_date_iso  # <--- Добавляем параметр 'from'
+        'qInTitle': person_name, 'language': 'en', 'sortBy': 'publishedAt', 
+        'pageSize': actual_page_size, 'apiKey': NEWS_API_KEY, 'from': from_date_str
     }
-    # ЗАМЕНИТЕ EMAIL на ваш или вашего приложения
-    headers = {'User-Agent': 'LocationFinderApp/1.0 (Test Project; your_email@example.com)'}
-    # Обновляем лог, чтобы включить новый параметр
-    print(f"{LF_PRINT_PREFIX} Запрос новостей для '{person_name}' с NewsAPI. URL: {NEWS_API_URL}, Params: qInTitle={params.get('qInTitle')}, pageSize={params.get('pageSize')}, from={params.get('from')}")
+    headers = {'User-Agent': 'LocationFinderApp/1.0 (epub_translator project; paulbunkie@gmail.com)'} 
+    print(f"{LF_PRINT_PREFIX} Запрос новостей для '{person_name}' с NewsAPI (с {from_date_str}). Params: qInTitle={params.get('qInTitle')}, pageSize={params.get('pageSize')}")
     try:
         response = requests.get(NEWS_API_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
         print(f"{LF_PRINT_PREFIX} NewsAPI для '{person_name}' ответил статусом: {response.status_code}")
         response.raise_for_status()
         data = response.json()
         articles_data = data.get('articles', [])
-        # Обновляем лог
-        print(f"{LF_PRINT_PREFIX} Получено {len(articles_data)} статей для '{person_name}' из NewsAPI (запрошено {actual_page_size} за последние 3 дня).")
-        if articles_data and len(articles_data) > 0:
-            print(f"{LF_PRINT_PREFIX} Пример первого заголовка для '{person_name}': {articles_data[0].get('title')}")
-            # Для отладки можно посмотреть дату публикации первой статьи:
-            # print(f"{LF_PRINT_PREFIX} Дата публикации первой статьи: {articles_data[0].get('publishedAt')}")
+        print(f"{LF_PRINT_PREFIX} Получено {len(articles_data)} статей для '{person_name}' (запрошено {actual_page_size} за посл. {days_ago} дня).")
+        if articles_data: print(f"{LF_PRINT_PREFIX} Пример заголовка: {articles_data[0].get('title')}")
         filtered_articles = [{"title": art["title"], "description": art["description"]} for art in articles_data if art.get("title") and art.get("description")]
-        print(f"{LF_PRINT_PREFIX} Отфильтровано {len(filtered_articles)} статей (с title и description) для '{person_name}'.")
+        print(f"{LF_PRINT_PREFIX} Отфильтровано {len(filtered_articles)} статей для '{person_name}'.")
         return filtered_articles
-    except requests.exceptions.Timeout:
-        print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут ({REQUEST_TIMEOUT_SECONDS}s) при запросе к NewsAPI для '{person_name}'.")
-    except requests.exceptions.HTTPError as http_err:
-        print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP {http_err.response.status_code} при запросе к NewsAPI для '{person_name}'. Ответ: {http_err.response.text[:200]}...")
-    except requests.exceptions.RequestException as req_err:
-        print(f"{LF_PRINT_PREFIX} ОШИБКА сети при запросе к NewsAPI для '{person_name}': {req_err}")
-    except Exception as e:
-        print(f"{LF_PRINT_PREFIX} Неожиданная ОШИБКА при получении новостей для '{person_name}': {e}")
-        traceback.print_exc()
+    except requests.exceptions.Timeout: print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут NewsAPI для '{person_name}'.")
+    except requests.exceptions.HTTPError as e: print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP NewsAPI для '{person_name}': {e.response.status_code} {e.response.text[:100]}")
+    except Exception as e: print(f"{LF_PRINT_PREFIX} ОШИБКА в _fetch_news для '{person_name}': {e}"); traceback.print_exc()
     return []
 
-# НЕ ДОЛЖНО БЫТЬ @app.route ЗДЕСЬ
 def _geocode_location(location_name: str):
-    if not location_name or location_name == "Unknown":
-        return None, None
-    headers = {'User-Agent': 'LocationFinderApp/1.0 (Test Project; your_actual_email@example.com)'} # ЗАМЕНИТЕ EMAIL
+    if not location_name or location_name == "Unknown": return None, None
+    headers = {'User-Agent': 'LocationFinderApp/1.0 (epub_translator project; paulbunkie@gmail.com)'} 
     params = {'q': location_name, 'format': 'json', 'limit': 1}
     nominatim_url = "https://nominatim.openstreetmap.org/search"
-    print(f"{LF_PRINT_PREFIX} Геокодинг для '{location_name}' через Nominatim...")
+    print(f"{LF_PRINT_PREFIX} Геокодинг для '{location_name}'...")
     try:
         time.sleep(1.1) 
         response = requests.get(nominatim_url, params=params, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
+        if data and isinstance(data, list) and data[0]:
             place = data[0]
-            lat = float(place.get('lat'))
-            lon = float(place.get('lon'))
-            print(f"{LF_PRINT_PREFIX} Геокодинг успешен для '{location_name}': lat={lat}, lon={lon}")
+            lat, lon = float(place.get('lat')), float(place.get('lon'))
+            print(f"{LF_PRINT_PREFIX} Геокодинг '{location_name}': lat={lat}, lon={lon}")
             return lat, lon
-        else:
-            print(f"{LF_PRINT_PREFIX} Геокодинг не дал результатов для '{location_name}'. Ответ: {data}")
-            return None, None
-    except requests.exceptions.Timeout:
-        print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут при запросе к Nominatim для '{location_name}'.")
-    except requests.exceptions.HTTPError as http_err:
-        print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP {http_err.response.status_code} при запросе к Nominatim для '{location_name}'. Ответ: {http_err.response.text[:200]}...")
-    except (ValueError, TypeError, KeyError) as json_err:
-        resp_text = response.text[:200] if 'response' in locals() and hasattr(response, 'text') else 'N/A'
-        print(f"{LF_PRINT_PREFIX} ОШИБКА обработки ответа Nominatim для '{location_name}': {json_err}. Ответ: {resp_text}")
-    except Exception as e:
-        print(f"{LF_PRINT_PREFIX} Неожиданная ОШИБКА при геокодинге '{location_name}': {e}")
-        traceback.print_exc()
+    except Exception as e: print(f"{LF_PRINT_PREFIX} ОШИБКА геокодинга '{location_name}': {e}")
     return None, None
 
-# НЕ ДОЛЖНО БЫТЬ @app.route ЗДЕСЬ
 def _get_gemini_prompt_template(person_name: str):
     return f"""Analyze the following news summaries about {person_name}.
 Your primary goal is to identify a specific geographic location (city and country) where {person_name} has demonstrably been physically present or performed a significant action very recently (e.g., within the last 1-2 days).
-Consider actions like:
-- Explicitly stated arrivals, visits, or current presence.
-- Making official statements or appearances from a specified location.
-- Reports of them being seen or engaging in activities at a particular place.
-De-prioritize or ignore:
-- Planned future visits, upcoming meetings, or speculative travel.
-- General discussions about locations without confirmed recent presence.
-- Locations mentioned only in the context of other people interacting with {person_name} unless {person_name}'s presence there is also confirmed.
-- Vague locations like "on a plane" unless a specific destination of arrival is mentioned in conjunction.
+Consider actions like: - Explicitly stated arrivals, visits, or current presence. - Making official statements or appearances from a specified location. - Reports of them being seen or engaging in activities at a particular place.
+De-prioritize or ignore: - Planned future visits, upcoming meetings, or speculative travel. - General discussions about locations without confirmed recent presence. - Locations mentioned only in the context of other people interacting with {person_name} unless {person_name}'s presence there is also confirmed. - Vague locations like "on a plane" unless a specific destination of arrival is mentioned in conjunction.
 If a credible recent physical location (city and country) can be determined, provide it in the format: "Country, City".
 Examples: "Russia, Moscow", "USA, Washington D.C.", "Qatar, Doha".
 If multiple recent locations are mentioned, try to determine the most current one.
@@ -182,16 +140,13 @@ Location:"""
 def _get_location_from_gemini(person_name: str, news_summaries_text: str):
     global _gemini_model_instance
     if not _gemini_model_instance:
-        print(f"{LF_PRINT_PREFIX} Модель Gemini не была инициализирована перед вызовом _get_location_from_gemini для '{person_name}'. Попытка инициализации...")
         if not _initialize_gemini():
-             print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать модель Gemini для '{person_name}'.")
              return {"location_name": "Error", "lat": None, "lon": None, "error": "Gemini model not available (initialization failed)"}
     
     model_to_use = _gemini_model_instance
     prompt_template = _get_gemini_prompt_template(person_name)
     full_prompt = prompt_template.format(news_summaries_text=news_summaries_text)
-    
-    print(f"{LF_PRINT_PREFIX} Подготовлен промпт для Gemini для '{person_name}'. Длина промпта: {len(full_prompt)} символов.")
+    print(f"{LF_PRINT_PREFIX} Подготовлен промпт для Gemini для '{person_name}'. Длина: {len(full_prompt)}.")
 
     max_retries = 2
     for attempt in range(max_retries):
@@ -205,75 +160,46 @@ def _get_location_from_gemini(person_name: str, news_summaries_text: str):
             if response.parts:
                 location_text_raw = response.text.strip()
                 print(f"{LF_PRINT_PREFIX} Сырой ответ Gemini для '{person_name}': '{location_text_raw}'")
-                
-                location_name_for_geocoding = "Unknown"
-                geocoding_error_message = None
-
-                if not location_text_raw:
-                    print(f"{LF_PRINT_PREFIX} Gemini вернул пустой ответ для '{person_name}'. Считаем 'Unknown'.")
-                elif location_text_raw == "Unknown":
-                    print(f"{LF_PRINT_PREFIX} Gemini определил локацию как 'Unknown' для '{person_name}'.")
+                location_name_for_geocoding = "Unknown"; geocoding_error_message = None
+                if not location_text_raw: print(f"{LF_PRINT_PREFIX} Gemini пустой ответ -> 'Unknown'.")
+                elif location_text_raw == "Unknown": print(f"{LF_PRINT_PREFIX} Gemini -> 'Unknown'.")
                 else:
-                    parts = location_text_raw.split(',')
+                    parts = location_text_raw.split(',');
                     if len(parts) >= 2:
-                        country = parts[0].strip()
-                        city = ",".join(parts[1:]).strip() 
+                        country = parts[0].strip(); city = ",".join(parts[1:]).strip()
                         if country and city and len(location_text_raw) < 150:
                             location_name_for_geocoding = f"{country}, {city}"
-                            print(f"{LF_PRINT_PREFIX} Gemini результат для геокодинга '{person_name}': {location_name_for_geocoding}")
-                        else:
-                            print(f"{LF_PRINT_PREFIX} Gemini вернул что-то похожее на локацию, но части пусты или слишком длинно для '{person_name}': '{location_text_raw}'. Считаем 'Unknown'.")
+                        else: 
                             geocoding_error_message = f"Gemini format error: {location_text_raw}"
-                            location_name_for_geocoding = "Unknown"
-                    else:
-                         print(f"{LF_PRINT_PREFIX} Gemini вернул НЕОЖИДАННЫЙ ФОРМАТ для '{person_name}': '{location_text_raw}'. Считаем 'Unknown'.")
-                         geocoding_error_message = f"Gemini unexpected format: {location_text_raw}"
-                         location_name_for_geocoding = "Unknown"
+                            location_name_for_geocoding = "Unknown" # Важно сбросить, если формат не тот
+                    else: 
+                        geocoding_error_message = f"Gemini unexpected format: {location_text_raw}"
+                        location_name_for_geocoding = "Unknown" # Важно сбросить
                 
                 lat, lon = None, None
-                final_location_name_to_return = location_name_for_geocoding if location_name_for_geocoding != "Unknown" else location_text_raw
-
+                final_name_to_return = location_name_for_geocoding if location_name_for_geocoding != "Unknown" else location_text_raw
                 if location_name_for_geocoding != "Unknown":
                     lat, lon = _geocode_location(location_name_for_geocoding)
-                    if lat is None or lon is None:
+                    if lat is None or lon is None: 
                         geocoding_error_message = (geocoding_error_message + "; " if geocoding_error_message else "") + f"Geocoding failed for '{location_name_for_geocoding}'"
                 elif geocoding_error_message is None and location_text_raw == "Unknown": 
                     geocoding_error_message = "Location is Unknown (from Gemini)"
                 
-                return {
-                    "location_name": final_location_name_to_return,
-                    "lat": lat,
-                    "lon": lon,
-                    "error": geocoding_error_message
-                }
+                return {"location_name": final_name_to_return, "lat": lat, "lon": lon, "error": geocoding_error_message}
 
             elif response.prompt_feedback and response.prompt_feedback.block_reason:
-                block_reason_val = response.prompt_feedback.block_reason
-                block_message = response.prompt_feedback.block_reason_message if hasattr(response.prompt_feedback, 'block_reason_message') else "No message"
-                print(f"{LF_PRINT_PREFIX} Запрос к Gemini для '{person_name}' ЗАБЛОКИРОВАН: {block_reason_val} ({block_message})")
-                return {"location_name": "Blocked by Gemini", "lat": None, "lon": None, "error": f"Gemini request blocked ({block_reason_val})"}
+                return {"location_name": "Blocked by Gemini", "lat": None, "lon": None, "error": f"Gemini request blocked ({response.prompt_feedback.block_reason})"}
             else:
-                candidates_info = "N/A"
-                if hasattr(response, 'candidates') and response.candidates:
-                    try:
-                        candidate_details = response.candidates[0]
-                        candidates_info = f"Finish Reason: {candidate_details.finish_reason.name if candidate_details.finish_reason else 'N/A'}. Safety Ratings: {[(sr.category.name, sr.probability.name) for sr in candidate_details.safety_ratings] if candidate_details.safety_ratings else 'N/A'}"
-                    except Exception:
-                        candidates_info = str(response.candidates[0])
-                print(f"{LF_PRINT_PREFIX} НЕОЖИДАННЫЙ ОТВЕТ (нет parts, не заблокирован) от Gemini для '{person_name}'. Кандидаты: {candidates_info}")
                 return {"location_name": "Error", "lat": None, "lon": None, "error": "Unexpected Gemini response structure"}
-
         except genai.types.generation_types.BlockedPromptException as bpe:
-            print(f"{LF_PRINT_PREFIX} КРИТИКА: Промпт для '{person_name}' был заблокирован Gemini (BlockedPromptException): {bpe}")
+            print(f"{LF_PRINT_PREFIX} КРИТИКА: Промпт для '{person_name}' заблокирован Gemini: {bpe}")
             return {"location_name": "Error", "lat": None, "lon": None, "error": "Gemini prompt blocked"}
         except Exception as e:
             print(f"{LF_PRINT_PREFIX} ОШИБКА при запросе к Gemini для '{person_name}' (попытка {attempt + 1}): {e}")
             traceback.print_exc()
-            if attempt == max_retries - 1:
+            if attempt == max_retries - 1: 
                 return {"location_name": "Error", "lat": None, "lon": None, "error": f"Gemini API failure after {max_retries} retries"}
-            print(f"{LF_PRINT_PREFIX} Пауза перед повторной попыткой для '{person_name}'...")
             time.sleep(1.5) 
-    
     return {"location_name": "Error", "lat": None, "lon": None, "error": "Max retries exceeded for Gemini"}
 
 def find_persons_locations(person_names: list, test_mode: bool = False):
@@ -286,107 +212,174 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
 
     if not test_mode: 
         if not _gemini_model_instance and not _initialize_gemini():
-            print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать Gemini перед циклом. Прерывание.")
-            for name in person_names:
-                results[name] = {"location_name": "Error", "lat": None, "lon": None, "error": "Gemini initialization failed"}
+            print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать Gemini. Прерывание.")
+            for name_original in person_names:
+                 results[name_original if isinstance(name_original, str) else str(name_original)] = {
+                     "location_name": "Error", "lat": None, "lon": None, 
+                     "error": "Gemini initialization failed"
+                 }
             return results
 
-    for person_name_original in person_names: 
-        current_person_result = {"location_name": "Processing...", "lat": None, "lon": None, "error": None}
-        person_name = person_name_original 
+    current_time = time.time()
 
-        if not isinstance(person_name_original, str) or not person_name_original.strip():
-            error_key = person_name_original if isinstance(person_name_original, str) else f"invalid_entry_{type(person_name_original).__name__}"
-            print(f"{LF_PRINT_PREFIX} Невалидное имя персоны: '{person_name_original}'. Пропуск.")
-            current_person_result = {"location_name": "Invalid Name", "lat": None, "lon": None, "error": "Invalid person name provided"}
-            results[error_key] = current_person_result
+    for original_person_name in person_names:
+        person_name_cleaned = ""
+        person_name_key = ""
+
+        if not isinstance(original_person_name, str) or not original_person_name.strip():
+            error_key_name = original_person_name if isinstance(original_person_name, str) else f"invalid_entry_{type(original_person_name).__name__}"
+            results[error_key_name] = {"location_name": "Invalid Name", "lat": None, "lon": None, "error": "Invalid person name provided"}
             continue
         
-        person_name = person_name_original.strip()
-        print(f"\n{LF_PRINT_PREFIX} Обработка персоны: '{person_name}'")
+        person_name_cleaned = original_person_name.strip()
+        person_name_key = person_name_cleaned.lower()
+        print(f"\n{LF_PRINT_PREFIX} Обработка: '{person_name_cleaned}' (ключ: '{person_name_key}')")
 
         if test_mode:
-            print(f"{LF_PRINT_PREFIX} Тестовый режим для '{person_name}'. Используем заглушку 'Turkey, Istanbul'.")
-            test_lat, test_lon = 41.0082, 28.9784 
-            results[person_name] = {
-                "location_name": "Turkey, Istanbul (Test)",
-                "lat": test_lat,
-                "lon": test_lon,
-                "error": None
-            }
-            time.sleep(0.1) 
-            continue 
+            print(f"{LF_PRINT_PREFIX} Тестовый режим для '{person_name_cleaned}'. Заглушка: Стамбул.")
+            results[person_name_cleaned] = {"location_name": "Turkey, Istanbul (Test)", "lat": 41.0082, "lon": 28.9784, "error": None}
+            time.sleep(0.1); continue
 
-        articles = _fetch_news(person_name, num_articles=100)
+        use_fresh_data = True 
+        cached_entry = get_cached_location(person_name_key)
+        had_good_stale_cache = False
         
+        if cached_entry:
+            cache_age = current_time - cached_entry["last_updated"]
+            is_good_cache_entry = cached_entry.get("lat") is not None and \
+                                  cached_entry.get("lon") is not None and \
+                                  not cached_entry.get("error") and \
+                                  cached_entry.get("location_name") != "Unknown" and \
+                                  not (cached_entry.get("location_name") or "").lower().startswith("error") 
+
+            if is_good_cache_entry and cache_age < LOCATION_CACHE_TTL_SECONDS:
+                print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' актуален (возраст: {int(cache_age)} сек). Используем его.")
+                results[person_name_cleaned] = {
+                    "location_name": cached_entry["location_name"], "lat": cached_entry["lat"],
+                    "lon": cached_entry["lon"], "error": cached_entry["error"] 
+                }
+                use_fresh_data = False
+            elif not is_good_cache_entry:
+                print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' 'плохой' (Unknown/ошибка/нет координат). Запрашиваем свежие данные.")
+            else: 
+                 print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' устарел (возраст: {int(cache_age)} сек). Запрашиваем свежие данные.")
+        else:
+            print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' не найден в БД. Запрашиваем свежие данные.")
+        
+        if not use_fresh_data:
+            continue
+        
+        print(f"{LF_PRINT_PREFIX} Получение свежих данных для '{person_name_cleaned}'...")
+        articles = _fetch_news(person_name_cleaned, num_articles=100, days_ago=NEWS_FETCH_DAYS_AGO)
+        
+        person_api_data = {} 
+        news_summaries_text_for_cache = "N/A"
+
         if not articles:
-            print(f"{LF_PRINT_PREFIX} Новости для '{person_name}' не найдены или произошла ошибка получения.")
-            current_person_result["location_name"] = "Error"
-            current_person_result["error"] = "Could not fetch news"
-            results[person_name] = current_person_result
-            continue
+            person_api_data = {"location_name": "Error", "lat": None, "lon": None, "error": "Could not fetch news"}
+        else:
+            news_summaries = []
+            for art_idx, article_item in enumerate(articles):
+                title = article_item.get("title","").strip(); description = article_item.get("description","").strip()
+                if title and description: news_summaries.append(f"Article {art_idx+1}:\nTitle: {title}\nDescription: {description}\n---")
+                elif title: news_summaries.append(f"Article {art_idx+1}:\nTitle: {title}\n(No description provided)\n---")
 
-        news_summaries = []
-        for i, article in enumerate(articles):
-            title = article.get("title", "").strip()
-            description = article.get("description", "").strip()
-            if title and description:
-                 news_summaries.append(f"Article {i+1}:\nTitle: {title}\nDescription: {description}\n---")
-            elif title:
-                 news_summaries.append(f"Article {i+1}:\nTitle: {title}\n(No description provided)\n---")
-        
-        if not news_summaries:
-            print(f"{LF_PRINT_PREFIX} Нет подходящих новостных саммари для '{person_name}' после фильтрации.")
-            current_person_result["location_name"] = "Error"
-            current_person_result["error"] = "No suitable news summaries found"
-            results[person_name] = current_person_result
-            continue
-            
-        news_summaries_text = "\n\n".join(news_summaries)
-        
-        summary_preview_len = 1000 
-        text_preview = news_summaries_text[:summary_preview_len]
-        remaining_chars = len(news_summaries_text) - summary_preview_len if len(news_summaries_text) > summary_preview_len else 0
-        
-        print(f"\n{LF_PRINT_PREFIX} ---- ТЕКСТ ДЛЯ GEMINI ({person_name}) (из {len(news_summaries)} статей, превью) ----\n{text_preview}...\n(Далее еще {remaining_chars} симв.)\n---- КОНЕЦ ТЕКСТА ДЛЯ GEMINI ({person_name}) ----\n")
-        print(f"{LF_PRINT_PREFIX} Сформировано саммари ({len(news_summaries)} статей) для '{person_name}'. Длина текста: {len(news_summaries_text)}.")
-        
-        MAX_CHARS_FOR_GEMINI = 750000 
-        if len(news_summaries_text) > MAX_CHARS_FOR_GEMINI:
-            print(f"{LF_PRINT_PREFIX} ВНИМАНИЕ: Текст для Gemini для '{person_name}' слишком длинный ({len(news_summaries_text)}). Обрезаем до {MAX_CHARS_FOR_GEMINI}.")
-            news_summaries_text = news_summaries_text[:MAX_CHARS_FOR_GEMINI] 
-            news_summaries_text += "\n\n... (text automatically truncated due to length limit)"
+            if not news_summaries:
+                person_api_data = {"location_name": "Error", "lat": None, "lon": None, "error": "No suitable news summaries found"}
+            else:
+                news_text = "\n\n".join(news_summaries)
+                news_summaries_text_for_cache = news_text[:500] + ("..." if len(news_text)>500 else "")
+                print(f"\n{LF_PRINT_PREFIX} ---- ТЕКСТ ДЛЯ GEMINI ({person_name_cleaned}), длина: {len(news_text)} ----\n{news_text[:1000]}...\n---- КОНЕЦ ПРЕВЬЮ ----\n")
+                MAX_CHARS_FOR_GEMINI = 750000 
+                if len(news_text) > MAX_CHARS_FOR_GEMINI:
+                    news_text = news_text[:MAX_CHARS_FOR_GEMINI] + "\n...(truncated)"
+                person_api_data = _get_location_from_gemini(person_name_cleaned, news_text)
+                
+        # --- ОБНОВЛЕННАЯ ЛОГИКА РЕШЕНИЯ, ЧТО СОХРАНЯТЬ И ВОЗВРАЩАТЬ ---
+        is_fresh_data_good = (
+            person_api_data.get("lat") is not None and
+            person_api_data.get("lon") is not None and
+            not person_api_data.get("error") and
+            person_api_data.get("location_name") != "Unknown" and
+            not (person_api_data.get("location_name") or "").lower().startswith("error")
+        )
 
-        location_data = _get_location_from_gemini(person_name, news_summaries_text)
+        if is_fresh_data_good:
+            print(f"{LF_PRINT_PREFIX} Получены 'хорошие' свежие данные для '{person_name_cleaned}'. Сохраняем их.")
+            save_cached_location(person_name_key, person_api_data, source_summary=news_summaries_text_for_cache)
+            results[person_name_cleaned] = person_api_data
+        elif had_good_stale_cache and cached_entry: # Свежие данные плохие, НО был хороший старый кэш
+            print(f"{LF_PRINT_PREFIX} Свежие данные для '{person_name_cleaned}' 'плохие' ({person_api_data.get('error') or person_api_data.get('location_name')}). Используем старый 'хороший' кэш.")
+            # Модифицируем старый кэш, добавляя пометку, что он устарел, но используется
+            stale_cached_data_to_return = {
+                "location_name": cached_entry["location_name"] + " (старые данные)",
+                "lat": cached_entry["lat"],
+                "lon": cached_entry["lon"],
+                "error": cached_entry["error"] # Должен быть None для хорошего кэша
+            }
+            results[person_name_cleaned] = stale_cached_data_to_return
+            # Не обновляем БД кэш плохими свежими данными, если использовали старый хороший.
+            # Или можно обновить, но с ошибкой от свежего запроса - это вопрос политики.
+            # Пока не будем обновлять, чтобы старый хороший кэш не затерся плохим новым, если мы его используем.
+        else: # Свежие данные плохие, и не было хорошего старого кэша (или не было кэша вообще)
+            print(f"{LF_PRINT_PREFIX} Свежие данные для '{person_name_cleaned}' 'плохие'. Сохраняем эти 'плохие' свежие данные (или ошибку).")
+            save_cached_location(person_name_key, person_api_data, source_summary=news_summaries_text_for_cache)
+            results[person_name_cleaned] = person_api_data
+        # --- КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ РЕШЕНИЯ ---                
         
-        print(f"{LF_PRINT_PREFIX} Результат (с геоданными) для '{person_name}': {location_data}")
-        results[person_name] = location_data
-        
-        if len(person_names) > 1 and person_name != person_names[-1]:
-            print(f"{LF_PRINT_PREFIX} Пауза 0.5 сек перед следующей персоной...")
-            time.sleep(0.5) 
+        if len(person_names) > 1 and original_person_name != person_names[-1]: time.sleep(1) 
     
     print(f"{LF_PRINT_PREFIX} Завершение find_persons_locations. Результаты: {json.dumps(results, ensure_ascii=False, indent=2)}")
     return results
+    
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ФОНОВОГО ОБНОВЛЕНИЯ ---
+PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE = [
+    "Putin", "Trump", "Zelensky", "Xi Jinping", 
+    "Kim Jong Un", # Обратите внимание на точку, если NewsAPI ее требует, или без нее
+    "Macron", "Merz", "Starmer"
+]
+
+def update_locations_for_predefined_persons():
+    """
+    Обновляет информацию о местоположении для предопределенного списка персон.
+    Эта функция предназначена для вызова по расписанию.
+    Она не возвращает данные, а обновляет кэш в БД.
+    """
+    print(f"\n{LF_PRINT_PREFIX} === ЗАПУСК ФОНОВОГО ОБНОВЛЕНИЯ ЛОКАЦИЙ ===")
+    print(f"{LF_PRINT_PREFIX} Персоны для обновления: {PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE}")
+
+    # Убедимся, что Gemini инициализирован, прежде чем начать цикл
+    # Это важно, так как find_persons_locations теперь ожидает, что он будет инициализирован,
+    # если test_mode=False.
+    if not _gemini_model_instance and not _initialize_gemini():
+        print(f"{LF_PRINT_PREFIX} ФОНОВОЕ ОБНОВЛЕНИЕ: ОШИБКА - Не удалось инициализировать Gemini. Обновление отменено.")
+        return
+
+    # Вызываем основную функцию, test_mode=False для реальных данных
+    # Результат нам здесь не нужен, функция сама сохранит в БД кэш
+    try:
+        find_persons_locations(PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE, test_mode=False)
+        print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ ЗАВЕРШЕНО УСПЕШНО ===")
+    except Exception as e:
+        print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ ЗАВЕРШИЛОСЬ С ОШИБКОЙ ===")
+        print(f"{LF_PRINT_PREFIX} Ошибка во время фонового обновления: {e}")
+        traceback.print_exc()
+
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
 
 if __name__ == '__main__':
     print(f"{LF_PRINT_PREFIX} --- Тестирование location_finder.py (локальный запуск) ---")
-    
+    try:
+        import db_manager 
+        print(f"{LF_PRINT_PREFIX} Вызов db_manager.init_db() для теста...")
+        db_manager.init_db()
+    except ImportError:
+        print(f"{LF_PRINT_PREFIX} Не удалось импортировать db_manager для инициализации БД в тесте.")
+
     print(f"{LF_PRINT_PREFIX} --- Тест в РЕАЛЬНОМ режиме ---")
-    real_test_persons = ["Trump"] 
+    real_test_persons = ["Trump", "Biden"] 
     real_locations_data = find_persons_locations(real_test_persons, test_mode=False)
-    print(f"{LF_PRINT_PREFIX}\n--- Результаты РЕАЛЬНОГО поиска локаций (локальный тест) ---")
+    print(f"{LF_PRINT_PREFIX}\n--- Результаты РЕАЛЬНОГО поиска локаций ---")
     for person, data in real_locations_data.items():
         print(f"{LF_PRINT_PREFIX} {person}: Name='{data.get('location_name')}', Lat={data.get('lat')}, Lon={data.get('lon')}, Error='{data.get('error')}'")
-
-    print(f"\n{LF_PRINT_PREFIX} --- Тест в ТЕСТОВОМ режиме (заглушка Стамбул) ---")
-    stub_test_persons = ["Person1", "Person2"]
-    stub_locations_data = find_persons_locations(stub_test_persons, test_mode=True)
-    print(f"{LF_PRINT_PREFIX}\n--- Результаты ТЕСТОВОГО поиска локаций (заглушка) ---")
-    for person, data in stub_locations_data.items():
-        print(f"{LF_PRINT_PREFIX} {person}: Name='{data.get('location_name')}', Lat={data.get('lat')}, Lon={data.get('lon')}, Error='{data.get('error')}'")
-
-    print(f"\n{LF_PRINT_PREFIX}--- Прямой тест Геокодинга ---")
-    lat_paris, lon_paris = _geocode_location("France, Paris")
-    print(f"{LF_PRINT_PREFIX} Геокодинг для 'France, Paris': Lat={lat_paris}, Lon={lon_paris}")
-# --- END OF FILE location_finder.py ---
+# --- END OF location_finder.py ---
