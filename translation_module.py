@@ -27,6 +27,7 @@ def translate_chunk(model, text, target_language="russian", previous_context="",
     # --- Формирование базовых инструкций ---
     prompt_lines = [
         # --- НАЧАЛО ПОЛНЫХ ИНСТРУКЦИЙ ---
+#        f"Ниже фрагмент большого текста. Проанализируй его и сделай максимально краткое изложение в одном-двух предложениях на русском языке."
         f"You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:",
         "- Perform a literary translation, preserving the author's original style, tone, and nuances.",
         "- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.",
