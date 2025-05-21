@@ -11,51 +11,18 @@
         h1 { color: #333; text-align: center; margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; font-weight: bold; }
         input[type="text"] { width: calc(100% - 22px); padding: 10px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;}
-        
         .controls-row { display: flex; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
         .controls-row button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-right: 15px; margin-bottom: 5px;}
         .controls-row button:hover { background-color: #0056b3; }
-        .test-mode-container { display: none; } 
-
+        .test-mode-container { display: none; }
         #map_container { margin-top: 20px; }
         #map_div_id { height: 450px; width: 100%; border: 1px solid #ccc; margin-bottom: 15px; background-color: #e0e0e0; }
-        
         #text_results_container { margin-top: 10px; }
-        #results_output_id { 
-            margin-top: 5px; 
-            padding: 0; /* Убираем внутренний padding у контейнера */
-            background-color:#f0f0f0; 
-            min-height:50px; 
-            /* white-space: pre-wrap; -- Убираем, т.к. каждый элемент будет в своем div */
-            max-height: 200px; 
-            overflow-y: auto; 
-            border: 1px solid #e0e0e0; 
-            border-radius: 4px;
-            list-style-type: none; /* Если бы это был ul/ol */
-        }
-        /* --- СТИЛИ ДЛЯ ЭЛЕМЕНТА СПИСКА-ЛЕГЕНДЫ --- */
-        .result-item { 
-            display: flex; /* Для выравнивания цветного бокса и текста */
-            align-items: center; /* Вертикальное выравнивание по центру */
-            margin-bottom: 0px; /* Убираем нижний отступ */
-            padding: 8px 10px; /* Внутренний отступ для каждого элемента */
-            border-bottom: 1px solid #ddd; 
-        }
-        .result-item:last-child { 
-            border-bottom: none; 
-        }
-        .legend-color-dot { /* Изменили на dot (кружок) */
-            width: 12px;    /* Размер кружка */
-            height: 12px;
-            border-radius: 50%; /* Делаем круглым */
-            margin-right: 10px; /* Отступ от текста */
-            flex-shrink: 0; /* Чтобы кружок не сжимался */
-            border: 1px solid #555; /* Обводка кружка */
-        }
-        /* --- КОНЕЦ СТИЛЕЙ ДЛЯ ЭЛЕМЕНТА СПИСКА-ЛЕГЕНДЫ --- */
-
+        #results_output_id { margin-top: 5px; padding: 0; background-color:#f0f0f0; min-height:50px; max-height: 200px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 4px; list-style-type: none; }
+        .result-item { display: flex; align-items: center; margin-bottom: 0px; padding: 8px 10px; border-bottom: 1px solid #ddd; }
+        .result-item:last-child { border-bottom: none; }
+        .legend-color-dot { width: 12px; height: 12px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; border: 1px solid #555; }
         .error-text { color: red; font-style: italic;}
-
         .loader-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255, 255, 255, 0.8); display: none; justify-content: center; align-items: center; z-index: 1000; text-align: center; flex-direction: column; }
         .loader { border: 8px solid #f3f3f3; border-top: 8px solid #3498db; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin-bottom: 15px; }
         .loading-text { font-size: 1.2em; color: #333; }
@@ -67,10 +34,10 @@
         <h1>Где Трамп?</h1>
         <div>
             <label for="person_names_input_id">Кого ищем?</label>
-            <input type="text" id="person_names_input_id" value="Trump, Putin, Zelensky"> <!-- Добавил Байдена для теста цвета по умолчанию -->
+            <input type="text" id="person_names_input_id" value="Trump, Putin, Zelensky">
         </div>
         <div class="controls-row">
-            <button id="findButtonId">Найти и показать на карте</button> 
+            <button id="findButtonId">Найти и показать на карте</button>
             <div class="test-mode-container">
                 <input type="checkbox" id="test_mode_checkbox_id">
                 <label for="test_mode_checkbox_id">Тестовый режим (Стамбул)</label>
@@ -80,14 +47,9 @@
             <div class="loader"></div>
             <div class="loading-text">Одну секунду...</div>
         </div>
-        
         <div id="map_container">
             <div id="map_div_id"><p style="text-align:center; padding-top:20px;" id="map_loading_text_id">Карта загружается...</p></div>
-            
-            <!-- Отдельный блок легенды УБРАН -->
-
             <div id="text_results_container">
-                <!-- Заголовок "Результаты:" убран -->
                 <div id="results_output_id"><p>Здесь будут отображены результаты поиска...</p></div>
             </div>
         </div>
@@ -96,43 +58,41 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log("[ClientJS-ListLegend] DOMContentLoaded");
+            console.log("[ClientJS-Timestamp] DOMContentLoaded");
 
-            // ... (Получение DOM элементов - без изменений)
             const namesInputElement = document.getElementById('person_names_input_id');
             const resultsOutputDiv = document.getElementById('results_output_id');
-            const loaderElement = document.getElementById('full_page_loader_id'); 
+            const loaderElement = document.getElementById('full_page_loader_id');
             const findButtonElement = document.getElementById('findButtonId');
-            // const testModeCheckbox = document.getElementById('test_mode_checkbox_id'); 
             const mapDivElement = document.getElementById('map_div_id');
             const mapLoadingTextElement = document.getElementById('map_loading_text_id');
 
-            let leafletMap = null; 
-            let markersLayer = null; 
+            let leafletMap = null;
+            let markersLayer = null;
 
-            // Цвета и опции маркеров (без изменений)
             const personMarkerColors = {
                 "Putin": { fillColor: 'red', color: 'darkred' },
                 "Trump": { fillColor: 'blue', color: 'darkblue' },
                 "Zelensky": { fillColor: 'green', color: 'darkgreen' },
-                "DEFAULT": { fillColor: 'orange', color: 'darkorange' } 
+                "DEFAULT": { fillColor: 'orange', color: 'darkorange' }
             };
             const defaultMarkerOptions = {
                 radius: 8, weight: 1, opacity: 1, fillOpacity: 0.7
             };
 
-            function initializeMap() { /* ... (без изменений) ... */ 
-                 console.log("[ClientJS-ListLegend] initializeMap called");
+            function initializeMap() {
+                 console.log("[ClientJS-Timestamp] initializeMap called");
                 if (leafletMap) { return true; } if (!mapDivElement) { return false; } if (typeof L === 'undefined') { return false; }
                 try {
                     leafletMap = L.map(mapDivElement).setView([20, 0], 2);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(leafletMap);
                     markersLayer = L.layerGroup().addTo(leafletMap);
                     if (mapLoadingTextElement) mapLoadingTextElement.style.display = 'none'; else if (mapDivElement) mapDivElement.innerHTML = '';
+                    console.log("[ClientJS-Timestamp] Карта инициализирована.");
                     return true;
                 } catch (e) { console.error("Map init error", e); if (mapDivElement) mapDivElement.innerHTML = `<p>Ошибка карты</p>`; return false; }
             }
-            
+
 function escapeHTML(str) {
     if (str === null || typeof str === 'undefined') return '';
     str = String(str);
@@ -147,59 +107,62 @@ function escapeHTML(str) {
     });
 }
 
-            async function performLocationSearch() { 
-                console.log("[ClientJS-ListLegend] performLocationSearch called.");
-                // ... (начало функции: инициализация карты, очистка маркеров, лоадер - без изменений) ...
-                if (!leafletMap && !initializeMap()) { /* ... */ if (loaderElement) loaderElement.style.display = 'none'; return; }
-                if (markersLayer) { markersLayer.clearLayers(); } else if (leafletMap) { markersLayer = L.layerGroup().addTo(leafletMap); } else { /* ... */ if (loaderElement) loaderElement.style.display = 'none'; return; }
+            async function performLocationSearch() {
+                console.log("[ClientJS-Timestamp] performLocationSearch called.");
+                if (!leafletMap && !initializeMap()) { if (resultsOutputDiv) resultsOutputDiv.textContent = "Ошибка: Карта не доступна."; if (loaderElement) loaderElement.style.display = 'none'; return; }
+                if (markersLayer) { markersLayer.clearLayers(); } else if (leafletMap) { markersLayer = L.layerGroup().addTo(leafletMap); } else { if (loaderElement) loaderElement.style.display = 'none'; return; }
                 if (loaderElement) loaderElement.style.display = 'flex';
-                if (resultsOutputDiv) resultsOutputDiv.innerHTML = ''; 
+                if (resultsOutputDiv) resultsOutputDiv.innerHTML = '';
 
                 const namesInput = namesInputElement ? namesInputElement.value : "";
-                // const isTestMode = testModeCheckbox ? testModeCheckbox.checked : false;
-                const isTestMode = false; // Галочка всегда выключена (скрыта)
-                
+                const isTestMode = false; // Галочка скрыта
+
                 let namesArray = [];
-                if (namesInput.trim()) {
-                    namesArray = namesInput.split(',').map(name => name.trim()).filter(name => name.length > 0);
-                }
-                if (namesArray.length === 0) { // Если поле пустое
+                if (namesInput.trim()) { namesArray = namesInput.split(',').map(name => name.trim()).filter(name => name.length > 0); }
+                if (namesArray.length === 0) {
                     if (resultsOutputDiv) resultsOutputDiv.innerHTML = '<p style="color: red;">Ошибка: Введите имена для поиска.</p>';
                     if (loaderElement) loaderElement.style.display = 'none'; return;
                 }
                 const payload = { persons: namesArray, test_mode: isTestMode };
-                console.log("[ClientJS-ListLegend] Payload:", JSON.stringify(payload));
+                console.log("[ClientJS-Timestamp] Payload:", JSON.stringify(payload));
 
                 try {
                     const response = await fetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     const responseBodyText = await response.text();
                     let serverData;
-                    // ... (обработка ответа fetch и парсинг JSON - без изменений) ...
-                    if (response.ok && responseBodyText) { try { serverData = JSON.parse(responseBodyText); } catch (e) { /*...*/ if (loaderElement) loaderElement.style.display = 'none'; return; }
-                    } else if (!response.ok) { /*...*/ if (loaderElement) loaderElement.style.display = 'none'; return; } else { /*...*/ if (loaderElement) loaderElement.style.display = 'none'; return; }
-                    console.log("[ClientJS-ListLegend] Parsed JSON data:", serverData);
-                    
+                    if (loaderElement) loaderElement.style.display = 'none';
+
+                    if (response.ok && responseBodyText) { try { serverData = JSON.parse(responseBodyText); } catch (e) { if (resultsOutputDiv) resultsOutputDiv.innerHTML = `<p style='color:red;'>JSON Ошибка:<pre>${escapeHTML(responseBodyText)}</pre></p>`; console.error("JSON Parse Err:", e); return; }
+                    } else if (!response.ok) { if (resultsOutputDiv) resultsOutputDiv.innerHTML = `<p style='color:red;'>Ошибка ${response.status}:<pre>${escapeHTML(responseBodyText)}</pre></p>`; console.error("Server Err:", responseBodyText); return; }
+                    else { if (resultsOutputDiv) resultsOutputDiv.innerHTML = "<p>Пустой ответ.</p>"; return; }
+
+                    console.log("[ClientJS-Timestamp] Data:", serverData);
                     let htmlOutput = '';
-                    let mapBounds = []; 
-                    let usedBaseCoords = {}; 
+                    let mapBounds = [];
+                    let usedBaseCoords = {};
 
                     for (const personKey in serverData) {
                         if (Object.prototype.hasOwnProperty.call(serverData, personKey)) {
                             const personData = serverData[personKey];
-                            
-                            // --- ИЗМЕНЕНИЕ: Формируем элемент списка с цветным индикатором ---
                             const markerStyle = personMarkerColors[personKey] || personMarkerColors["DEFAULT"];
                             const colorDotHtml = `<span class="legend-color-dot" style="background-color: ${markerStyle.fillColor}; border-color: ${markerStyle.color};"></span>`;
-                            
-                            let textPart = `<strong>${escapeHTML(personKey)}:</strong>&nbsp${escapeHTML(personData.location_name || 'N/A')}`;
-                            // --- Конец изменения ---
-                                                        
+                            let textPart = `<strong>${escapeHTML(personKey)}:</strong>  ${escapeHTML(personData.location_name || 'N/A')}`;
+
+                            if (personData.last_updated) { // Если есть last_updated
+                                const date = new Date(personData.last_updated * 1000);
+                                const formattedTime = date.toLocaleString('ru-RU', {
+                                    day: '2-digit', month: 'short', // Используем 'short' для месяца
+                                    hour: '2-digit', minute: '2-digit'
+                                });
+                                textPart += ` <span style="font-size:0.85em; color:#444;">&nbsp(${formattedTime})</span>`;
+                            }
+
                             if (personData && personData.lat != null && personData.lon != null) {
                                 let originalLat = parseFloat(personData.lat); let originalLon = parseFloat(personData.lon);
                                 let displayLat = originalLat; let displayLon = originalLon;
                                 const baseCoordKey = `${originalLat.toFixed(5)},${originalLon.toFixed(5)}`;
                                 let offsetCount = usedBaseCoords[baseCoordKey] || 0;
-                                if (offsetCount > 0) { 
+                                if (offsetCount > 0) {
                                     const angleDeg = (offsetCount * 45); const offsetRad = angleDeg * (Math.PI / 180);
                                     const BASE_OFFSET = 0.01; const multiplier = 1 + (offsetCount * 0.5);
                                     const finalOffset = BASE_OFFSET * multiplier;
@@ -207,40 +170,42 @@ function escapeHTML(str) {
                                     displayLon = originalLon + (finalOffset * Math.sin(offsetRad));
                                 }
                                 usedBaseCoords[baseCoordKey] = offsetCount + 1;
-                                
-                                textPart += ` (Отобр: ${displayLat.toFixed(4)}, ${displayLon.toFixed(4)})`; // Добавляем координаты к текстовой части
-                                
+                                // Координаты больше не добавляем в textPart
                                 if (leafletMap && markersLayer) {
-                                    let finalMarkerOptions = {...defaultMarkerOptions, ...markerStyle}; 
+                                    let finalMarkerOptions = {...defaultMarkerOptions, ...markerStyle};
                                     L.circleMarker([displayLat, displayLon], finalMarkerOptions).addTo(markersLayer)
-                                        .bindPopup(`<b>${escapeHTML(personKey)}</b><br>${escapeHTML(personData.location_name || 'N/A')}`); // Убрал Orig. coords из popup для чистоты
+                                        .bindPopup(`<b>${escapeHTML(personKey)}</b><br>${escapeHTML(personData.location_name || 'N/A')}`);
                                     mapBounds.push([displayLat, displayLon]);
                                 }
-                            } else if (personData.error) {
+                            } else if (personData.error && !personData.last_updated) {
                                 textPart += ` <span class="error-text">(${escapeHTML(personData.error)})</span>`;
+                            } else if (personData.error && personData.last_updated) { // Если ошибка, но есть время обновления
+                                 textPart += ` <span class="error-text">&nbsp(Ошибка при посл. обновлении)</span>`; // Упростил сообщение об ошибке
                             }
-                           htmlOutput += `<div class="result-item">${colorDotHtml}${textPart}</div>`; // Добавляем colorDotHtml в начало
+                           htmlOutput += `<div class="result-item">${colorDotHtml}${textPart}</div>`;
                         }
                     }
                     if (resultsOutputDiv) resultsOutputDiv.innerHTML = htmlOutput || "<p>Нет данных.</p>";
-                    
-                    // ... (логика обновления карты leafletMap.setView/fitBounds - без изменений) ...
                     if (leafletMap && mapBounds.length > 0) {
-                        if (mapBounds.length === 1) { leafletMap.setView(mapBounds[0], 13); } 
+                        if (mapBounds.length === 1) { leafletMap.setView(mapBounds[0], 13); }
                         else { try { let b = L.latLngBounds(mapBounds.map(c=>L.latLng(c[0],c[1]))); leafletMap.fitBounds(b,{padding:[50,50]});} catch(e){console.error("FitBounds error",e); if(mapBounds[0])leafletMap.setView(mapBounds[0],6);else leafletMap.setView([20,0],2);}}
                     } else if (leafletMap) { leafletMap.setView([20,0], 2); }
 
-                } catch (error) { /* ... */ } 
-                finally { if (loaderElement) loaderElement.style.display = 'none'; console.log("[ClientJS-ListLegend] performLocationSearch finished."); }
-            } // Конец performLocationSearch
+                } catch (error) {
+                    if (loaderElement) loaderElement.style.display = 'none';
+                    console.error("[ClientJS-Timestamp] Fetch/Network error:", error);
+                    if (resultsOutputDiv) resultsOutputDiv.innerHTML = '<p style="color:red;">Ошибка сети: ' + escapeHTML(error.message) + '</p>';
+                }
+                finally { if (loaderElement) loaderElement.style.display = 'none'; console.log("[ClientJS-Timestamp] performLocationSearch finished."); }
+            }
 
-            if (findButtonElement) { findButtonElement.addEventListener('click', performLocationSearch); } 
-            else { console.error("[ClientJS-ListLegend] Кнопка 'Найти' НЕ НАЙДЕНА!"); }
-            
-            if (initializeMap()) { performLocationSearch(); } 
+            if (findButtonElement) { findButtonElement.addEventListener('click', performLocationSearch); }
+            else { console.error("[ClientJS-Timestamp] Кнопка 'Найти' НЕ НАЙДЕНА!"); }
+
+            if (initializeMap()) { performLocationSearch(); }
             else { if (loaderElement) loaderElement.style.display = 'none'; }
 
-            console.log("[ClientJS-ListLegend] Скрипт DOMContentLoaded завершен.");
+            console.log("[ClientJS-Timestamp] Скрипт DOMContentLoaded завершен.");
         });
     </script>
 </body>
