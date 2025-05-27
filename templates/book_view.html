@@ -129,9 +129,29 @@
             <p>
                 <label for="model-select">Модель:</label>
                 <select id="model-select" name="model_name">
-                    {% if available_models %} {% for model_obj in available_models %}
-                        <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>{{ model_obj.name }}</option>
-                    {% endfor %} {% else %}
+                    {% if available_models %}
+                        <!-- Google Models -->
+                        <optgroup label="Google Models">
+                        {% for model_obj in available_models %}
+                            {% if model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/') %}
+                            <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
+                                {{ model_obj.display_name }}
+                            </option>
+                            {% endif %}
+                        {% endfor %}
+                        </optgroup>
+                        
+                        <!-- Free OpenRouter Models -->
+                        <optgroup label="Free OpenRouter Models">
+                        {% for model_obj in available_models %}
+                            {% if not (model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/')) %}
+                            <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
+                                {{ model_obj.display_name }}
+                            </option>
+                            {% endif %}
+                        {% endfor %}
+                        </optgroup>
+                    {% else %}
                         <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>{{ selected_model | default('gemini-1.5-flash') }}</option>
                         <option disabled>Ошибка загрузки моделей</option>
                     {% endif %}

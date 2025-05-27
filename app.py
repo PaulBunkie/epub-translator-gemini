@@ -1,5 +1,8 @@
 # --- START OF FILE app.py ---
 
+from dotenv import load_dotenv
+load_dotenv()  # Загружаем переменные окружения из .env файла
+
 import os
 import uuid
 import json
@@ -198,10 +201,21 @@ def index():
     """ Отображает главную страницу со списком книг. """
     print("Загрузка главной страницы...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'gemini-1.5-flash')
+    selected_model = session.get('model_name', 'gemini-1.5-flash')  # Возвращаемся к Gemini по умолчанию
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
+    
+    # Получаем список моделей
     available_models = get_models_list()
-    if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей от API.")
+    if not available_models:
+        available_models = [
+            {
+                'name': 'gemini-1.5-flash',
+                'display_name': 'Google Gemini 1.5 Flash',
+                'description': 'Default Google Gemini model'
+            }
+        ]
+        print("  WARN: Не удалось получить список моделей от API.")
+    
     active_ids = [(info['book_id'], info['section_id']) for info in active_tasks.values() if info.get('status') in ['queued', 'extracting', 'translating', 'caching']]
     reset_stuck_processing_sections(active_processing_sections=active_ids)
     uploaded_books = []

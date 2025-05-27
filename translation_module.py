@@ -1,177 +1,305 @@
 # --- START OF FILE translation_module.py ---
 
+from abc import ABC, abstractmethod
 import google.generativeai as genai
 import os
 import re
-# Убрали импорт g
+from typing import Optional, List, Dict, Any
+from openrouter_translation import OpenRouterTranslator
 
 # Константа для обозначения ошибки лимита контекста
 CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
 
-def configure_api():
-    """Настраивает API ключ из переменной окружения."""
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise ValueError("Не установлена переменная окружения GOOGLE_API_KEY")
-    genai.configure(api_key=api_key)
-    print("API ключ успешно сконфигурирован.")
+class BaseTranslator(ABC):
+    @abstractmethod
+    def translate_chunk(self, model_name: str, text: str, target_language: str = "russian",
+                       previous_context: str = "", prompt_ext: Optional[str] = None) -> Optional[str]:
+        pass
 
-# --- translate_chunk() с полными инструкциями и аргументом prompt_ext ---
-def translate_chunk(model, text, target_language="russian", previous_context="", prompt_ext=None):
-    """
-    Переводит один кусок текста с использованием предоставленной модели.
-    Возвращает переведенный текст или флаг ошибки контекста.
-    Использует английский язык для промпта с улучшенными инструкциями.
-    Использует переданный prompt_ext для дополнительных инструкций.
-    """
-    # --- Формирование базовых инструкций ---
-    prompt_lines = [
-        # --- НАЧАЛО ПОЛНЫХ ИНСТРУКЦИЙ ---
-#        f"Ниже фрагмент большого текста. Проанализируй его и сделай максимально краткое изложение в одном-двух предложениях на русском языке."
-        f"You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:",
-        "- Perform a literary translation, preserving the author's original style, tone, and nuances.",
-        "- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.",
-        "- Avoid softening strong language unless culturally necessary.",
-        f"- Translate common abbreviations (like 'e.g.', 'i.e.', 'CIA') according to their established {target_language} equivalents.",
-        "- Keep uncommon or fictional abbreviations/acronyms (e.g., KPS) in their original form.",
-        "- For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.",
-        f"{' - When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.' if target_language.lower() == 'russian' else ''}",
-        # Инструкция про сноски
-        f"""- If clarification is needed for a {target_language} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
+    @abstractmethod
+    def translate_text(self, text_to_translate: str, target_language: str = "russian",
+                      model_name: str = None, prompt_ext: Optional[str] = None) -> Optional[str]:
+        pass
+
+    @abstractmethod
+    def get_available_models(self) -> List[Dict[str, Any]]:
+        pass
+
+class GoogleTranslator(BaseTranslator):
+    def __init__(self):
+        self.api_key = os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("Не установлена переменная окружения GOOGLE_API_KEY")
+        genai.configure(api_key=self.api_key)
+        print("Google API ключ успешно сконфигурирован.")
+
+    def get_available_models(self) -> List[Dict[str, Any]]:
+        """Возвращает список доступных моделей от Google."""
+        try:
+            models = []
+            for model in genai.list_models():
+                if "generateContent" in model.supported_generation_methods:
+                    models.append({
+                        'name': model.name,
+                        'display_name': f"Google {model.name}",
+                        'input_token_limit': model.input_token_limit,
+                        'output_token_limit': model.output_token_limit
+                    })
+            return models
+        except Exception as e:
+            print(f"Ошибка при получении списка моделей Google: {e}")
+            return []
+
+    def translate_chunk(self, model_name: str, text: str, target_language: str = "russian",
+                       previous_context: str = "", prompt_ext: Optional[str] = None) -> Optional[str]:
+        """Переводит один кусок текста с использованием предоставленной модели."""
+        try:
+            model = genai.GenerativeModel(model_name)
+        except Exception as e:
+            print(f"ОШИБКА: Инициализация модели: {e}")
+            return None
+
+        # Формирование базовых инструкций
+        prompt_lines = [
+            f"You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:",
+            "- Perform a literary translation, preserving the author's original style, tone, and nuances.",
+            "- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.",
+            "- Avoid softening strong language unless culturally necessary.",
+            f"- Translate common abbreviations (like 'e.g.', 'i.e.', 'CIA') according to their established {target_language} equivalents.",
+            "- Keep uncommon or fictional abbreviations/acronyms (e.g., KPS) in their original form.",
+            "- For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.",
+            f"{' - When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.' if target_language.lower() == 'russian' else ''}",
+            f"""- If clarification is needed for a {target_language} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
   - **Format:** Insert a sequential footnote marker directly after the word/phrase.
     - **Preferred format:** Use superscript numbers (like ¹, ², ³).
     - **Alternative format (if superscript is not possible):** Use numbers in square brackets (like [1], [2], [3]).
   - **Content:** At the very end of the translated section, add a separator ('---') and a heading ('{'Примечания переводчика' if target_language.lower() == 'russian' else 'Translator Notes'}'). List all notes sequentially by their marker (e.g., '¹ Explanation.' or '[1] Explanation.').
   - Use footnotes sparingly."""
-        # --- КОНЕЦ ПОЛНЫХ ИНСТРУКЦИЙ ---
-    ]
+        ]
 
-    # --- Добавление пользовательских инструкций из аргумента prompt_ext ---
-    if prompt_ext and prompt_ext.strip():
-        print(f"  [translate_chunk] Добавляем пользовательские инструкции (prompt_ext) к промпту (длина: {len(prompt_ext)}).")
+        # Добавляем пользовательские инструкции
+        if prompt_ext and prompt_ext.strip():
+            print(f"  [translate_chunk] Добавляем пользовательские инструкции (prompt_ext) к промпту (длина: {len(prompt_ext)}).")
+            prompt_lines.extend([
+                "\n---",
+                "ADDITIONAL INSTRUCTIONS (Apply if applicable, follow strictly for names and terms defined here):",
+                prompt_ext,
+                "---"
+            ])
+
+        # Добавляем контекст и текст для перевода
+        if previous_context:
+            prompt_lines.append("\nPrevious Context (use for style and recent terminology reference):\n" + previous_context)
+        
         prompt_lines.extend([
-            "\n---",
-            "ADDITIONAL INSTRUCTIONS (Apply if applicable, follow strictly for names and terms defined here):",
-            prompt_ext, # Используем аргумент функции
-            "---"
+            "\nText to Translate:",
+            text,
+            "\nTranslation:"
         ])
-    # --- КОНЕЦ Добавления ---
+        
+        prompt = "\n".join(filter(None, prompt_lines))
 
-    # Добавляем контекст и текст для перевода
-    prompt_lines.extend([
-        ("\nPrevious Context (use for style and recent terminology reference):\n" + previous_context) if previous_context else "",
-        "\nText to Translate:",
-        text,
-        "\nTranslation:"
-    ])
-    prompt = "\n".join(filter(None, prompt_lines))
+        if not text.strip():
+            return ""
 
-    if not text.strip(): return ""
-    try:
-        print(f"Отправка запроса к модели {model.model_name}...")
-        # Отладка промпта (можно раскомментировать при необходимости)
-        # print("\n" + "="*20 + " FINAL PROMPT SENT TO MODEL " + "="*20)
-        # print(prompt)
-        # print("="*20 + " END FINAL PROMPT " + "="*20 + "\n")
+        try:
+            print(f"Отправка запроса к модели {model_name}...")
+            response = model.generate_content(prompt)
+            raw_text = getattr(response, 'text', None)
 
-        response = model.generate_content(prompt)
-        raw_text = getattr(response, 'text', None)
+            if raw_text is not None:
+                return raw_text
+            else:
+                print("ОШИБКА: Ответ API не содержит текста.")
+                return None
 
-        # Обработка ответа и ошибок (краткая версия для примера)
-        if raw_text is not None:
-             # Проверить finish_reason если нужно (MAX_TOKENS, SAFETY)
-             # finish_reason = getattr(response.candidates[0], 'finish_reason', None) if response.candidates else None
-             # if finish_reason == 'MAX_TOKENS': print("WARN: MAX_TOKENS")
-             # elif finish_reason == 'SAFETY': print("ERROR: SAFETY"); return None
-             return raw_text
+        except Exception as e:
+            error_text = str(e).lower()
+            context_keywords = ["context window", "token limit", "maximum input length",
+                              "превышен лимит токенов", "request payload size exceeds the limit",
+                              "resource exhausted", "limit exceeded", "400 invalid argument"]
+            
+            is_likely_context_error = False
+            if "400 invalid argument" in error_text and "token" in error_text:
+                is_likely_context_error = True
+            elif any(keyword in error_text for keyword in context_keywords):
+                is_likely_context_error = True
+
+            if is_likely_context_error:
+                print(f"ОШИБКА: Лимит контекста? {e}")
+                return CONTEXT_LIMIT_ERROR
+            else:
+                print(f"ОШИБКА: Неизвестная ошибка перевода: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+
+    def translate_text(self, text_to_translate: str, target_language: str = "russian",
+                      model_name: str = "gemini-1.5-flash", prompt_ext: Optional[str] = None) -> Optional[str]:
+        """Основная функция для перевода строки текста."""
+        CHUNK_SIZE_LIMIT_CHARS = 20000
+        text_len = len(text_to_translate)
+        print(f"Проверка длины текста: {text_len} симв. Лимит чанка: {CHUNK_SIZE_LIMIT_CHARS} симв.")
+
+        if text_len <= CHUNK_SIZE_LIMIT_CHARS * 1.1:
+            print("Пробуем перевод целиком...")
+            result = self.translate_chunk(model_name, text_to_translate, target_language, prompt_ext=prompt_ext)
+            if result != CONTEXT_LIMIT_ERROR:
+                return result
+            print("Перевод целиком не удался (лимит контекста), переключаемся на чанки.")
+
+        # Разбиваем на параграфы
+        print(f"Текст длинный ({text_len} симв.), разбиваем на чанки...")
+        paragraphs = text_to_translate.split('\n\n')
+        chunks = []
+        current_chunk = []
+        current_chunk_len = 0
+
+        for paragraph in paragraphs:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+
+            paragraph_len = len(paragraph)
+            if paragraph_len > CHUNK_SIZE_LIMIT_CHARS:
+                # Если текущий чанк не пустой, сохраняем его
+                if current_chunk:
+                    chunks.append('\n\n'.join(current_chunk))
+                    current_chunk = []
+                    current_chunk_len = 0
+
+                # Разбиваем длинный параграф на предложения
+                sentences = paragraph.split('. ')
+                temp_chunk = []
+                temp_chunk_len = 0
+
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    sentence_len = len(sentence)
+
+                    if temp_chunk_len + sentence_len > CHUNK_SIZE_LIMIT_CHARS:
+                        if temp_chunk:
+                            chunks.append('. '.join(temp_chunk) + '.')
+                        temp_chunk = [sentence]
+                        temp_chunk_len = sentence_len
+                    else:
+                        temp_chunk.append(sentence)
+                        temp_chunk_len += sentence_len + 2  # +2 для '. '
+
+                if temp_chunk:
+                    chunks.append('. '.join(temp_chunk) + '.')
+            else:
+                if current_chunk_len + paragraph_len > CHUNK_SIZE_LIMIT_CHARS:
+                    chunks.append('\n\n'.join(current_chunk))
+                    current_chunk = [paragraph]
+                    current_chunk_len = paragraph_len
+                else:
+                    current_chunk.append(paragraph)
+                    current_chunk_len += paragraph_len + 4  # +4 для '\n\n'
+
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+
+        if not chunks:
+            print("Ошибка: Не удалось создать чанки!")
+            return None
+
+        # Переводим чанки
+        print(f"Текст разбит на {len(chunks)} чанков.")
+        translated_chunks = []
+        last_successful_translation = ""
+
+        for i, chunk in enumerate(chunks, 1):
+            print(f"-- Перевод чанка {i}/{len(chunks)} ({len(chunk)} симв.)...")
+            context_fragment = " ".join(last_successful_translation.split()[-100:]) if last_successful_translation else ""
+            
+            translated_chunk = self.translate_chunk(
+                model_name,
+                chunk,
+                target_language,
+                previous_context=context_fragment,
+                prompt_ext=prompt_ext
+            )
+
+            if translated_chunk == CONTEXT_LIMIT_ERROR:
+                print(f"Ошибка лимита контекста на чанке {i}.")
+                return CONTEXT_LIMIT_ERROR
+            elif translated_chunk is None:
+                print(f"Ошибка перевода чанка {i}.")
+                return None
+            else:
+                translated_chunks.append(translated_chunk)
+                last_successful_translation = translated_chunk
+
+        print("Сборка переведенных чанков...")
+        return "\n\n".join(translated_chunks)
+
+class TranslatorFactory:
+    @staticmethod
+    def create_translator(model_name: str) -> BaseTranslator:
+        """Создает экземпляр переводчика на основе имени модели."""
+        if model_name.startswith("gemini-") or model_name.startswith("models/"):
+            return GoogleTranslator()
         else:
-             # Проверить prompt_feedback на блокировку
-             # block_reason = getattr(response.prompt_feedback, 'block_reason', None) if hasattr(response, 'prompt_feedback') else None
-             # if block_reason: print(f"ERROR: Prompt Blocked - {block_reason}"); return None
-             print("ОШИБКА: Ответ API не содержит текста.")
-             return None
-    except Exception as e:
-        error_text = str(e).lower()
-        context_keywords = ["context window", "token limit", "maximum input length", "превышен лимит токенов", "request payload size exceeds the limit", "resource exhausted", "limit exceeded", "400 invalid argument"]
-        is_likely_context_error = False
-        if "400 invalid argument" in error_text and "token" in error_text: is_likely_context_error = True
-        elif any(keyword in error_text for keyword in context_keywords): is_likely_context_error = True
-        if is_likely_context_error: print(f"ОШИБКА: Лимит контекста? {e}"); return CONTEXT_LIMIT_ERROR
-        else: print(f"ОШИБКА: Неизвестная ошибка перевода: {e}"); import traceback; traceback.print_exc(); return None
+            return OpenRouterTranslator()
 
+def configure_api() -> None:
+    """Проверяет наличие необходимых ключей API."""
+    errors = []
+    
+    # Проверяем Google API
+    if not os.getenv("GOOGLE_API_KEY"):
+        errors.append("Не установлена переменная окружения GOOGLE_API_KEY")
+    
+    # Проверяем OpenRouter API
+    if not os.getenv("OPENROUTER_API_KEY"):
+        errors.append("Не установлена переменная окружения OPENROUTER_API_KEY")
+    
+    if errors:
+        raise ValueError("\n".join(errors))
 
-# --- translate_text() с передачей prompt_ext ---
-def translate_text(text_to_translate, target_language="russian", model_name="gemini-1.5-flash", prompt_ext=None):
-    """
-    Основная функция для перевода строки текста.
-    Передает prompt_ext в функцию перевода чанков.
-    """
-    print(f"Инициализация модели {model_name} для перевода...")
-    try: model = genai.GenerativeModel(model_name)
-    except Exception as e: print(f"ОШИБКА: Инициализация модели: {e}"); return None
+def translate_text(text_to_translate: str, target_language: str = "russian",
+                  model_name: str = None, prompt_ext: Optional[str] = None) -> Optional[str]:
+    """Переводит текст, используя соответствующий API на основе имени модели."""
+    if not model_name:
+        model_name = "mistralai/ministral-8b"  # Модель по умолчанию
+    
+    translator = TranslatorFactory.create_translator(model_name)
+    return translator.translate_text(text_to_translate, target_language, model_name, prompt_ext)
 
-    CHUNK_SIZE_LIMIT_CHARS = 20000
-    text_len = len(text_to_translate)
-    print(f"Проверка длины текста: {text_len} симв. Лимит чанка: {CHUNK_SIZE_LIMIT_CHARS} симв.")
-
-    if text_len <= CHUNK_SIZE_LIMIT_CHARS * 1.1:
-         print("Пробуем перевод целиком...")
-         result = translate_chunk(model, text_to_translate, target_language, prompt_ext=prompt_ext) # Передаем prompt_ext
-         if result != CONTEXT_LIMIT_ERROR: return result
-         else: print("Перевод целиком не удался (лимит контекста), переключаемся на чанки.")
-
-    # --- Логика разбиения на чанки (без изменений) ---
-    print(f"Текст длинный ({text_len} симв.), разбиваем на чанки...")
-    paragraphs = text_to_translate.split('\n\n'); chunks = []; current_chunk_paragraphs = []; current_chunk_len = 0
-    for i, p in enumerate(paragraphs):
-        p_clean = p.strip(); p_len = len(p_clean)
-        if not p_clean: continue
-        separator_len = 2 if current_chunk_paragraphs else 0
-        if p_len > CHUNK_SIZE_LIMIT_CHARS: # Параграф слишком длинный
-            if current_chunk_paragraphs: chunks.append("\n\n".join(current_chunk_paragraphs)); print(f"  Создан чанк {len(chunks)}...");
-            current_chunk_paragraphs = []; current_chunk_len = 0
-            sentences = re.split(r'(?<=[.?!])\s+', p_clean); temp_sentence_chunk = []; temp_sentence_len = 0
-            for s_idx, sentence in enumerate(sentences): # Разбиваем на предложения
-                 s_len = len(sentence); s_separator_len = 1 if temp_sentence_chunk else 0
-                 if (temp_sentence_chunk and temp_sentence_len + s_separator_len + s_len > CHUNK_SIZE_LIMIT_CHARS) or s_idx == len(sentences) - 1:
-                      if s_idx == len(sentences) - 1 and temp_sentence_len + s_separator_len + s_len <= CHUNK_SIZE_LIMIT_CHARS : temp_sentence_chunk.append(sentence); temp_sentence_len += s_separator_len + s_len
-                      if temp_sentence_chunk: chunks.append(" ".join(temp_sentence_chunk)); print(f"  Создан чанк {len(chunks)} из предложений...");
-                      if s_idx < len(sentences) - 1 and not (s_idx == len(sentences) - 1 and temp_sentence_len + s_separator_len + s_len <= CHUNK_SIZE_LIMIT_CHARS) : temp_sentence_chunk = [sentence]; temp_sentence_len = s_len
-                      elif s_idx == len(sentences) - 1 and temp_sentence_len + s_separator_len + s_len > CHUNK_SIZE_LIMIT_CHARS : chunks.append(sentence); print(f"  Создан чанк {len(chunks)} для посл. предл..."); temp_sentence_chunk = []; temp_sentence_len = 0
-                      else: temp_sentence_chunk = []; temp_sentence_len = 0
-                 else: temp_sentence_chunk.append(sentence); temp_sentence_len += s_separator_len + s_len
-            continue
-        if current_chunk_paragraphs and current_chunk_len + separator_len + p_len > CHUNK_SIZE_LIMIT_CHARS: # Завершаем чанк
-            chunks.append("\n\n".join(current_chunk_paragraphs)); print(f"  Создан чанк {len(chunks)} (длина: {current_chunk_len} симв.)")
-            current_chunk_paragraphs = [p_clean]; current_chunk_len = p_len
-        else: current_chunk_paragraphs.append(p_clean); current_chunk_len += separator_len + p_len # Добавляем в чанк
-    if current_chunk_paragraphs: chunks.append("\n\n".join(current_chunk_paragraphs)); print(f"  Создан чанк {len(chunks)} (длина: {current_chunk_len} симв.)")
-    if not chunks: print("ОШИБКА: Не удалось создать чанки!"); return None
-
-    # --- Цикл перевода чанков ---
-    print(f"Текст разбит на {len(chunks)} чанков.")
-    full_translated_text = []; last_successful_translation = ""
-    for i, chunk in enumerate(chunks):
-        print(f"-- Перевод чанка {i+1}/{len(chunks)} ({len(chunk)} симв.)...")
-        context_fragment = " ".join(last_successful_translation.split()[-100:]) if last_successful_translation else ""
-        translated_chunk = translate_chunk(model, chunk, target_language, previous_context=context_fragment, prompt_ext=prompt_ext) # Передаем prompt_ext
-        if translated_chunk == CONTEXT_LIMIT_ERROR: print(f"ОШИБКА ЛИМИТА КОНТЕКСТА на чанке {i+1}."); return CONTEXT_LIMIT_ERROR
-        elif translated_chunk is None: print(f"ОШИБКА ПЕРЕВОДА чанка {i+1}."); return None
-        else: full_translated_text.append(translated_chunk); last_successful_translation = translated_chunk
-
-    print("Сборка переведенных чанков...")
-    return "\n\n".join(full_translated_text)
-
-# --- get_models_list() без изменений ---
-def get_models_list():
-    """Возвращает список доступных моделей (объектов/словарей)."""
-    models_data = []
+def get_models_list() -> List[Dict[str, Any]]:
+    """Возвращает отсортированный список моделей: сначала Google, затем бесплатные OpenRouter."""
+    google_models = []
+    openrouter_free_models = []
+    
+    # Получаем модели от Google
     try:
-        print("Запрос списка моделей из API...")
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods: models_data.append({'name': m.name, 'display_name': m.display_name, 'input_token_limit': getattr(m, 'input_token_limit', 'N/A'), 'output_token_limit': getattr(m, 'output_token_limit', 'N/A')})
-        print(f"Найдено {len(models_data)} подходящих моделей."); models_data.sort(key=lambda x: x['display_name'])
-        return models_data
-    except Exception as e: print(f"ОШИБКА: Не удалось получить список моделей: {e}"); return None
+        google_translator = GoogleTranslator()
+        google_models = google_translator.get_available_models()
+        print(f"Получено {len(google_models)} моделей от Google API")
+    except Exception as e:
+        print(f"Ошибка при получении списка моделей Google: {e}")
+    
+    # Получаем модели от OpenRouter
+    try:
+        openrouter_translator = OpenRouterTranslator()
+        all_openrouter_models = openrouter_translator.get_available_models()
+        
+        # Фильтруем только бесплатные модели
+        for model in all_openrouter_models:
+            name = model.get('name', '').lower()
+            display_name = model.get('display_name', '').lower()
+            description = model.get('description', '').lower()
+            
+            # Проверяем наличие слова 'free' в названии или описании
+            if 'free' in name or 'free' in display_name or 'free' in description:
+                openrouter_free_models.append(model)
+        
+        print(f"Получено {len(openrouter_free_models)} бесплатных моделей из {len(all_openrouter_models)} от OpenRouter API")
+    except Exception as e:
+        print(f"Ошибка при получении списка моделей OpenRouter: {e}")
+    
+    # Объединяем списки: сначала Google, потом бесплатные OpenRouter
+    return google_models + sorted(openrouter_free_models, key=lambda x: x.get('display_name', '').lower())
 
 # --- END OF FILE translation_module.py ---
