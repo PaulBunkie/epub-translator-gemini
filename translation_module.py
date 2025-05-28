@@ -43,14 +43,14 @@ Result:""",
 Summary:""",
 
     # --- Шаблон для анализа трудностей перевода ---
-    'analyze': """You are a literary analyst assisting a translator. Your task is to read the following text in {target_language} and identify potential translation difficulties for a target audience unfamiliar with the source material. Focus on finding and listing:
+    'analyze': """You are a literary analyst assisting a translator. Your task is to read the following text and identify potential translation difficulties for a target audience unfamiliar with the source material. Focus on finding and listing:
     - Proper nouns (names of people, places, organizations, etc.)
     - Neologisms, invented words, or unusual compound words.
     - Unfamiliar or fictional abbreviations and acronyms.
     - Any other elements that might be challenging to translate or understand without context (e.g., specific slang, cultural references, wordplay, archaic terms).
 
     Provide your analysis and lists strictly in {target_language}.
-    List each identified item and briefly explain *why* it might be a difficulty (e.g., "invented name", "potential neologism", "uncommon abbreviation" in {target_language}). Provide suggested translations or explanations only if you are highly confident and they are relevant to the difficulty.
+    List only items that are likely to be unusual, unfamiliar, or potentially difficult for a general reader of {target_language}. Exclude common names, well-known places (like countries or major cities), and widely recognized organizations unless their usage in the text is unusual or requires specific context. Briefly explain *why* each *listed* item might be a difficulty (e.g., "выдуманное имя", "потенциальный неологизм", "малоизвестная аббревиатура" in {target_language}). Provide suggested translations or explanations only if you are highly confident and they are relevant to the difficulty.
 
     {prompt_ext_section}
 
