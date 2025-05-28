@@ -334,7 +334,8 @@ class OpenRouterTranslator(BaseTranslator):
                     'display_name': model.get('name', model['id']),
                     'input_token_limit': model.get('context_length', 'N/A'),
                     'output_token_limit': model.get('context_length', 'N/A'),
-                    'source': 'openrouter'
+                    'source': 'openrouter',
+                    'pricing': model.get('pricing') # Добавляем информацию о стоимости
                 })
             
             return sorted(formatted_models, key=lambda x: x['display_name'])
@@ -456,7 +457,7 @@ def translate_text(text_to_translate: str, target_language: str = "russian",
 def get_models_list() -> List[Dict[str, Any]]:
     """Возвращает отсортированный список моделей: сначала Google, затем бесплатные OpenRouter."""
     google_models = []
-    openrouter_free_models = []
+    openrouter_zero_cost_models = [] # Меняем название переменной для ясности
     
     # Получаем модели от Google
     try:
@@ -471,21 +472,27 @@ def get_models_list() -> List[Dict[str, Any]]:
         openrouter_translator = OpenRouterTranslator()
         all_openrouter_models = openrouter_translator.get_available_models()
         
-        # Фильтруем только бесплатные модели
+        # Фильтруем только модели с нулевой стоимостью
         for model in all_openrouter_models:
-            name = model.get('name', '').lower()
-            display_name = model.get('display_name', '').lower()
-            description = model.get('description', '').lower()
-            
-            # Проверяем наличие слова 'free' в названии или описании
-            if 'free' in name or 'free' in display_name or 'free' in description:
-                openrouter_free_models.append(model)
-        
-        print(f"Получено {len(openrouter_free_models)} бесплатных моделей из {len(all_openrouter_models)} от OpenRouter API")
+            pricing = model.get('pricing')
+            # Проверяем, что есть информация о стоимости, есть поля prompt и completion,
+            # и их числовые значения равны 0.0
+            if pricing and 'prompt' in pricing and 'completion' in pricing:
+                try:
+                    prompt_cost = float(pricing['prompt'])
+                    completion_cost = float(pricing['completion'])
+                    if prompt_cost == 0.0 and completion_cost == 0.0:
+                        openrouter_zero_cost_models.append(model)
+                except (ValueError, TypeError) as e:
+                    # Ловим ошибки преобразования, если стоимость не число
+                    print(f"Ошибка парсинга стоимости для модели {model.get('name', model['id'])}: {e}")
+                    continue # Пропускаем эту модель, если не удалось распарсить стоимость
+
+        print(f"Получено {len(openrouter_zero_cost_models)} моделей с нулевой стоимостью из {len(all_openrouter_models)} от OpenRouter API")
     except Exception as e:
         print(f"Ошибка при получении списка моделей OpenRouter: {e}")
     
-    # Объединяем списки: сначала Google, потом бесплатные OpenRouter
-    return google_models + sorted(openrouter_free_models, key=lambda x: x.get('display_name', '').lower())
+    # Объединяем списки: сначала Google, потом модели OpenRouter с нулевой стоимостью
+    return google_models + sorted(openrouter_zero_cost_models, key=lambda x: x.get('display_name', '').lower())
 
 # --- END OF FILE translation_module.py ---

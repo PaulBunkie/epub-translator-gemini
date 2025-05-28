@@ -84,6 +84,10 @@
         .toc-status { margin-left: 8px; font-size: 0.8em; border-radius: 3px; padding: 1px 4px; white-space: nowrap; flex-shrink: 0; max-width: 15ch; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
         /* ... стили статусов .status-* ... */
         .status-not-translated { background-color: #eee; color: #555; } .status-translated-model { background-color: #dfd; color: #070; } .status-translated { background-color: #dfd; color: #070; } .status-cached { background-color: #dfd; color: #070; } .status-processing { background-color: #ffe082; color: #a80; } .status-error { background-color: #fcc; color: #a00; font-weight: bold; } .status-completed_empty { background-color: #e0e0e0; color: #777; } .status-unknown { background-color: #f0f0f0; color: #888; }
+        /* --- НОВЫЕ СТИЛИ СТАТУСОВ ОПЕРАЦИЙ --- */
+        .status-summarized { background-color: #cfe2f3; color: #0747a6; } /* Светло-синий */
+        .status-analyzed { background-color: #fce5cd; color: #e69138; } /* Светло-оранжевый */
+        /* --- КОНЕЦ НОВЫХ СТИЛЕЙ --- */
         .hidden { display: none !important; }
         .toc-actions { display: flex; align-items: center; flex-shrink: 0; min-width: 60px; justify-content: flex-end; }
         .action-btn { margin-left: 5px; font-size: 1.1em; cursor: pointer; vertical-align: middle; border: none; background: none; padding: 0; color: #007bff; flex-shrink: 0; }
@@ -214,6 +218,8 @@
                                       {% if section_status == 'translated' %}{% if model_name %}{% set display_text = model_name.split('/')[-1] %}{% set status_class = 'status-translated-model' %}{% set tooltip = 'By: ' + model_name %}{% else %}{% set display_text = 'Translated' %}{% set status_class = 'status-translated' %}{% endif %}
                                       {% elif section_status == 'cached' %}{% set display_text = 'Cached' %}{% set status_class = 'status-translated' %}{% set tooltip = 'From cache' %}
                                       {% elif section_status == 'completed_empty' %}{% set display_text = 'Empty' %}{% set status_class = 'status-completed-empty' %}{% set tooltip = 'Empty section' %}
+                                      {% elif section_status == 'summarized' %}{% set display_text = 'Summarized' %}{% set status_class = 'status-summarized' %}{% if model_name %}{% set tooltip = 'By: ' + model_name %}{% endif %}
+                                      {% elif section_status == 'analyzed' %}{% set display_text = 'Analyzed' %}{% set status_class = 'status-analyzed' %}{% if model_name %}{% set tooltip = 'By: ' + model_name %}{% endif %}
                                       {% elif section_status.startswith('error_') %}{% set display_text = 'Error' %}{% set status_class = 'status-error' %}{% set tooltip = error_message | default('Error') %}{% if section_status == 'error_context_limit' %} {% set display_text = 'Err:Limit' %}{% elif section_status == 'error_translation' %} {% set display_text = 'Err:API' %}{% elif section_status == 'error_caching' %} {% set display_text = 'Err:Cache' %}{% elif section_status == 'error_extraction' %} {% set display_text = 'Err:Extract' %}{% elif section_status == 'error_unknown' %} {% set display_text = 'Err:Unk' %}{% endif %}
                                       {% elif section_status == 'processing' %}{% set display_text = 'Processing' %}{% set status_class = 'status-processing' %}{% set is_processing = true %}
                                       {% elif section_status == 'not_translated' or section_status == 'idle' %}{% set display_text = 'Not Translated' %}{% set status_class = 'status-not-translated' %}

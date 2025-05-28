@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Обновляем видимость ссылки скачивания и кнопки обновления
-            const isReady = ['translated', 'completed_empty'].includes(newStatus);
+            const isReady = ['translated', 'completed_empty', 'cached', 'summarized', 'analyzed'].includes(newStatus);
             const canUpdate = isReady || newStatus.startsWith('error_'); // Обновлять можно готовые или ошибочные
 
             if (downloadLink) downloadLink.classList.toggle('hidden', !isReady);
@@ -112,6 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function updateOverallBookStatusUI(bookData) {
         if (!bookData) return;
+        console.log("[DEBUG-UI] updateOverallBookStatusUI received bookData:", bookData);
 
         const isCompleteOrErrors = bookData.status === 'complete' || bookData.status === 'complete_with_errors';
         const anythingTranslated = (bookData.translated_count || 0) > 0 || (bookData.error_count || 0) > 0; // Считаем завершенной, если есть хоть что-то обработанное
@@ -135,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  if (!sectionInfo) continue; // Пропускаем, если данных нет
 
                  const status = sectionInfo.status || 'not_translated';
+                 console.log(`[DEBUG-UI] Processing section ${sectionId}, status: '${status}', type: ${typeof status}`);
                  const modelName = sectionInfo.model_name; // <--- Получаем имя модели
                  const errorMessage = sectionInfo.error_message; // <--- Получаем сообщение об ошибке
 
@@ -153,52 +155,107 @@ document.addEventListener('DOMContentLoaded', () => {
                      continue;
                  }
 
-                 // --- Обновляем текст, класс и тултип статуса ---
-                 let statusText = '???';
-                 let statusClass = 'status-unknown';
-                 let tooltip = '';
+                 // --- Определяем статус, текст, класс и тултип --- 
+                 let statusText = ''; // Объявляем здесь
+                 let statusClass = ''; // Объявляем здесь
+                 let tooltip = '';    // Объявляем здесь
 
-                 if (status === 'translated' || status === 'cached') {
-                     if (modelName) {
-                         // --- ЕСЛИ ЕСТЬ МОДЕЛЬ ---
-                         statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
-                         statusClass = 'status-translated-model'; // Новый CSS класс
-                         tooltip = `Translated by: ${modelName}`;
-                     } else {
-                         // --- ЕСЛИ МОДЕЛИ НЕТ ---
+                 switch (status) {
+                     case 'translated':
                          statusText = 'Translated';
-                         statusClass = 'status-translated'; // Старый CSS класс
-                     }
-                 } else if (status === 'completed_empty') {
-                     statusText = 'Empty Section'; // Текст как в твоем старом коде
-                     statusClass = 'status-completed-empty';
-                     tooltip = 'Section was empty or contained no translatable text.';
-                 } else if (status && status.startsWith('error_')) {
-                      statusText = 'Error'; // Базовый текст
-                      if (status === 'error_context_limit') statusText = 'Error (Too Large)';
-                      else if (status === 'error_translation') statusText = 'Error (Translate)';
-                      else if (status === 'error_caching') statusText = 'Error (Cache)';
-                      else if (status === 'error_unknown') statusText = 'Error (Unknown)';
-                      statusClass = 'status-error';
-                      tooltip = errorMessage || status; // Добавляем ошибку в тултип
-                 } else if (status === 'processing') {
-                     statusText = 'Processing'; // Текст как в твоем старом коде
-                     statusClass = 'status-processing';
-                 } else { // not_translated, idle, etc.
-                     statusText = 'Not Translated'; // Текст как в твоем старом коде
-                     statusClass = 'status-not-translated';
+                         statusClass = 'status-translated';
+                         if (modelName) { // Если есть модель, показываем ее имя и особый класс
+                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
+                              statusClass = 'status-translated-model';
+                              tooltip = `Translated by: ${modelName}`; 
+                         }
+                         break;
+                     case 'cached': // Кэшированный перевод также отображается как Translated
+                         statusText = 'Translated'; // Или 'Cached', если хотим отличать кэш без модели
+                         statusClass = 'status-translated'; // Или 'status-cached' если хотим отдельный стиль
+                         if (modelName) { // Если есть модель в кэше (редко), показываем ее
+                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
+                              statusClass = 'status-translated-model';
+                              tooltip = `Cached translation by: ${modelName}`; 
+                         } else { // Кэш без модели, просто 'Cached' или 'Translated' (как сейчас) 
+                              tooltip = 'From cache';
+                         }
+                         break;
+                     case 'completed_empty':
+                         statusText = 'Empty Section';
+                         statusClass = 'status-completed-empty';
+                         tooltip = 'Section was empty or contained no translatable text.';
+                         break;
+                     case 'summarized':
+                         statusText = 'Summarized';
+                         statusClass = 'status-summarized';
+                          if (modelName) { // Если есть модель
+                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
+                              tooltip = `Summarized by: ${modelName}`; 
+                         }
+                         break;
+                     case 'analyzed':
+                         statusText = 'Analyzed';
+                         statusClass = 'status-analyzed';
+                          if (modelName) { // Если есть модель
+                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
+                              tooltip = `Analyzed by: ${modelName}`; 
+                         }
+                         break;
+                     case 'processing':
+                         statusText = 'Processing';
+                         statusClass = 'status-processing';
+                         break;
+                     case 'not_translated':
+                     case 'idle':
+                         statusText = 'Not Translated';
+                         statusClass = 'status-not-translated';
+                         break;
+                     case 'error_context_limit':
+                         statusText = 'Error (Too Large)';
+                         statusClass = 'status-error';
+                         tooltip = errorMessage || status;
+                         break;
+                     case 'error_translation':
+                         statusText = 'Error (Translate)';
+                         statusClass = 'status-error';
+                         tooltip = errorMessage || status;
+                         break;
+                     case 'error_caching':
+                          statusText = 'Error (Cache)';
+                          statusClass = 'status-error';
+                          tooltip = errorMessage || status;
+                          break;
+                     case 'error_extraction':
+                          statusText = 'Error (Extract)';
+                          statusClass = 'status-error';
+                          tooltip = errorMessage || status;
+                          break;
+                     case 'error_unknown':
+                          statusText = 'Error (Unknown)';
+                          statusClass = 'status-error';
+                          tooltip = errorMessage || status;
+                          break;
+                     default: // Совсем неизвестный статус
+                         statusText = status;
+                         statusClass = 'status-unknown';
+                         tooltip = errorMessage || status;
+                         break;
                  }
 
-                 statusSpan.className = `toc-status ${statusClass}`; // Обновляем класс
-                 statusSpan.textContent = statusText; // Обновляем текст
+                 // Применяем класс и текст
+                 statusSpan.className = `toc-status ${statusClass}`; 
+                 statusSpan.textContent = statusText;
+
+                 // Применяем тултип
                  if (tooltip) {
-                     statusSpan.title = tooltip; // Устанавливаем тултип
+                     statusSpan.title = tooltip; 
                  } else {
-                     statusSpan.removeAttribute('title'); // Удаляем, если нет
+                     statusSpan.removeAttribute('title'); 
                  }
 
                  // --- Обновляем видимость кнопок и индикатора (как в твоем старом коде updateSectionStatusUI) ---
-                 const isReady = ['translated', 'completed_empty', 'cached'].includes(status); // 'cached' тоже готов
+                 const isReady = ['translated', 'completed_empty', 'cached', 'summarized', 'analyzed'].includes(status);
                  const canUpdate = isReady || status.startsWith('error_');
 
                  downloadLink.classList.toggle('hidden', !isReady);
@@ -281,8 +338,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const data = await response.json();
                 displayTranslatedText(data.text);
-                // Обновляем статус для всех элементов этой секции на 'translated'
-                updateSectionStatusUI(sectionId, data.text === "" ? 'completed_empty' : 'translated', true);
             } else if (response.status === 404) {
                 const errorData = await response.json().catch(() => ({ error: "Not found" }));
                 // Если это не обновление после поллинга, запускаем перевод
@@ -575,7 +630,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    /**
+     * Обновляет текст кнопок 'Перевести все' и '🔄' в зависимости от выбранной операции.
+     */
+    function updateButtonTexts() {
+         const selectedOperation = operationSelect ? operationSelect.value : 'translate';
+         let translateAllText = 'Перевести все непереведенные';
+         let updateButtonTitle = 'Перевести заново';
 
+         switch (selectedOperation) {
+              case 'summarize':
+                   translateAllText = 'Пересказать все необработанные';
+                   updateButtonTitle = 'Пересказать заново';
+                   break;
+              case 'analyze':
+                   translateAllText = 'Проанализировать все необработанные';
+                   updateButtonTitle = 'Проанализировать заново';
+                   break;
+              case 'translate':
+              default:
+                   // Текст по умолчанию уже установлен
+                   break;
+         }
+
+         // Обновляем текст кнопки 'Перевести все'
+         if (translateAllBtn) {
+              translateAllBtn.textContent = translateAllText;
+         }
+
+         // Обновляем заголовок (title) кнопок '🔄' в оглавлении
+         if (tocList) {
+              tocList.querySelectorAll('.update-translation-btn').forEach(btn => {
+                   btn.title = updateButtonTitle;
+              });
+         }
+    }
 
     // --- Назначение обработчиков событий ---
     if (tocList) {
@@ -634,6 +723,15 @@ document.addEventListener('DOMContentLoaded', () => {
         translateAllBtn.addEventListener('click', startTranslateAll);
     } else {
          console.error("Translate All button (#translate-all-btn) not found!");
+    }
+
+    // --- Обработчик для смены операции --- (Добавляем после объявления operationSelect)
+    if (operationSelect) {
+         operationSelect.addEventListener('change', updateButtonTexts);
+         // Вызываем при загрузке, чтобы установить начальный текст
+         updateButtonTexts(); 
+    } else {
+         console.error("Operation select element (#operation-select) not found!");
     }
 
     // --- Инициализация ---

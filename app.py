@@ -173,20 +173,24 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
             print(f"Фоновая задача {task_id}: Текст пуст для {section_id}.")
             current_status = "completed_empty"
             save_translation_to_cache(epub_filepath, section_id, target_language, "")
+            # Важно: сохранить статус completed_empty в БД сразу же
+            update_section_status(book_id, section_id, current_status, model_name=None, target_language=target_language, error_message=None, operation_type=operation_type)
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
             api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext, operation_type=operation_type)
+
             if api_result == CONTEXT_LIMIT_ERROR: current_status = "error_context_limit"; error_message = "Текст раздела слишком велик."
             elif api_result is not None:
                  if task_id in active_tasks: active_tasks[task_id]["status"] = "caching"
                  if save_translation_to_cache(epub_filepath, section_id, target_language, api_result): current_status = "translated"
                  else: current_status = "error_caching"; error_message = "Не удалось сохранить в кэш."
             else: current_status = "error_translation"; error_message = "Ошибка API перевода или фильтр."
-        update_section_status(book_id, section_id, current_status, model_name, target_language, error_message)
+            update_section_status(book_id, section_id, current_status, model_name, target_language, error_message, operation_type=operation_type)
+        update_overall_book_status(book_id)
     except Exception as e:
         print(f"КРИТИЧЕСКАЯ ОШИБКА в фоновой задаче {task_id}: {e}"); traceback.print_exc()
         error_message = f"BG Task Error: {e}"; current_status = "error_unknown"
-        update_section_status(book_id, section_id, current_status, model_name, target_language, error_message)
+        update_section_status(book_id, section_id, current_status, model_name, target_language, error_message, operation_type=operation_type)
     finally:
         if task_id in active_tasks:
              active_tasks[task_id]["status"] = current_status
@@ -277,6 +281,7 @@ def upload_file():
              print(f"Перевод {len(toc_titles_for_translation)} заголовков TOC...")
              toc_model = session.get('model_name', 'gemini-1.5-flash')
              titles_text = "\n|||---\n".join(toc_titles_for_translation)
+             # Здесь мы не передаем operation_type, потому что это всегда просто перевод названий TOC
              translated_titles_text = translate_text(titles_text, target_language, toc_model, prompt_ext=None)
              if translated_titles_text and translated_titles_text != CONTEXT_LIMIT_ERROR:
                   translated_titles = translated_titles_text.split("\n|||---\n")
@@ -292,7 +297,8 @@ def upload_file():
              sec_created_count = 0
              if section_ids:
                   for section_id in section_ids:
-                       if section_id and create_section(book_id, section_id, translated_title=translated_toc_titles.get(section_id)): sec_created_count += 1
+                       selected_operation = session.get('operation_type', 'translate') # Get the current operation from session
+                       if section_id and create_section(book_id, section_id, translated_toc_titles.get(section_id)): sec_created_count += 1 # Pass operation_type
                   print(f"  Создано {sec_created_count} записей о секциях.")
              return redirect(url_for('view_book', book_id=book_id))
         else:
@@ -324,7 +330,6 @@ def upload_file():
                 print(f"  Не удалось удалить файл {filepath}: {e_del}")
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         return "Ошибка сервера при обработке файла.", 500
-
 
 @app.route('/book/<book_id>', methods=['GET'])
 def view_book(book_id):
@@ -461,9 +466,7 @@ def get_book_status(book_id):
     Возвращает JSON с текущим статусом книги и секций из БД.
     Статус книги НЕ пересчитывается при каждом запросе, а берется как есть.
     """
-    # --- КОММЕНТИРУЕМ ВЫЗОВ ПЕРЕСЧЕТА СТАТУСА ---
     update_overall_book_status(book_id) # Обновляем статус перед отдачей
-    # ---
 
     # Просто получаем текущее состояние книги из БД
     # get_book уже включает в себя получение секций ('sections') и их обработку для TOC

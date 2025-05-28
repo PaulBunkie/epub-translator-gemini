@@ -332,7 +332,7 @@ def get_sections_for_book(book_id):
             conn.close()
     return sections_dict
 
-def update_section_status(book_id, epub_section_id, status, model_name=None, target_language=None, error_message=None):
+def update_section_status(book_id, epub_section_id, status, model_name=None, target_language=None, error_message=None, operation_type='translate'):
     """Обновляет статус и другие метаданные секции в базе данных."""
     conn = None
     success = False
@@ -340,11 +340,45 @@ def update_section_status(book_id, epub_section_id, status, model_name=None, tar
         conn = sqlite3.connect(DATABASE_FILE)
         cursor = conn.cursor()
         cursor.execute("PRAGMA foreign_keys = ON;")
+
+        # Определяем статус для сохранения в БД
+        status_to_save = status
+        effective_error_message = error_message # Используем переданное сообщение об ошибке по умолчанию
+        effective_model_name = model_name # Используем переданное имя модели по умолчанию
+
+
+        # --- Логика определения итогового статуса для сохранения ---
+
+        if status == 'completed_empty':
+            status_to_save = 'completed_empty'
+            effective_model_name = None # Для пустых секций модель не использовалась
+            effective_error_message = None # Для пустых секций нет ошибки
+
+        elif status.startswith('error_'):
+            status_to_save = status # Сохраняем конкретный тип ошибки
+            # error_message уже установлен выше из переданного аргумента или остается None
+            # effective_model_name остается переданным, если модель пыталась обработать секцию с ошибкой
+
+        elif status in ['translated', 'cached']: # Успешное завершение основной операции
+             if operation_type == 'summarize':
+                  status_to_save = 'summarized'
+             elif operation_type == 'analyze':
+                  status_to_save = 'analyzed'
+             elif operation_type == 'translate':
+                  # Для translate сохраняем 'translated' или 'cached' как пришло
+                  status_to_save = status
+             # effective_model_name остается переданным, т.к. операция была успешной с этой моделью
+             effective_error_message = None # Для успешных операций нет сообщения об ошибке
+
+
+        # --- Конец логики определения статуса ---
+
+
         cursor.execute("""
             UPDATE sections
             SET status = ?, model_name = ?, target_language = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
             WHERE book_id = ? AND epub_section_id = ?
-        """, (status, model_name, target_language, error_message, book_id, epub_section_id))
+        """, (status_to_save, effective_model_name, target_language, effective_error_message, book_id, epub_section_id)) # Используем определенные переменные
         conn.commit()
         if cursor.rowcount > 0:
             success = True
