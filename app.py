@@ -177,6 +177,8 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
             update_section_status(book_id, section_id, current_status, model_name=None, target_language=target_language, error_message=None, operation_type=operation_type)
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
+            # Добавляем задержку перед вызовом API перевода в фоновой задаче
+            time.sleep(2)
             api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext, operation_type=operation_type)
 
             if api_result == CONTEXT_LIMIT_ERROR: current_status = "error_context_limit"; error_message = "Текст раздела слишком велик."
@@ -450,7 +452,6 @@ def translate_all_request(book_id):
                 update_section_status(book_id, section_id, "processing")
                 executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name, prompt_ext_text, operation_type)
                 launched_tasks.append(task_id); something_launched = True
-                time.sleep(2) # Добавляем задержку между запусками задач для снижения нагрузки на API
             else: update_section_status(book_id, section_id, "cached", model_name, target_language)
     print(f"  Запущено {len(launched_tasks)} задач для 'Перевести все'.")
     if something_launched: update_overall_book_status(book_id)
