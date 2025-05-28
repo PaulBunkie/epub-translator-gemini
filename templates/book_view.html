@@ -162,14 +162,23 @@
                     {% endif %}
                 </select>
             </p>
-            {# 3. Дополнительные инструкции #}
+            {# 3. Выбор операции #}
+            <p>
+                <label for="operation-select">Операция:</label>
+                <select id="operation-select" name="operation_type">
+                     <option value="translate" {% if selected_operation == 'translate' %}selected{% endif %}>Перевод</option>
+                     <option value="summarize" {% if selected_operation == 'summarize' %}selected{% endif %}>Пересказ (краткое содержание)</option>
+                     {# Добавляйте сюда другие операции по мере их реализации #}
+                </select>
+            </p>
+            {# 4. Дополнительные инструкции #}
             <div id="prompt-ext-container">
                 <label for="prompt-ext-input" style="font-weight: bold;">Дополнительные инструкции:</label>
                 <textarea id="prompt-ext-input" name="prompt_ext" rows="6" placeholder="Пример: Enae = Энея (ж)">{{ prompt_ext | default('') | escape }}</textarea>
                 <button id="save-prompt-ext-btn">Сохранить инструкции</button>
                 <span id="save-prompt-status"></span>
             </div>
-            {# 4. Кнопки действий #}
+            {# 5. Кнопки действий #}
             <p>
                 <button id="translate-all-btn" disabled>Перевести все непереведенные</button>
             </p>

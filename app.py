@@ -161,9 +161,9 @@ def update_overall_book_status(book_id):
     return True
 
 # --- Фоновая задача ---
-def run_single_section_translation(task_id, epub_filepath, book_id, section_id, target_language, model_name, prompt_ext):
+def run_single_section_translation(task_id, epub_filepath, book_id, section_id, target_language, model_name, prompt_ext, operation_type: str = 'translate'):
     """ Выполняется в отдельном потоке для перевода одной секции. """
-    print(f"Фоновая задача {task_id}: Старт перевода {section_id} ({book_id}) моделью '{model_name}' на '{target_language}'.")
+    print(f"Фоновая задача {task_id}: Старт перевода {section_id} ({book_id}) моделью '{model_name}' на '{target_language}'. Операция: '{operation_type}'.")
     print(f"  [BG Task] Используется prompt_ext длиной: {len(prompt_ext) if prompt_ext else 0}")
     current_status = "error_unknown"; error_message = None
     try:
@@ -175,7 +175,7 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
             save_translation_to_cache(epub_filepath, section_id, target_language, "")
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
-            api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext)
+            api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext, operation_type=operation_type)
             if api_result == CONTEXT_LIMIT_ERROR: current_status = "error_context_limit"; error_message = "Текст раздела слишком велик."
             elif api_result is not None:
                  if task_id in active_tasks: active_tasks[task_id]["status"] = "caching"
@@ -333,12 +333,16 @@ def view_book(book_id):
     if book_info is None: print(f"  Книга {book_id} не найдена."); return "Книга не найдена.", 404
     target_language = request.args.get('lang') or session.get('target_language', 'russian')
     selected_model = session.get('model_name', 'gemini-1.5-flash')
+    selected_operation = session.get('operation_type', 'translate') # Get operation type from session, default to 'translate'
+
     session['target_language'] = target_language
+    session['operation_type'] = selected_operation # Save operation type to session
+
     print(f"  Параметры для отображения: lang='{target_language}', model='{selected_model}'")
     available_models = get_models_list()
     if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей.")
     prompt_ext_text = book_info.get('prompt_ext', '')
-    return render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance)
+    return render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation)
 
 @app.route('/save_prompt_ext/<book_id>', methods=['POST'])
 def save_prompt_ext(book_id):
@@ -371,12 +375,14 @@ def translate_section_request(book_id, section_id):
         if not data: raise ValueError("Missing JSON")
         target_language = data.get('target_language', session.get('target_language', 'russian'))
         model_name = data.get('model_name', session.get('model_name', 'gemini-1.5-flash'))
-        print(f"  [DEBUG] 3.1. Параметры получены: lang={target_language}, model={model_name}")
+        operation_type = data.get('operation_type', 'translate') # Get operation type from JSON, default to 'translate'
+        print(f"  [DEBUG] 3.1. Параметры получены: lang={target_language}, model={model_name}, operation={operation_type}")
     except Exception as e:
         print(f"  [DEBUG] 3.2. ОШИБКА получения параметров: {e}")
         return jsonify({"error": f"Invalid JSON payload: {e}"}), 400
 
     session['target_language'] = target_language; session['model_name'] = model_name
+    session['operation_type'] = operation_type # Save operation type to session
 
     print(f"  [DEBUG] 4. Проверка section_info для ID: {section_id}")
     sections = book_info.get('sections', {})
@@ -403,7 +409,7 @@ def translate_section_request(book_id, section_id):
     task_id = str(uuid.uuid4())
     active_tasks[task_id] = {"status": "queued", "book_id": book_id, "section_id": section_id}
     update_section_status(book_id, section_id, "processing")
-    executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name, prompt_ext_text)
+    executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name, prompt_ext_text, operation_type)
     print(f"  [DEBUG] 9. Задача {task_id} запущена.")
 
     return jsonify({"status": "processing", "task_id": task_id}), 202
@@ -420,8 +426,10 @@ def translate_all_request(book_id):
         if not data: raise ValueError("Missing JSON")
         target_language = data.get('target_language', session.get('target_language', 'russian'))
         model_name = data.get('model_name', session.get('model_name', 'gemini-1.5-flash'))
+        operation_type = data.get('operation_type', 'translate') # Get operation type from JSON, default to 'translate'
     except Exception as e: print(f"  Ошибка получения параметров: {e}"); return jsonify({"error": f"Invalid JSON payload: {e}"}), 400
     session['target_language'] = target_language; session['model_name'] = model_name
+    session['operation_type'] = operation_type # Save operation type to session
     sections_list = book_info.get('sections', {})
     if not sections_list: return jsonify({"error": "No sections found"}), 404
     prompt_ext_text = book_info.get('prompt_ext', '')
@@ -433,7 +441,7 @@ def translate_all_request(book_id):
             if not get_translation_from_cache(filepath, section_id, target_language):
                 task_id = str(uuid.uuid4()); active_tasks[task_id] = {"status": "queued", "book_id": book_id, "section_id": section_id}
                 update_section_status(book_id, section_id, "processing")
-                executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name, prompt_ext_text)
+                executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name, prompt_ext_text, operation_type)
                 launched_tasks.append(task_id); something_launched = True
             else: update_section_status(book_id, section_id, "cached", model_name, target_language)
     print(f"  Запущено {len(launched_tasks)} задач для 'Перевести все'.")
@@ -565,6 +573,7 @@ def download_epub(book_id):
 
 def get_bbc_news():
     """Получает заголовки новостей BBC с NewsAPI."""
+    import requests # Added import inside function
     url = 'https://newsapi.org/v2/top-headlines?sources=bbc-news'
     headers = {'x-api-key': '2126e6e18adb478fb9ade262cb1102af'}
     news_titles = []

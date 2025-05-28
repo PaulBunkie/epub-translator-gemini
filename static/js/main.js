@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const downloadEpubBtn = document.getElementById('download-epub-btn'); 
     const modelSelect = document.getElementById('model-select');
     const languageSelect = document.getElementById('language-select');
+    const operationSelect = document.getElementById('operation-select');
 
     const translationDisplay = document.getElementById('translation-display');
     const translationSectionIdSpan = document.getElementById('translation-section-id');
@@ -355,50 +356,29 @@ document.addEventListener('DOMContentLoaded', () => {
      }
 
     /**
-     * Запускает фоновый перевод ОДНОЙ секции (или обновление).
-     * @param {string} sectionId - ID секции (файла).
+     * Запускает процесс перевода одной секции на бэкенде.
+     * @param {string} sectionId - ID секции для перевода.
      */
-    // --- Функция запуска перевода/обновления ОДНОЙ секции ---
     async function startSectionTranslation(sectionId) {
-        if (!languageSelect || !modelSelect) { console.error("Language or Model select not found!"); return; }
-        console.log(`Requesting translation for ${sectionId}`);
-        // Обновляем только ОДИН элемент на processing
-        updateSectionStatusUI(sectionId, 'processing', false);
-        startPolling(); // Начинаем/продолжаем опрос
+        console.log(`Запуск перевода секции ${sectionId}...`);
+        const targetLanguage = languageSelect ? languageSelect.value : initialTargetLanguage;
+        const modelName = modelSelect ? modelSelect.value : initialSelectedModel; // Use initialSelectedModel as fallback
+        const operationType = operationSelect ? operationSelect.value : 'translate'; // Get selected operation type
 
-        const selectedLanguage = languageSelect.value;
-        const selectedModel = modelSelect.value;
-
-        if (!selectedModel) {
-            console.error("Модель не выбрана!");
-            if(activeSectionId === sectionId) displayTranslatedText("Ошибка: Модель для перевода не выбрана.");
-            updateSectionStatusUI(sectionId, 'error_user', true);
-            return;
-        }
-
-        // --- ДОБАВЛЯЕМ ПРЕДУПРЕЖДЕНИЕ В UI ---
-        if (sectionId === activeSectionId) {
-            displayTranslatedText(
-                'Перевод запущен. Ожидайте обновления статуса...\n\n' +
-                '(Перевод может занимать до нескольких минут в зависимости от выбранной модели и размера раздела. Пожалуйста, дождитесь завершения процесса.)'
-            );
-        }
-        // -------------------------------------
-
-        const apiUrl = `/translate_section/${currentBookId}/${sectionId}`;
-        const requestBody = JSON.stringify({
-            target_language: selectedLanguage,
-            model_name: selectedModel
-        });
-
-        console.log(`[startSectionTranslation] Sending POST to ${apiUrl}`);
-        console.log(`[startSectionTranslation] Request body:`, requestBody);
+        // Обновляем UI секции на processing
+        updateSectionStatusUI(sectionId, 'processing', true);
 
         try {
-            const response = await fetchWithTimeout(apiUrl, {
+            const response = await fetchWithTimeout(`/translate_section/${currentBookId}/${sectionId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: requestBody
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    target_language: targetLanguage,
+                    model_name: modelName,
+                    operation_type: operationType // Include operation type in the request body
+                })
             });
 
             console.log(`[startSectionTranslation] Response status for ${sectionId}: ${response.status}`);
@@ -423,43 +403,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Запускает фоновый перевод ВСЕХ непереведенных/ошибочных секций.
+     * Запускает процесс перевода всех непереведенных секций на бэкенде.
      */
     async function startTranslateAll() {
-        if (!languageSelect || !modelSelect) {
-             console.error("Language or Model select not found!");
-             return;
-        }
-        console.log('Requesting translation for all remaining sections');
-        if (translateAllBtn) translateAllBtn.disabled = true;
-        startPolling();
+        console.log('Запуск перевода всех непереведенных секций...');
+        const targetLanguage = languageSelect ? languageSelect.value : initialTargetLanguage;
+        const modelName = modelSelect ? modelSelect.value : initialSelectedModel; // Use initialSelectedModel as fallback
+        const operationType = operationSelect ? operationSelect.value : 'translate'; // Get selected operation type
 
-        const selectedLanguage = languageSelect.value;
-        const selectedModel = modelSelect.value;
-
-        if (!selectedModel) {
-            console.error("Модель не выбрана для 'Перевести все'!");
-            if (translateAllBtn) translateAllBtn.disabled = false;
-            return;
-        }
-
-        // Обновляем UI для всех секций, которые будем пытаться перевести
+        // Обновляем UI для всех непереведенных секций на processing
         if (tocList) {
-            tocList.querySelectorAll('.toc-item').forEach(item => {
-                 const status = item.dataset.status;
-                 if (status === 'not_translated' || status.startsWith('error_')) {
-                      updateSectionStatusUI(item.dataset.sectionId, 'processing', true);
+            tocList.querySelectorAll('.toc-item[data-status="not_translated"]').forEach(item => {
+                 const sectionId = item.dataset.sectionId;
+                 if (sectionId) {
+                      updateSectionStatusUI(sectionId, 'processing', true);
                  }
             });
-        } else { return; }
+        }
 
         try {
             const response = await fetchWithTimeout(`/translate_all/${currentBookId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({
-                    target_language: selectedLanguage,
-                    model_name: selectedModel
+                    target_language: targetLanguage,
+                    model_name: modelName,
+                    operation_type: operationType // Include operation type in the request body
                 })
             });
             if (!response.ok) {
