@@ -178,7 +178,7 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
             # Добавляем задержку перед вызовом API перевода в фоновой задаче
-            time.sleep(2)
+            time.sleep(10)
             api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext, operation_type=operation_type)
 
             if api_result == CONTEXT_LIMIT_ERROR: current_status = "error_context_limit"; error_message = "Текст раздела слишком велик."
