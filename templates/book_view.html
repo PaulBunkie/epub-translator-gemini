@@ -84,6 +84,7 @@
         .toc-status { margin-left: 8px; font-size: 0.8em; border-radius: 3px; padding: 1px 4px; white-space: nowrap; flex-shrink: 0; max-width: 15ch; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
         /* ... стили статусов .status-* ... */
         .status-not-translated { background-color: #eee; color: #555; } .status-translated-model { background-color: #dfd; color: #070; } .status-translated { background-color: #dfd; color: #070; } .status-cached { background-color: #dfd; color: #070; } .status-processing { background-color: #ffe082; color: #a80; } .status-error { background-color: #fcc; color: #a00; font-weight: bold; } .status-completed_empty { background-color: #e0e0e0; color: #777; } .status-unknown { background-color: #f0f0f0; color: #888; }
+        .hidden { display: none !important; }
         .toc-actions { display: flex; align-items: center; flex-shrink: 0; min-width: 60px; justify-content: flex-end; }
         .action-btn { margin-left: 5px; font-size: 1.1em; cursor: pointer; vertical-align: middle; border: none; background: none; padding: 0; color: #007bff; flex-shrink: 0; }
         .action-btn:hover { color: #0056b3; } .action-btn:disabled { color: #ccc; cursor: not-allowed; }
@@ -133,10 +134,12 @@
                         <!-- Google Models -->
                         <optgroup label="Google Models">
                         {% for model_obj in available_models %}
-                            {% if model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/') %}
-                            <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
-                                {{ model_obj.display_name }}
-                            </option>
+                            {% if isinstance(model_obj, dict) %}
+                                {% if model_obj['name'].startswith('gemini-') or model_obj['name'].startswith('models/') %}
+                                <option value="{{ model_obj['name'] }}" {% if selected_model == model_obj['name'] %}selected{% endif %}>
+                                    {{ model_obj['display_name'] }}
+                                </option>
+                                {% endif %}
                             {% endif %}
                         {% endfor %}
                         </optgroup>
@@ -144,10 +147,12 @@
                         <!-- Free OpenRouter Models -->
                         <optgroup label="Free OpenRouter Models">
                         {% for model_obj in available_models %}
-                            {% if not (model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/')) %}
-                            <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
-                                {{ model_obj.display_name }}
-                            </option>
+                            {% if isinstance(model_obj, dict) %}
+                                {% if not (model_obj['name'].startswith('gemini-') or model_obj['name'].startswith('models/')) %}
+                                <option value="{{ model_obj['name'] }}" {% if selected_model == model_obj['name'] %}selected{% endif %}>
+                                    {{ model_obj['display_name'] }}
+                                </option>
+                                {% endif %}
                             {% endif %}
                         {% endfor %}
                         </optgroup>
@@ -204,7 +209,7 @@
                                       {% elif section_status == 'not_translated' or section_status == 'idle' %}{% set display_text = 'Not Translated' %}{% set status_class = 'status-not-translated' %}
                                       {% else %}{% set display_text = section_status %}{% set status_class = 'status-unknown' %}{% endif %}
                                       <span class="toc-status {{ status_class }}" {% if tooltip %}title="{{ tooltip }}"{% endif %}>{{ display_text }}</span>
-                                      <span class="processing-indicator" style="{{ 'display: none;' if not is_processing else 'display: inline;' }}">(...)</span>
+                                      <span class="processing-indicator {% if not is_processing %}hidden{% endif %}">(...)</span>
                                   {% else %}
                                       <span class="toc-status status-unknown" title="No data for ID: {{ section_id }}">?</span>
                                       <span class="processing-indicator" style="display: none;">(...)</span>

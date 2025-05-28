@@ -338,7 +338,7 @@ def view_book(book_id):
     available_models = get_models_list()
     if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей.")
     prompt_ext_text = book_info.get('prompt_ext', '')
-    return render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text)
+    return render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance)
 
 @app.route('/save_prompt_ext/<book_id>', methods=['POST'])
 def save_prompt_ext(book_id):
@@ -454,7 +454,7 @@ def get_book_status(book_id):
     Статус книги НЕ пересчитывается при каждом запросе, а берется как есть.
     """
     # --- КОММЕНТИРУЕМ ВЫЗОВ ПЕРЕСЧЕТА СТАТУСА ---
-    # update_overall_book_status(book_id) # Обновляем статус перед отдачей
+    update_overall_book_status(book_id) # Обновляем статус перед отдачей
     # ---
 
     # Просто получаем текущее состояние книги из БД
