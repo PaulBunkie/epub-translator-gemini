@@ -382,6 +382,17 @@ def update_section_status(book_id, epub_section_id, status, model_name=None, tar
         conn.commit()
         if cursor.rowcount > 0:
             success = True
+            # --- НОВАЯ ЛОГИКА: Проверка и обновление статуса книги ---
+            total_sections = get_section_count_for_book(book_id)
+            processed_sections = get_processed_section_count_for_book(book_id)
+
+            if total_sections > 0 and total_sections == processed_sections:
+                # Все секции обработаны (не idle, не processing, не not_translated)
+                if has_error_sections(book_id):
+                    update_book_status(book_id, 'complete_with_errors')
+                else:
+                    update_book_status(book_id, 'complete')
+            # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
         # else: print(f"[DB WARN] Section '{epub_section_id}' for book '{book_id}' not found for status update.")
     except sqlite3.Error as e:
         print(f"[DB ERROR] Failed to update section status for '{book_id}/{epub_section_id}': {e}")
@@ -512,7 +523,48 @@ def save_cached_location(person_name_key: str, location_data: dict, source_summa
     finally:
         if conn:
             conn.close()
-# --- КОНЕЦ НОВЫХ ФУНКЦИЙ ---    
+
+def get_processed_section_count_for_book(book_id) -> int:
+    """Возвращает количество секций для данной книги, у которых статус НЕ 'not_translated' и НЕ 'processing'."""
+    conn = None
+    count = 0
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        # Считаем секции, статус которых не 'not_translated' и не 'processing'
+        cursor.execute("SELECT COUNT(*) FROM sections WHERE book_id = ? AND status NOT IN (?, ?)", (book_id, 'not_translated', 'processing'))
+        result = cursor.fetchone()
+        if result:
+            count = result[0]
+    except sqlite3.Error as e:
+        print(f"[DB ERROR] Failed to get processed section count for book '{book_id}': {e}")
+        count = 0
+    finally:
+        if conn:
+            conn.close()
+    return count
+
+def has_error_sections(book_id) -> bool:
+    """Проверяет, есть ли у книги секции со статусом ошибки."""
+    conn = None
+    has_errors = False
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        # Ищем хотя бы одну секцию, статус которой начинается с 'error_'
+        cursor.execute("SELECT 1 FROM sections WHERE book_id = ? AND status LIKE 'error_%' LIMIT 1", (book_id,))
+        result = cursor.fetchone()
+        if result:
+            has_errors = True
+    except sqlite3.Error as e:
+        print(f"[DB ERROR] Failed to check for error sections for book '{book_id}': {e}")
+        has_errors = False
+    finally:
+        if conn:
+            conn.close()
+    return has_errors
 
 # --- Блок для тестирования модуля ---
 if __name__ == '__main__':

@@ -115,10 +115,10 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("[DEBUG-UI] updateOverallBookStatusUI received bookData:", bookData);
 
         const isCompleteOrErrors = bookData.status === 'complete' || bookData.status === 'complete_with_errors';
-        const anythingTranslated = (bookData.translated_count || 0) > 0 || (bookData.error_count || 0) > 0; // Считаем завершенной, если есть хоть что-то обработанное
-
-        // --- Обновляем видимость и состояние кнопок Скачать ---
-        const showDownloadButtons = isCompleteOrErrors && anythingTranslated;
+        
+        // --- ИЗМЕНЕНИЕ: Активируем кнопки скачивания, только если общий статус книги complete или complete_with_errors ---
+        const showDownloadButtons = isCompleteOrErrors; // Возвращаем к исходной логике
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         if (downloadFullBtn) downloadFullBtn.disabled = !showDownloadButtons;
         if (downloadFullLink) downloadFullLink.classList.toggle('hidden', !showDownloadButtons);
@@ -126,8 +126,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (downloadEpubBtn) downloadEpubBtn.disabled = !showDownloadButtons;
         if (downloadEpubLink) downloadEpubLink.classList.toggle('hidden', !showDownloadButtons);
 
-        const canTranslateMore = bookData.status !== 'processing' && bookData.status !== 'complete';
-        if (translateAllBtn) translateAllBtn.disabled = !canTranslateMore;
+        // --- ИЗМЕНЕНИЕ: Управляем активностью кнопки 'Перевести все' ---
+        // Кнопка активна, если общий статус книги НЕ 'complete' и НЕ 'complete_with_errors'
+        const enableTranslateAll = bookData.status !== 'complete' && bookData.status !== 'complete_with_errors';
+        if (translateAllBtn) translateAllBtn.disabled = !enableTranslateAll;
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         // Обновляем статусы всех секций в TOC
         if (bookData.sections && tocList) {

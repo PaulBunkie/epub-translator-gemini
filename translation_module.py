@@ -7,6 +7,7 @@ import re
 from typing import Optional, List, Dict, Any
 import requests
 import json
+import time
 
 # Константа для обозначения ошибки лимита контекста
 CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
@@ -220,6 +221,13 @@ class BaseTranslator(ABC):
                 translated_chunks.append(translated_chunk)
                 last_successful_translation = translated_chunk
 
+            # --- НОВАЯ ЛОГИКА: Короткая задержка после обработки каждого чанка ---
+            # Добавляем небольшую задержку, чтобы снизить частоту запросов для больших секций
+            # Этот sleep выполняется в фоновом потоке, не блокирует UI
+            print(f"[BaseTranslator] Задержка {1} сек после чанка {i}/{len(chunks)}.")
+            time.sleep(1) # Длительность задержки в секундах (можно настроить)
+            # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
         print("[BaseTranslator] Сборка переведенных чанков...")
         return "\n\n".join(translated_chunks)
 
@@ -256,50 +264,103 @@ class GoogleTranslator(BaseTranslator):
     def translate_chunk(self, model_name: str, text: str, target_language: str = "russian",
                        previous_context: str = "", prompt_ext: Optional[str] = None,
                        operation_type: str = 'translate') -> Optional[str]:
-        """Переводит один кусок текста с использованием предоставленной модели."""
-        try:
-            model = genai.GenerativeModel(model_name)
-        except Exception as e:
-            print(f"ОШИБКА: Инициализация модели: {e}")
-            return None
-
-        # Формирование промпта с использованием общего метода
-        prompt = self._build_prompt(operation_type, target_language, text, previous_context, prompt_ext)
+        """Переводит чанк текста с использованием Google API с обработкой ошибок и лимитов."""
+        prompt = self._build_prompt(
+            operation_type=operation_type,
+            target_language=target_language,
+            text=text,
+            previous_context=previous_context,
+            prompt_ext=prompt_ext
+        )
 
         if not text.strip():
             return ""
 
-        try:
-            print(f"Отправка запроса к модели {model_name}...")
-            response = model.generate_content(prompt)
-            raw_text = getattr(response, 'text', None)
+        # --- Retry logic for API errors ---
+        max_retries = 5
+        retry_delay_seconds = 5 # Initial delay
 
-            if raw_text is not None:
-                return raw_text
-            else:
-                print("ОШИБКА: Ответ API не содержит текста.")
-                return None
+        for attempt in range(max_retries):
+            try:
+                print(f"[GoogleTranslator] Отправка запроса на Google API (попытка {attempt + 1}/{max_retries})...")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                print(f"[GoogleTranslator] Получен ответ.")
 
-        except Exception as e:
-            error_text = str(e).lower()
-            context_keywords = ["context window", "token limit", "maximum input length",
-                              "превышен лимит токенов", "request payload size exceeds the limit",
-                              "resource exhausted", "limit exceeded", "400 invalid argument"]
-            
-            is_likely_context_error = False
-            if "400 invalid argument" in error_text and "token" in error_text:
-                is_likely_context_error = True
-            elif any(keyword in error_text for keyword in context_keywords):
-                is_likely_context_error = True
+                # Check for finish reason indicating potential issues
+                if (hasattr(response, 'candidates') and response.candidates
+                    and hasattr(response.candidates[0], 'finish_reason')): # Check if finish_reason exists
+                     finish_reason = response.candidates[0].finish_reason
+                     print(f"[GoogleTranslator] Finish reason: {finish_reason}")
 
-            if is_likely_context_error:
-                print(f"ОШИБКА: Лимит контекста? {e}")
-                return CONTEXT_LIMIT_ERROR
-            else:
-                print(f"ОШИБКА: Неизвестная ошибка перевода: {e}")
-                import traceback
-                traceback.print_exc()
-                return None
+                     if finish_reason in ['MAX_TOKENS', 'STOP', 'SAFETY', 'RECITATION', 'OTHER']:
+                         # These might indicate issues like context limit or safety filters
+                         if finish_reason == 'MAX_TOKENS':
+                             print("[GoogleTranslator] Вероятно, превышен лимит токенов (MAX_TOKENS).")
+                             return CONTEXT_LIMIT_ERROR # Or handle specifically if needed
+                         elif finish_reason == 'SAFETY':
+                             print("[GoogleTranslator] Ответ заблокирован фильтрами безопасности (SAFETY).")
+                             # Decide how to handle safety issues - maybe return a specific error or None
+                             return None # For now, treat as a failure
+                         elif finish_reason == 'STOP':
+                             print("[GoogleTranslator] Модель остановилась до завершения (STOP).")
+                             # This might be normal, but could indicate an issue depending on prompt
+                             pass # Continue processing the response
+                         else:
+                             # Handle other less common finish reasons if necessary
+                             print(f"[GoogleTranslator] Неизвестная причина завершения: {finish_reason}")
+                             pass # Continue processing the response
+
+
+
+                # Check for valid response content
+                if hasattr(response, 'text'):
+                    return response.text.strip()
+                else:
+                    print("[GoogleTranslator] Ошибка: Ответ от Google API не содержит текста.")
+                    # Print details if available for debugging
+                    if hasattr(response, 'prompt_feedback'):
+                         print(f"[GoogleTranslator] Prompt feedback: {response.prompt_feedback}")
+                    if hasattr(response, 'candidates'):
+                        print(f"[GoogleTranslator] Candidates: {response.candidates}")
+
+                    # Check if it's a context limit issue indicated by response structure/feedback
+                    if (hasattr(response, 'prompt_feedback') and response.prompt_feedback
+                        and hasattr(response.prompt_feedback, 'block_reason')
+                        and response.prompt_feedback.block_reason == 'RESOURCE_EXHAUSTED'):
+                         print("[GoogleTranslator] Ошибка: Превышен лимит контекста (RESOURCE_EXHAUSTED).")
+                         return CONTEXT_LIMIT_ERROR
+
+                    return None # Return None if no text and not a known context error
+
+
+            except Exception as e:
+                error_text = str(e).lower()
+                print(f"[GoogleTranslator] Ошибка Google API: {e}")
+
+                # Check if the error is likely a context limit issue
+                context_keywords = [
+                    "context window", "token limit", "maximum input length",
+                    "resource exhausted", "limit exceeded", "400 invalid argument"
+                ]
+                is_likely_context_error = any(keyword in error_text for keyword in context_keywords)
+
+                if is_likely_context_error:
+                    print("[GoogleTranslator] Ошибка: Вероятно, превышен лимит контекста.")
+                    return CONTEXT_LIMIT_ERROR
+
+                # Simple retry for other general exceptions
+                if attempt < max_retries - 1:
+                     print(f"[GoogleTranslator] Повторная попытка через {retry_delay_seconds} сек...")
+                     time.sleep(retry_delay_seconds)
+                     retry_delay_seconds *= 2 # Exponential backoff
+                     continue
+                else:
+                    print("[GoogleTranslator] Максимальное количество попыток исчерпано.")
+                    return None # Return None if all retries fail
+
+        print("[GoogleTranslator] Не удалось получить успешный ответ после всех попыток.")
+        return None # Return None if all retries fail
 
 class OpenRouterTranslator(BaseTranslator):
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
@@ -352,52 +413,112 @@ class OpenRouterTranslator(BaseTranslator):
         prompt_ext: Optional[str] = None,
         operation_type: str = 'translate'
     ) -> Optional[str]:
-        """Переводит один фрагмент текста используя указанную модель."""
-        
-        # Формирование промпта с использованием общего метода
-        prompt = self._build_prompt(operation_type, target_language, text, previous_context, prompt_ext)
+        """Переводит чанк текста с использованием OpenRouter API с обработкой ошибок и лимитов."""
+        headers = {
+            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+            "Content-Type": "application/json",
+            # "HTTP-Referer": os.getenv("YOUR_SITE_URL"), # Optional: Replace with your website URL
+            # "X-Title": os.getenv("YOUR_APP_NAME"), # Optional: Replace with your app name
+        }
 
-        if not text.strip():
-            return ""
+        prompt = self._build_prompt(
+            operation_type=operation_type,
+            target_language=target_language,
+            text=text,
+            previous_context=previous_context,
+            prompt_ext=prompt_ext
+        )
 
-        try:
-            response = requests.post(
-                f"{self.OPENROUTER_API_URL}/chat/completions",
-                headers=self.headers,
-                json={
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": "You are a professional literary translator."},
-                        {"role": "user", "content": prompt}
-                    ]
-                }
-            )
-            response.raise_for_status()
-            
-            result = response.json()
-            if 'choices' in result and len(result['choices']) > 0:
-                translated_text = result['choices'][0]['message']['content']
-                return translated_text
-            else:
-                print("Ошибка: Неожиданный формат ответа от API")
-                return None
-                
-        except requests.exceptions.RequestException as e:
-            error_text = str(e).lower()
-            # Проверяем различные варианты ошибок, связанных с превышением контекста
-            context_keywords = [
-                "context window", "token limit", "maximum input length",
-                "превышен лимит токенов", "request payload size exceeds the limit",
-                "resource exhausted", "limit exceeded", "400 invalid argument"
-            ]
-            
-            is_likely_context_error = any(keyword in error_text for keyword in context_keywords)
-            if is_likely_context_error:
-                print(f"Ошибка: Превышен лимит контекста: {e}")
-                return CONTEXT_LIMIT_ERROR
-            else:
-                print(f"Ошибка при выполнении запроса: {e}")
-                return None
+        data = {
+            "model": model_name,
+            "prompt": prompt,
+            "max_tokens": 4000, # Adjust based on model and task
+        }
+
+        # --- Retry logic for 429 errors ---
+        max_retries = 5
+        retry_delay_seconds = 5 # Initial delay
+
+        for attempt in range(max_retries):
+            try:
+                print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries})...")
+                response = requests.post(f"{self.OPENROUTER_API_URL}/chat/completions", headers=headers, data=json.dumps(data))
+                print(f"[OpenRouterTranslator] Получен ответ: Статус {response.status_code}")
+
+                # --- Проверка заголовков лимитов (опционально) ---
+                if 'X-Ratelimit-Remaining' in response.headers:
+                    print(f"[OpenRouterTranslator] X-Ratelimit-Remaining: {response.headers['X-Ratelimit-Remaining']}")
+                if 'X-Ratelimit-Limit' in response.headers:
+                     print(f"[OpenRouterTranslator] X-Ratelimit-Limit: {response.headers['X-Ratelimit-Limit']}")
+                if 'X-Ratelimit-Reset' in response.headers:
+                    print(f"[OpenRouterTranslator] X-Ratelimit-Reset: {response.headers['X-Ratelimit-Reset']}")
+
+
+                if response.status_code == 200:
+                    response_json = response.json()
+                    # Проверка наличия 'choices' и 'message'
+                    if response_json and 'choices' in response_json and response_json['choices']:
+                         # --- ИЗМЕНЕНИЕ: Проверяем наличие 'message' и 'content' ИЛИ только 'text' ---
+                         if 'message' in response_json['choices'][0] and 'content' in response_json['choices'][0]['message']:
+                             print("[OpenRouterTranslator] Ответ получен в формате message.content")
+                             return response_json['choices'][0]['message']['content'].strip()
+                         elif 'text' in response_json['choices'][0]:
+                              print("[OpenRouterTranslator] Ответ получен в формате text")
+                              return response_json['choices'][0]['text'].strip()
+                         # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+                         else:
+                             print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствует content или text).")
+                             print(f"Ответ API: {response_json}")
+                             return None
+                    else:
+                        print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствуют choices).")
+                        print(f"Ответ API: {response_json}")
+                        return None
+
+                elif response.status_code == 429:
+                    print(f"[OpenRouterTranslator] Ошибка 429 (Too Many Requests). Повторная попытка через {retry_delay_seconds} сек...")
+                    # Check for Retry-After header
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        try:
+                            retry_delay_seconds = int(retry_after) # Use value from header if available
+                        except ValueError:
+                            pass # Stick with default if header is not an integer
+                    time.sleep(retry_delay_seconds)
+                    retry_delay_seconds *= 2 # Exponential backoff
+                    continue # Try again
+
+                elif response.status_code >= 400:
+                    print(f"[OpenRouterTranslator] Ошибка API: Статус {response.status_code}")
+                    try:
+                        error_details = response.json()
+                        print(f"[OpenRouterTranslator] Детали ошибки: {error_details}")
+                    except json.JSONDecodeError:
+                        print("[OpenRouterTranslator] Ошибка API: Не удалось декодировать JSON ответа.")
+
+                    # Check for context limit error indicator
+                    if response.text and "context window" in response.text.lower():
+                        return CONTEXT_LIMIT_ERROR
+
+                    return None # Return None for other client/server errors
+
+            except requests.exceptions.RequestException as e:
+                print(f"[OpenRouterTranslator] Ошибка запроса к API: {e}")
+                if attempt < max_retries - 1:
+                     print(f"[OpenRouterTranslator] Повторная попытка через {retry_delay_seconds} сек...")
+                     time.sleep(retry_delay_seconds)
+                     retry_delay_seconds *= 2  # Exponential backoff
+                     continue
+                else:
+                    print("[OpenRouterTranslator] Максимальное количество попыток исчерпано.")
+                    return None
+
+            except Exception as e:
+                 print(f"[OpenRouterTranslator] Непредвиденная ошибка: {e}")
+                 return None
+
+        print("[OpenRouterTranslator] Не удалось получить успешный ответ после всех попыток.")
+        return None # Return None if all retries fail
 
 def configure_api() -> None:
     """Проверяет наличие необходимых ключей API."""

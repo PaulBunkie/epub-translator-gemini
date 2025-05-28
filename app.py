@@ -146,7 +146,8 @@ def update_overall_book_status(book_id):
          section_data = all_sections_dict.get(section_id)
          if section_data:
               status = section_data['status']
-              if status in ["translated", "completed_empty", "cached"]: translated_count += 1
+              if status in ["translated", "completed_empty", "cached", "summarized", "analyzed"]:
+                   translated_count += 1
               elif status == "processing": processing_count += 1
               elif status.startswith("error_"): error_count +=1
 
@@ -177,10 +178,7 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
             update_section_status(book_id, section_id, current_status, model_name=None, target_language=target_language, error_message=None, operation_type=operation_type)
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
-            # Добавляем задержку перед вызовом API перевода в фоновой задаче
-            time.sleep(10)
             api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext, operation_type=operation_type)
-
             if api_result == CONTEXT_LIMIT_ERROR: current_status = "error_context_limit"; error_message = "Текст раздела слишком велик."
             elif api_result is not None:
                  if task_id in active_tasks: active_tasks[task_id]["status"] = "caching"
