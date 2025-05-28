@@ -50,10 +50,11 @@ Summary:""",
     - Any other elements that might be challenging to translate or understand without context (e.g., specific slang, cultural references, wordplay, archaic terms).
 
     Provide your analysis and lists strictly in {target_language}.
-    List only items that are likely to be unusual, unfamiliar, or potentially difficult for an *educated* general reader of {target_language}. Exclude common names, well-known places (like countries or major cities), and widely recognized organizations unless their usage in the text is unusual or requires specific context. Briefly explain *why* each *listed* item might be a difficulty (e.g., "выдуманное имя", "потенциальный неологизм", "малоизвестная аббревиатура" in {target_language}). Provide suggested translations or explanations only if you are highly confident and they are relevant to the difficulty.
-
-    Your list should include only items that are likely to be unusual, unfamiliar, or potentially difficult for an *educated* general reader of {target_language}. Specifically exclude common names, well-known countries and major cities, and widely recognized organizations unless their usage in the text is unusual or requires specific context.
-    For each listed item, briefly explain *why* it might be a difficulty (e.g., "выдуманное имя", "потенциальный неологизм", "малоизвестная аббревиатура" in {target_language}) and provide suggested translation options into {target_language}.
+    List only items that are likely to be unusual, unfamiliar, or potentially difficult for an *educated* general reader of {target_language}. Exclude common names, well-known places (like countries or major cities), and widely recognized organizations unless their usage in the text is unusual or requires specific context.
+    For each listed item:
+    - Briefly explain *why* it might be a difficulty (e.g., "выдуманное имя", "потенциальный неологизм", "малоизвестная аббревиатура" in {target_language}).
+    - **MUST** provide at least one suggested translation option into {target_language}.
+    - If the difficulty is complex, provide multiple suggested translation options.
 
     {prompt_ext_section}
 
