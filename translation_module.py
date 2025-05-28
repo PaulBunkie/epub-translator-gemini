@@ -49,7 +49,8 @@ Summary:""",
     - Unfamiliar or fictional abbreviations and acronyms.
     - Any other elements that might be challenging to translate or understand without context (e.g., specific slang, cultural references, wordplay, archaic terms).
 
-    List each identified item and briefly explain *why* it might be a difficulty (e.g., "invented name", "potential neologism", "uncommon abbreviation"). Provide suggested translations or explanations only if you are highly confident and they are relevant to the difficulty.
+    Provide your analysis and lists strictly in {target_language}.
+    List each identified item and briefly explain *why* it might be a difficulty (e.g., "invented name", "potential neologism", "uncommon abbreviation" in {target_language}). Provide suggested translations or explanations only if you are highly confident and they are relevant to the difficulty.
 
     {prompt_ext_section}
 
