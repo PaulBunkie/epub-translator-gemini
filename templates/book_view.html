@@ -117,7 +117,7 @@
         {% if book_info %}
             {# 1. Выбор языка перевода #}
             <p>
-                <label for="language-select">Язык перевода:</label>
+                <label for="language-select">Целевой язык:</label>
                 <select id="language-select" name="target_language">
                      <option value="russian" {% if target_language == 'russian' %}selected{% endif %}>Russian</option>
                      <option value="english" {% if target_language == 'english' %}selected{% endif %}>English</option>
@@ -168,6 +168,7 @@
                 <select id="operation-select" name="operation_type">
                      <option value="translate" {% if selected_operation == 'translate' %}selected{% endif %}>Перевод</option>
                      <option value="summarize" {% if selected_operation == 'summarize' %}selected{% endif %}>Пересказ (краткое содержание)</option>
+                     <option value="analyze" {% if selected_operation == 'analyze' %}selected{% endif %}>Анализ трудностей</option>
                      {# Добавляйте сюда другие операции по мере их реализации #}
                 </select>
             </p>

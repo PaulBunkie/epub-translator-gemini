@@ -36,7 +36,27 @@ Text to Process:
 Result:""",
 
     # --- Шаблон для суммаризации (пересказа) ---
-    'summarize': """Summarize the following text into {target_language}:\n\n{text}\n\nSummary:"""
+    'summarize': """Summarize the following text into {target_language} and follow user instruction {prompt_ext_section}:
+
+{text}
+
+Summary:""",
+
+    # --- Шаблон для анализа трудностей перевода ---
+    'analyze': """You are a literary analyst assisting a translator. Your task is to read the following text in {target_language} and identify potential translation difficulties for a target audience unfamiliar with the source material. Focus on finding and listing:
+    - Proper nouns (names of people, places, organizations, etc.)
+    - Neologisms, invented words, or unusual compound words.
+    - Unfamiliar or fictional abbreviations and acronyms.
+    - Any other elements that might be challenging to translate or understand without context (e.g., specific slang, cultural references, wordplay, archaic terms).
+
+    List each identified item and briefly explain *why* it might be a difficulty (e.g., "invented name", "potential neologism", "uncommon abbreviation"). Provide suggested translations or explanations only if you are highly confident and they are relevant to the difficulty.
+
+    {prompt_ext_section}
+
+    Text to Analyze:
+    {text}
+
+Analysis:"""
 }
 
 # --- Форматирование дополнительных секций промпта ---
