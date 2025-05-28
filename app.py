@@ -448,6 +448,7 @@ def translate_all_request(book_id):
                 update_section_status(book_id, section_id, "processing")
                 executor.submit(run_single_section_translation, task_id, filepath, book_id, section_id, target_language, model_name, prompt_ext_text, operation_type)
                 launched_tasks.append(task_id); something_launched = True
+                time.sleep(2) # Добавляем задержку между запусками задач для снижения нагрузки на API
             else: update_section_status(book_id, section_id, "cached", model_name, target_language)
     print(f"  Запущено {len(launched_tasks)} задач для 'Перевести все'.")
     if something_launched: update_overall_book_status(book_id)
