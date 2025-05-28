@@ -56,6 +56,8 @@ Summary:""",
     - **MUST** provide at least one suggested translation option into {target_language}.
     - If the difficulty is complex, provide multiple suggested translation options.
 
+    Explicitly exclude common idioms, standard phrases, and straightforward descriptive constructions that are easily translatable or understandable by an educated reader.
+
     {prompt_ext_section}
 
     Text to Analyze:
