@@ -442,8 +442,9 @@ def translate_all_request(book_id):
     launched_tasks = []; something_launched = False
     for section_id, section_data in sections_list.items():
         current_status = section_data['status']
-        # Обрабатываем секцию, если ее статус не является завершенным (успешно или в процессе)
-        if current_status not in ['translated', 'completed_empty', 'processing', 'cached']:
+        # Обрабатываем секцию, если ее статус НЕ является успешно завершенным или в процессе.
+        # Список успешно завершенных статусов включает: translated, completed_empty, cached, summarized, analyzed.
+        if current_status not in ['translated', 'completed_empty', 'processing', 'cached', 'summarized', 'analyzed']:
             if not get_translation_from_cache(filepath, section_id, target_language):
                 task_id = str(uuid.uuid4()); active_tasks[task_id] = {"status": "queued", "book_id": book_id, "section_id": section_id}
                 update_section_status(book_id, section_id, "processing")
