@@ -123,9 +123,19 @@
 
         {# --- Блок управления книгой --- #}
         {% if book_info %}
-            {# 2. Выбор модели #}
+            {# 3. Выбор операции (перемещен на место 2) #}
             <p>
-                <label for="model-select">Модель:</label>
+                {# Убираем метку "Операция:" #}
+                <select id="operation-select" name="operation_type">
+                     <option value="translate" {% if selected_operation == 'translate' %}selected{% endif %}>Перевод</option>
+                     <option value="summarize" {% if selected_operation == 'summarize' %}selected{% endif %}>Пересказ (краткое содержание)</option>
+                     <option value="analyze" {% if selected_operation == 'analyze' %}selected{% endif %}>Анализ трудностей</option>
+                     {# Добавляйте сюда другие операции по мере их реализации #}
+                </select>
+            </p>
+            {# 2. Выбор модели (перемещен на место 3) #}
+            <p>
+                {# Убираем метку "Модель:" #}
                 <select id="model-select" name="model_name">
                     {% if available_models %}
                         <!-- Google Models -->
@@ -157,16 +167,6 @@
                         <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>{{ selected_model | default('gemini-1.5-flash') }}</option>
                         <option disabled>Ошибка загрузки моделей</option>
                     {% endif %}
-                </select>
-            </p>
-            {# 3. Выбор операции #}
-            <p>
-                <label for="operation-select">Операция:</label>
-                <select id="operation-select" name="operation_type">
-                     <option value="translate" {% if selected_operation == 'translate' %}selected{% endif %}>Перевод</option>
-                     <option value="summarize" {% if selected_operation == 'summarize' %}selected{% endif %}>Пересказ (краткое содержание)</option>
-                     <option value="analyze" {% if selected_operation == 'analyze' %}selected{% endif %}>Анализ трудностей</option>
-                     {# Добавляйте сюда другие операции по мере их реализации #}
                 </select>
             </p>
             {# 4. Дополнительные инструкции #}
