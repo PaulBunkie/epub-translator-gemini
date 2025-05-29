@@ -15,7 +15,7 @@ import threading
 # Flask и связанные утилиты
 from flask import (
     Flask, request, render_template, redirect, url_for,
-    jsonify, send_from_directory, Response, session, g, send_file
+    jsonify, send_from_directory, Response, session, g, send_file, make_response
 )
 from werkzeug.utils import secure_filename
 
@@ -33,7 +33,7 @@ from db_manager import (
     update_section_status, reset_stuck_processing_sections, get_section_count_for_book
 )
 from translation_module import (
-    configure_api, translate_text, CONTEXT_LIMIT_ERROR, get_models_list
+    configure_api, translate_text, CONTEXT_LIMIT_ERROR, get_models_list, load_models_on_startup
 )
 from epub_parser import (
     get_epub_structure, extract_section_text, get_epub_toc
@@ -229,7 +229,13 @@ def index():
         uploaded_books.sort(key=lambda x: x['display_name'].lower())
         print(f"  Найдено книг в БД: {len(uploaded_books)}")
     except Exception as e: print(f"ОШИБКА при получении списка книг: {e}"); traceback.print_exc()
-    return render_template('index.html', uploaded_books=uploaded_books, default_language=default_language, selected_model=selected_model, available_models=available_models)
+
+    resp = make_response(render_template('index.html', uploaded_books=uploaded_books, default_language=default_language, selected_model=selected_model, available_models=available_models))
+    # --- ИЗМЕНЕНИЕ: Добавляем 'unsafe-inline' в script-src ---
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    resp.headers['Content-Security-Policy'] = csp_policy
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    return resp
 
 @app.route('/delete_book/<book_id>', methods=['POST'])
 def delete_book_request(book_id):
@@ -347,7 +353,13 @@ def view_book(book_id):
     available_models = get_models_list()
     if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей.")
     prompt_ext_text = book_info.get('prompt_ext', '')
-    return render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation)
+
+    resp = make_response(render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation))
+    # --- ИЗМЕНЕНИЕ: Добавляем 'unsafe-inline' в script-src ---
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    resp.headers['Content-Security-Policy'] = csp_policy
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    return resp
 
 @app.route('/save_prompt_ext/<book_id>', methods=['POST'])
 def save_prompt_ext(book_id):
@@ -689,6 +701,13 @@ if __name__ == '__main__':
     print("Запуск Flask приложения...")
     # use_reloader=False рекомендуется при использовании APScheduler в режиме отладки,
     # чтобы избежать двойного запуска планировщика. Но можно попробовать и без него.
-    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
+    try:
+        configure_api() # Проверка ключей API
+        load_models_on_startup() # <-- ДОБАВЛЯЕМ ЭТОТ ВЫЗОВ
+        app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
+    except ValueError as e:
+        print(f"Ошибка конфигурации API: {e}")
+        # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
+        exit(1)
 
 # --- END OF FILE app.py ---

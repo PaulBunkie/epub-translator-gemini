@@ -12,6 +12,11 @@ import time
 # Константа для обозначения ошибки лимита контекста
 CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
 
+# Переменная для кэширования списка моделей
+_cached_models_list: Optional[List[Dict[str, Any]]] = None
+_model_list_last_update: Optional[float] = None # Опционально: для будущего кэширования по времени
+_MODEL_LIST_CACHE_TTL = 3600 # Время жизни кэша в секундах (1 час) - можно настроить
+
 # --- Шаблоны промптов для различных операций ---
 PROMPT_TEMPLATES = {
     'translate': """You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:
@@ -37,8 +42,15 @@ Text to Process:
 Result:""",
 
     # --- Шаблон для суммаризации (пересказа) ---
-    'summarize': """Summarize the following text into {target_language} and follow user instruction {prompt_ext_section}:
+    'summarize': """Your task is to act as a highly effective summarization engine.
+You will be given a text and a target language.
+Your GOAL is to provide a concise and accurate summary of the provided text in the specified target language.
+Your output MUST be ONLY the summary. Do not include any introductory or concluding remarks outside the summary itself.
+{prompt_ext_section}
 
+Target Language: {target_language}
+
+Text to Summarize:
 {text}
 
 Summary:""",
@@ -127,10 +139,42 @@ class BaseTranslator(ABC):
         # Эта константа может быть специфична для модели/API, но пока оставим ее здесь.
         # В идеале, CHUNK_SIZE_LIMIT_CHARS должен быть определяем в дочерних классах
         # или передаваться как аргумент.
-        CHUNK_SIZE_LIMIT_CHARS = 20000
-        text_len = len(text_to_translate)
-        print(f"[BaseTranslator] Проверка длины текста: {text_len} симв. Лимит чанка: {CHUNK_SIZE_LIMIT_CHARS} симв.")
 
+        text_len = len(text_to_translate)
+        CHUNK_SIZE_LIMIT_CHARS = 0 # Инициализируем переменную
+        limit_source_desc = ""
+
+        # ИЗМЕНЕНИЕ: Определяем лимит чанка в зависимости от типа операции
+        if operation_type == 'translate':
+            CHUNK_SIZE_LIMIT_CHARS = 20000
+            limit_source_desc = "Фиксированный лимит для перевода"
+        elif operation_type in ['summarize', 'analyze']:
+            # Получаем лимит токенов для операций summarize/analyze
+            actual_model_name = model_name if model_name else "gemini-1.5-flash"
+            token_limit = get_context_length(actual_model_name) # Получаем лимит токенов
+
+            # Оцениваем лимит символов, умножая лимит токенов на 4 (с запасом)
+            CHUNK_SIZE_LIMIT_CHARS = int(token_limit * 4)
+            limit_source_desc = f"Лимит по токенам модели ({token_limit} * 4)"
+        else:
+            # Дефолтное значение для неизвестных операций
+            CHUNK_SIZE_LIMIT_CHARS = 20000
+            limit_source_desc = "Дефолтный лимит для неизвестной операции"
+            print(f"[BaseTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
+
+
+        # Добавляем минимальное ограничение, чтобы избежать деления на ноль или слишком маленьких чанков
+        MIN_CHUNK_SIZE = 1000 # Минимум 1000 символов, можно настроить
+        if CHUNK_SIZE_LIMIT_CHARS < MIN_CHUNK_SIZE:
+             CHUNK_SIZE_LIMIT_CHARS = MIN_CHUNK_SIZE
+             limit_source_desc += " (увеличен до минимума)"
+             print(f"[BaseTranslator] Лимит чанка ({operation_type}) был меньше минимального. Установлен: {CHUNK_SIZE_LIMIT_CHARS}.")
+
+
+        # Обновляем сообщение в логе, чтобы отразить, как был установлен лимит
+        print(f"[BaseTranslator] Проверка длины текста: {text_len} симв. Лимит чанка ({limit_source_desc}): {CHUNK_SIZE_LIMIT_CHARS} симв.")
+
+        # Теперь используем CHUNK_SIZE_LIMIT_CHARS в оставшейся логике функции
         if text_len <= CHUNK_SIZE_LIMIT_CHARS * 1.1:
             print("[BaseTranslator] Пробуем перевод целиком...")
             # Вызываем абстрактный метод translate_chunk, реализованный в дочернем классе
@@ -576,10 +620,23 @@ def translate_text(text_to_translate: str, target_language: str = "russian",
     return translator.translate_text(text_to_translate, target_language, model_name, prompt_ext, operation_type)
 
 def get_models_list() -> List[Dict[str, Any]]:
-    """Возвращает отсортированный список моделей: сначала Google, затем бесплатные OpenRouter."""
+    """
+    Возвращает отсортированный список моделей с кэшированием.
+    Кэш обновляется при первом вызове или по истечении TTL.
+    """
+    global _cached_models_list, _model_list_last_update
+
+    current_time = time.time()
+
+    # Проверяем, есть ли кэш и не истек ли его срок
+    if _cached_models_list is not None and _model_list_last_update is not None and (current_time - _model_list_last_update) < _MODEL_LIST_CACHE_TTL:
+        print("[get_models_list] Возвращаем кэшированный список моделей.")
+        return _cached_models_list
+
+    print("[get_models_list] Кэш списка моделей отсутствует или устарел. Получаем с API...")
     google_models = []
-    openrouter_zero_cost_models = [] # Меняем название переменной для ясности
-    
+    openrouter_zero_cost_models = []
+
     # Получаем модели от Google
     try:
         google_translator = GoogleTranslator()
@@ -587,17 +644,15 @@ def get_models_list() -> List[Dict[str, Any]]:
         print(f"Получено {len(google_models)} моделей от Google API")
     except Exception as e:
         print(f"Ошибка при получении списка моделей Google: {e}")
-    
+
     # Получаем модели от OpenRouter
     try:
         openrouter_translator = OpenRouterTranslator()
         all_openrouter_models = openrouter_translator.get_available_models()
-        
+
         # Фильтруем только модели с нулевой стоимостью
         for model in all_openrouter_models:
             pricing = model.get('pricing')
-            # Проверяем, что есть информация о стоимости, есть поля prompt и completion,
-            # и их числовые значения равны 0.0
             if pricing and 'prompt' in pricing and 'completion' in pricing:
                 try:
                     prompt_cost = float(pricing['prompt'])
@@ -605,15 +660,78 @@ def get_models_list() -> List[Dict[str, Any]]:
                     if prompt_cost == 0.0 and completion_cost == 0.0:
                         openrouter_zero_cost_models.append(model)
                 except (ValueError, TypeError) as e:
-                    # Ловим ошибки преобразования, если стоимость не число
                     print(f"Ошибка парсинга стоимости для модели {model.get('name', model['id'])}: {e}")
-                    continue # Пропускаем эту модель, если не удалось распарсить стоимость
+                    continue
 
         print(f"Получено {len(openrouter_zero_cost_models)} моделей с нулевой стоимостью из {len(all_openrouter_models)} от OpenRouter API")
     except Exception as e:
         print(f"Ошибка при получении списка моделей OpenRouter: {e}")
-    
+
     # Объединяем списки: сначала Google, потом модели OpenRouter с нулевой стоимостью
-    return google_models + sorted(openrouter_zero_cost_models, key=lambda x: x.get('display_name', '').lower())
+    # Добавим проверку на случай, если оба списка пусты
+    combined_list = google_models + sorted(openrouter_zero_cost_models, key=lambda x: x.get('display_name', '').lower())
+
+    if not combined_list:
+        print("[get_models_list] Предупреждение: Не удалось получить список моделей от API.")
+        # Можно вернуть пустой список или поднять исключение, в зависимости от желаемого поведения
+        # Для начала вернем пустой список, чтобы приложение не падало при старте, если API недоступны
+        _cached_models_list = []
+        _model_list_last_update = current_time # Кэшируем пустой список, чтобы не спамить API
+        return []
+
+
+    # Кэшируем полученный список
+    _cached_models_list = combined_list
+    _model_list_last_update = current_time
+
+    print("[get_models_list] Список моделей успешно получен и закэширован.")
+    return _cached_models_list
+
+# Функция для принудительной загрузки списка моделей при старте (опционально)
+def load_models_on_startup():
+    """Принудительно загружает список моделей при старте приложения."""
+    print("[startup] Загрузка списка моделей...")
+    try:
+        get_models_list()
+        print("[startup] Список моделей загружен.")
+    except Exception as e:
+        print(f"[startup] Ошибка при загрузке списка моделей: {e}")
+
+
+# Модифицируем get_context_length, чтобы использовать кэш и возвращать чистый лимит токенов
+def get_context_length(model_name: str) -> int:
+    """
+    Возвращает лимит входных токенов для данной модели.
+    Использует закэшированный список моделей.
+    Возвращает дефолтное значение (например, 8000 токенов), если модель не найдена
+    или лимит недоступен.
+    """
+    # Используем закэшированный список напрямую
+    models = _cached_models_list
+
+    # Если кэш еще не загружен или пуст, принудительно загружаем
+    if models is None or not models:
+         # print("[get_context_length] Предупреждение: Кэш моделей не загружен или пуст. Принудительно загружаем.") # Убираем print
+         models = get_models_list()
+
+         if not models:
+             print(f"[get_context_length] Ошибка: Не удалось загрузить список моделей для '{model_name}'. Используем дефолт токенов.")
+             return 8000 # Дефолтное значение в токенах
+
+    for model in models:
+        if isinstance(model, dict) and model.get('name') == model_name and 'input_token_limit' in model:
+            token_limit = model['input_token_limit']
+            if isinstance(token_limit, (int, float)) and token_limit != 'N/A':
+                # Теперь возвращаем сам лимит токенов
+                return int(token_limit)
+            else:
+                 print(f"[get_context_length] Предупреждение: Нечисловой лимит токенов '{token_limit}' для модели '{model_name}'. Используем дефолт токенов.")
+                 return 8000 # Дефолтное значение в токенах
+        elif isinstance(model, dict) and model.get('name') == model_name and 'input_token_limit' not in model:
+             print(f"[get_context_length] Предупреждение: Для модели '{model_name}' отсутствует 'input_token_limit'. Используем дефолт токенов.")
+             return 8000 # Дефолтное значение в токенах
+
+    print(f"[get_context_length] Предупреждение: Модель '{model_name}' не найдена в закэшированном списке. Используем дефолт токенов.")
+    return 8000 # Дефолтное значение в токенах
 
 # --- END OF FILE translation_module.py ---

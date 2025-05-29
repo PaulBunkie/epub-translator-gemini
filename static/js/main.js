@@ -48,18 +48,31 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} updateAllMatching - Если true, обновить все элементы с этим sectionId.
      */
     function updateSectionStatusUI(sectionId, newStatus, updateAllMatching = false) {
-        if (!tocList) return;
+        console.log(`[DEBUG-UI-Status] updateSectionStatusUI вызван для sectionId: ${sectionId}, newStatus: ${newStatus}, updateAllMatching: ${updateAllMatching}`);
+        if (!tocList) {
+             console.log(`[DEBUG-UI-Status] tocList не найден.`);
+             return;
+        }
         const sectionItems = updateAllMatching
             ? tocList.querySelectorAll(`.toc-item[data-section-id="${sectionId}"]`)
             : [tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`)];
 
         sectionItems.forEach(sectionItem => {
-            if (!sectionItem) return;
+            if (!sectionItem) {
+                 console.log(`[DEBUG-UI-Status] sectionItem для ${sectionId} не найден.`);
+                 return;
+            }
 
             const previousStatus = sectionItem.dataset.status;
+            console.log(`[DEBUG-UI-Status] Секция ${sectionId} (DOM): Предыдущий статус: ${previousStatus}, Новый статус: ${newStatus}`);
+
             // Обновляем только если статус реально изменился
-            if (previousStatus === newStatus) return;
+            if (previousStatus === newStatus) {
+                 console.log(`[DEBUG-UI-Status] Статус для ${sectionId} не изменился (${newStatus}), пропускаем обновление UI.`);
+                 return;
+            }
             sectionItem.dataset.status = newStatus;
+            console.log(`[DEBUG-UI-Status] Статус в dataset для ${sectionId} обновлен на: ${sectionItem.dataset.status}`);
 
             const statusSpan = sectionItem.querySelector('.toc-status');
             const downloadLink = sectionItem.querySelector('.download-section-link');
@@ -80,19 +93,27 @@ document.addEventListener('DOMContentLoaded', () => {
                  else if (newStatus === 'cached') statusText = 'Translated'; // Заменяем cached на Translated
 
                 statusSpan.textContent = statusText;
-            }
+                console.log(`[DEBUG-UI-Status] statusSpan текст для ${sectionId} установлен: ${statusText}`);
+            } else { console.log(`[DEBUG-UI-Status] statusSpan для ${sectionId} не найден.`); }
 
             // Обновляем видимость ссылки скачивания и кнопки обновления
             const isReady = ['translated', 'completed_empty', 'cached', 'summarized', 'analyzed'].includes(newStatus);
             const canUpdate = isReady || newStatus.startsWith('error_'); // Обновлять можно готовые или ошибочные
 
-            if (downloadLink) downloadLink.classList.toggle('hidden', !isReady);
-            if (updateBtn) updateBtn.classList.toggle('hidden', !canUpdate); // Показываем кнопку Обновить для готовых и ошибочных
+            if (downloadLink) { downloadLink.classList.toggle('hidden', !isReady); console.log(`[DEBUG-UI-Status] downloadLink hidden для ${sectionId}: ${!isReady}`); } else { console.log(`[DEBUG-UI-Status] downloadLink для ${sectionId} не найден.`); }
+
+            // Управляем состоянием disabled кнопки обновления
+            if (updateBtn) {
+                updateBtn.classList.toggle('hidden', !canUpdate); // Показываем/скрываем
+                updateBtn.disabled = newStatus === 'processing'; // Отключаем, если статус processing
+                console.log(`[DEBUG-UI-Status] updateBtn hidden для ${sectionId}: ${!canUpdate}, disabled: ${updateBtn.disabled}`);
+            } else { console.log(`[DEBUG-UI-Status] updateBtn для ${sectionId} не найден.`); }
 
             // Обновляем видимость индикатора загрузки
             if (processingIndicator) {
                  processingIndicator.style.display = newStatus === 'processing' ? 'inline' : 'none';
-            }
+                 console.log(`[DEBUG-UI-Status] processingIndicator display для ${sectionId} установлен: ${processingIndicator.style.display}`);
+            } else { console.log(`[DEBUG-UI-Status] processingIndicator для ${sectionId} не найден.`); }
 
             // Если активная секция завершила обработку (при общем обновлении)
             if (sectionId === activeSectionId && previousStatus === 'processing' && newStatus !== 'processing' && updateAllMatching) {
@@ -134,161 +155,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Обновляем статусы всех секций в TOC
         if (bookData.sections && tocList) {
-            // --- НОВЫЙ КОД (ЗАМЕНИТЬ СТАРЫЙ ЦИКЛ): ---
-            for (const [sectionId, sectionInfo] of Object.entries(bookData.sections)) { // Получаем sectionInfo (объект), а не просто status
+            // --- ИЗМЕНЕНИЕ: Перебираем секции из данных поллинга и вызываем updateSectionStatusUI для каждой ---
+            for (const [sectionId, sectionInfo] of Object.entries(bookData.sections)) { // Получаем sectionInfo (объект)
                  if (!sectionInfo) continue; // Пропускаем, если данных нет
 
-                 const status = sectionInfo.status || 'not_translated';
-                 console.log(`[DEBUG-UI] Processing section ${sectionId}, status: '${status}', type: ${typeof status}`);
-                 const modelName = sectionInfo.model_name; // <--- Получаем имя модели
-                 const errorMessage = sectionInfo.error_message; // <--- Получаем сообщение об ошибке
-
-                 // Находим соответствующий элемент в DOM
-                 const sectionItem = tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`);
-                 if (!sectionItem) continue; // Пропускаем, если элемент не найден
-
-                 const statusSpan = sectionItem.querySelector('.toc-status');
-                 const downloadLink = sectionItem.querySelector('.download-section-link');
-                 const processingIndicator = sectionItem.querySelector('.processing-indicator');
-                 const updateBtn = sectionItem.querySelector('.update-translation-btn');
-
-                 // Проверяем наличие элементов перед обновлением
-                 if (!statusSpan || !downloadLink || !processingIndicator || !updateBtn) {
-                     console.warn(`Missing UI elements within TOC item for section ${sectionId}`);
-                     continue;
-                 }
-
-                 // --- Определяем статус, текст, класс и тултип --- 
-                 let statusText = ''; // Объявляем здесь
-                 let statusClass = ''; // Объявляем здесь
-                 let tooltip = '';    // Объявляем здесь
-
-                 switch (status) {
-                     case 'translated':
-                         statusText = 'Translated';
-                         statusClass = 'status-translated';
-                         if (modelName) { // Если есть модель, показываем ее имя и особый класс
-                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
-                              statusClass = 'status-translated-model';
-                              tooltip = `Translated by: ${modelName}`; 
-                         }
-                         break;
-                     case 'cached': // Кэшированный перевод также отображается как Translated
-                         statusText = 'Translated'; // Или 'Cached', если хотим отличать кэш без модели
-                         statusClass = 'status-translated'; // Или 'status-cached' если хотим отдельный стиль
-                         if (modelName) { // Если есть модель в кэше (редко), показываем ее
-                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
-                              statusClass = 'status-translated-model';
-                              tooltip = `Cached translation by: ${modelName}`; 
-                         } else { // Кэш без модели, просто 'Cached' или 'Translated' (как сейчас) 
-                              tooltip = 'From cache';
-                         }
-                         break;
-                     case 'completed_empty':
-                         statusText = 'Empty Section';
-                         statusClass = 'status-completed-empty';
-                         tooltip = 'Section was empty or contained no translatable text.';
-                         break;
-                     case 'summarized':
-                         statusText = 'Summarized';
-                         statusClass = 'status-summarized';
-                          if (modelName) { // Если есть модель
-                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
-                              tooltip = `Summarized by: ${modelName}`; 
-                         }
-                         break;
-                     case 'analyzed':
-                         statusText = 'Analyzed';
-                         statusClass = 'status-analyzed';
-                          if (modelName) { // Если есть модель
-                              statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
-                              tooltip = `Analyzed by: ${modelName}`; 
-                         }
-                         break;
-                     case 'processing':
-                         statusText = 'Processing';
-                         statusClass = 'status-processing';
-                         break;
-                     case 'not_translated':
-                     case 'idle':
-                         statusText = 'Not Translated';
-                         statusClass = 'status-not-translated';
-                         break;
-                     case 'error_context_limit':
-                         statusText = 'Error (Too Large)';
-                         statusClass = 'status-error';
-                         tooltip = errorMessage || status;
-                         break;
-                     case 'error_translation':
-                         statusText = 'Error (Translate)';
-                         statusClass = 'status-error';
-                         tooltip = errorMessage || status;
-                         break;
-                     case 'error_caching':
-                          statusText = 'Error (Cache)';
-                          statusClass = 'status-error';
-                          tooltip = errorMessage || status;
-                          break;
-                     case 'error_extraction':
-                          statusText = 'Error (Extract)';
-                          statusClass = 'status-error';
-                          tooltip = errorMessage || status;
-                          break;
-                     case 'error_unknown':
-                          statusText = 'Error (Unknown)';
-                          statusClass = 'status-error';
-                          tooltip = errorMessage || status;
-                          break;
-                     default: // Совсем неизвестный статус
-                         statusText = status;
-                         statusClass = 'status-unknown';
-                         tooltip = errorMessage || status;
-                         break;
-                 }
-
-                 // Применяем класс и текст
-                 statusSpan.className = `toc-status ${statusClass}`; 
-                 statusSpan.textContent = statusText;
-
-                 // Применяем тултип
-                 if (tooltip) {
-                     statusSpan.title = tooltip; 
-                 } else {
-                     statusSpan.removeAttribute('title'); 
-                 }
-
-                 // --- Обновляем видимость кнопок и индикатора (как в твоем старом коде updateSectionStatusUI) ---
-                 const isReady = ['translated', 'completed_empty', 'cached', 'summarized', 'analyzed'].includes(status);
-                 const canUpdate = isReady || status.startsWith('error_');
-
-                 downloadLink.classList.toggle('hidden', !isReady);
-                 updateBtn.classList.toggle('hidden', !canUpdate);
-                 processingIndicator.style.display = status === 'processing' ? 'inline' : 'none';
-
-                 // --- Обновление контента активной секции (можно оставить как было) ---
-                 const previousStatus = sectionItem.dataset.status; // Используем data-атрибут для хранения предыдущего статуса
-                 if (sectionId === activeSectionId && previousStatus === 'processing' && status !== 'processing') {
-                    console.log(`Polling update finished for active section ${sectionId}, new status: ${status}. Reloading content.`);
-                     if (!status.startsWith('error_')) {
-                         loadAndDisplaySection(sectionId, true); // Обновляем контент, если не ошибка
-                     } else {
-                          displayTranslatedText(`(Ошибка перевода раздела: ${errorMessage || status})`);
-                     }
-                 }
-                 sectionItem.dataset.status = status; // Сохраняем текущий статус в data-атрибут
-
+                 const newStatus = sectionInfo.status || 'not_translated';
+                 // Вызываем основную функцию обновления UI секции
+                 // updateAllMatching = true, потому что это общее обновление от поллинга
+                 updateSectionStatusUI(sectionId, newStatus, true); 
             }
-            // --- КОНЕЦ НОВОГО КОДА ---
+            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
         } else if (!tocList) {
              console.error("TOC list element not found for status update!");
         }
 
         // Управляем опросом
-        if (isCompleteOrErrors && bookData.status !== 'processing') { // Останавливаем, если все готово И не в процессе
-            stopPolling();
-        } else if (bookData.status === 'processing' && !currentPolling) {
-             startPolling();
-        }
+        const isBookProcessing = bookData.status === 'processing'; // Проверяем статус книги
+        if (isCompleteOrErrors && !isBookProcessing) { // Останавливаем, если все готово И книга не в процессе
+             stopPolling();
+         } // Нет else if для startPolling, т.к. поллинг запускается при старте задач
     }
 
     // --- Функции для запросов к API ---
@@ -312,7 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Загружает и отображает перевод секции.
-     * Если перевода нет, запускает фоновый перевод.
+     * Если перевода нет, показывает индикатор и ждет поллинга (при первом клике),
+     * или показывает "не найден" (при обновлении от поллинга).
      * @param {string} sectionId - ID секции (файла).
      * @param {boolean} isUpdate - True, если это обновление контента после поллинга.
      */
@@ -324,14 +210,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         activeSectionId = sectionId;
         translationSectionIdSpan.textContent = sectionId;
-        translationContentDiv.innerHTML = '<p>Загрузка...</p>';
         translationDisplay.style.display = 'block';
+
+        // Проверяем текущий статус секции в UI (если элемент существует)
+        const currentTocItem = tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`);
+        const currentStatus = currentTocItem ? currentTocItem.dataset.status : 'unknown';
 
         // Обновляем выделение активного элемента в TOC
         tocList.querySelectorAll('.toc-item').forEach(el => el.dataset.isActive = "false");
-        const currentTocItem = tocList.querySelector(`.toc-item[data-section-id="${sectionId}"]`);
         if(currentTocItem) currentTocItem.dataset.isActive = "true";
         else console.warn(`TOC item for section ${sectionId} not found.`);
+
+        // --- ИЗМЕНЕНИЕ: Если секция в процессе (по UI), показываем сообщение и выходим ---
+        if (currentStatus === 'processing' && !isUpdate) { // Только если это не обновление от поллинга
+             displayTranslatedText('(Раздел уже в процессе перевода...)');
+             translationContentDiv.innerHTML = '<p>Раздел уже в процессе обработки. Ожидайте завершения.</p>'; // Более явное сообщение
+             console.log(`Section ${sectionId} is processing (UI status). Waiting for polling update.`);
+             return; // Не пытаемся загрузить данные сейчас, ждем поллинга
+         }
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+        translationContentDiv.innerHTML = '<p>Загрузка...</p>'; // Сброс текста загрузки
 
         const selectedLanguage = languageSelect.value; // Берем текущий выбранный язык
 
@@ -341,16 +240,38 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const data = await response.json();
                 displayTranslatedText(data.text);
+                // --- УДАЛЯЕМ: Логика обновления статуса при успешной загрузке ---
+                // Статус должен обновляться только через поллинг
+                /*
+                 if (currentTocItem) {
+                     const newStatus = currentTocItem.dataset.status || 'translated';
+                     updateSectionStatusUI(sectionId, newStatus, true);
+                 } else {
+                     updateSectionStatusUI(sectionId, 'translated', true);
+                 }
+                */
+                // --- КОНЕЦ УДАЛЯЕМОГО БЛОКА ---
+
             } else if (response.status === 404) {
                 const errorData = await response.json().catch(() => ({ error: "Not found" }));
-                // Если это не обновление после поллинга, запускаем перевод
+                console.warn(`Translation not found for ${sectionId}: ${errorData.error || ''}. isUpdate: ${isUpdate}`);
+
+                // --- ИЗМЕНЕНИЕ: НЕ вызываем startSectionTranslation при 404, особенно при !isUpdate ---
                 if (!isUpdate) {
-                    translationContentDiv.innerHTML = '<p>Перевод не найден. Запускаем перевод...</p>';
-                    await startSectionTranslation(sectionId); // Запускаем перевод
-                } else {
-                     displayTranslatedText(`(Перевод не найден или еще не готов: ${errorData.error || ''})`);
-                     updateSectionStatusUI(sectionId, 'not_translated', true);
-                }
+                     // Это первый клик или обновление после загрузки страницы, и результат не найден.
+                     // Показываем сообщение, что результат не найден, и полагаемся на поллинг.
+                     displayTranslatedText(`(Результат обработки раздела не найден или еще не готов. Статус будет обновлен.)`);
+                     // UI статус должен обновиться поллингом.
+                 } else {
+                     // Это обновление от поллинга (isUpdate=true), и результат все еще 404.
+                     // Значит, что-то пошло не так, или секция действительно пуста, или поллинг не успевает.
+                     // Показываем сообщение об ошибке или отсутствии результата.
+                      displayTranslatedText(`(Результат обработки раздела не найден или ошибка: ${errorData.error || 'Неизвестная ошибка'})`);
+                      // Можно обновить UI статус на ошибку, если он не processing и не empty
+                      // updateSectionStatusUI(sectionId, 'error_translation', true); // Пример
+                 }
+                // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
             } else {
                 const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
                 console.error(`Error fetching translation for ${sectionId}: ${response.status}`, errorData);
@@ -418,6 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {string} sectionId - ID секции для перевода.
      */
     async function startSectionTranslation(sectionId) {
+        startPolling(); // Ensure polling is running
         console.log(`Запуск перевода секции ${sectionId}...`);
         const targetLanguage = languageSelect ? languageSelect.value : initialTargetLanguage;
         const modelName = modelSelect ? modelSelect.value : initialSelectedModel; // Use initialSelectedModel as fallback
@@ -464,6 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * Запускает процесс перевода всех непереведенных секций на бэкенде.
      */
     async function startTranslateAll() {
+        startPolling(); // Ensure polling is running
         console.log('Запуск перевода всех непереведенных секций...');
         const targetLanguage = languageSelect ? languageSelect.value : initialTargetLanguage;
         const modelName = modelSelect ? modelSelect.value : initialSelectedModel; // Use initialSelectedModel as fallback
@@ -507,25 +430,37 @@ document.addEventListener('DOMContentLoaded', () => {
      * Опрашивает статус книги с сервера.
      */
     async function pollBookStatus() {
-        if (!currentPolling || typeof currentBookId === 'undefined' || currentBookId === null) {
-            stopPolling();
-            return;
+        console.log("[DEBUG-Polling] pollBookStatus вызван. currentPolling:", currentPolling);
+        if (currentPolling) {
+             console.log("[DEBUG-Polling] pollBookStatus уже выполняется, пропускаем.");
+             return; // Избегаем дублирования запросов
         }
-        console.log("Polling book status...");
+
+        currentPolling = true;
+        console.log("[DEBUG-Polling] Устанавливаем currentPolling = true");
+
         try {
-            const timestamp = new Date().getTime();
-            const response = await fetchWithTimeout(`/book_status/${currentBookId}?t=${timestamp}`);
+            const fetchUrl = `/book_status/${currentBookId}?t=${Date.now()}`;
+            console.log(`[DEBUG-Polling] Отправка запроса на ${fetchUrl}`);
+            const response = await fetchWithTimeout(fetchUrl);
+            console.log(`[DEBUG-Polling] Получен ответ от ${fetchUrl}. Status: ${response.status}`);
+
             if (!response.ok) {
-                console.error(`Error polling status: ${response.status}`);
-                // Не останавливаем опрос при временных ошибках
-                return;
+                console.error(`[DEBUG-Polling] Ошибка HTTP при получении статуса книги: ${response.status}`);
+                // Не выходим сразу, чтобы finally выполнился
+            } else {
+                const bookData = await response.json();
+                console.log("[DEBUG-Polling] Получены данные статуса книги:", bookData);
+
+                updateOverallBookStatusUI(bookData); // Обновляем UI на основе полученных данных
             }
-            const data = await response.json();
-            // console.log("Received book status:", data); // Можно раскомментировать для отладки
-            updateOverallBookStatusUI(data); // Обновляет все статусы и решает, остановить ли опрос
+
         } catch (error) {
-            console.error('Network error during polling:', error);
-            // Не останавливаем опрос при сетевых ошибках
+            console.error("[DEBUG-Polling] Ошибка при опросе статуса книги (catch):", error);
+            // В случае ошибки запроса опрос продолжается.
+        } finally {
+            currentPolling = false; // Сброс флага в конце
+            console.log("[DEBUG-Polling] Сброс currentPolling = false в finally");
         }
     }
 
@@ -535,7 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function startPolling() {
         if (!pollInterval) {
             console.log("Starting status polling...");
-            currentPolling = true;
+            // currentPolling = true; // Эту строку удаляем отсюда
             // Запускаем первый опрос почти сразу
             setTimeout(pollBookStatus, 500);
             pollInterval = setInterval(pollBookStatus, 5000); // Опрос каждые 5 секунд
