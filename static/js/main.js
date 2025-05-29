@@ -255,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     async function loadAndDisplaySection(sectionId, isUpdate = false) {
         console.log(`Loading section ${sectionId}. Is update: ${isUpdate}`);
-        if (!sectionId || !translationSectionIdSpan || !translationContentDiv || !translationDisplay || !tocList || !languageSelect) {
+        if (!sectionId || !translationSectionIdSpan || !translationContentDiv || !translationDisplay || !tocList) {
              console.error("Essential UI element missing for loadAndDisplaySection");
              return;
         }
@@ -283,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         translationContentDiv.innerHTML = '<p>Загрузка...</p>'; // Сброс текста загрузки
 
-        const selectedLanguage = languageSelect.value; // Берем текущий выбранный язык
+        const selectedLanguage = initialTargetLanguage; // Берем язык из переменной, переданной из бэкенда
 
         try {
             const response = await fetchWithTimeout(`/get_translation/${currentBookId}/${sectionId}?lang=${selectedLanguage}`);

@@ -74,10 +74,9 @@
             margin-top: 5px; /* Небольшой отступ сверху */
         }
         #toc-list { list-style: none; padding-left: 0; margin: 0; } /* Убрали margin-top */
-        /* ... остальные стили .toc-item, .toc-link-container и т.д. без изменений ... */
         .toc-item { padding: 5px 0; padding-left: calc(var(--level, 1) * 18px - 18px); border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; font-size: 0.95em; line-height: 1.4; min-height: 28px; }
         .toc-item:last-child { border-bottom: none; }
-        .toc-link-container { display: flex; align-items: center; flex-grow: 1; margin-right: 10px; overflow: hidden; }
+        .toc-link-container { display: flex; align-items: center; flex-grow: 1; margin-right: 10px; overflow: hidden; max-width: calc(100% - 80px); }
         .toc-link { cursor: pointer; text-decoration: none; color: #0056b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; }
         .toc-link:hover { text-decoration: underline; }
         .toc-item[data-is-active="true"] > .toc-link-container > .toc-link { font-weight: bold; color: #000; }
@@ -110,7 +109,12 @@
 <body>
     <div id="left-panel"> {# Левая панель теперь flex-контейнер с direction: column #}
         {# 0. Название книги #}
-        <h2>{{ (book_info.filename.replace('.epub', '').replace('_', ' ')) if book_info else 'Книга не загружена' }}</h2>
+        <h2>
+            {{ (book_info.filename.replace('.epub', '').replace('_', ' ')) if book_info else 'Книга не загружена' }}
+            {% if book_info and book_info.target_language %}
+                <span style="font-size: 0.7em; padding: 1px 4px; margin-left: 5px; background-color: #ffecec; border: 1px solid #e0c0c0; border-radius: 3px; color: #c00; white-space: nowrap; vertical-align: middle;">{{ book_info.target_language }}</span>
+            {% endif %}
+        </h2>
         {# Кнопка "Открыть другую книгу" #}
         <p>
             <button onclick="document.getElementById('upload-redirect-form').submit();">Открыть другую книгу</button>
@@ -119,17 +123,6 @@
 
         {# --- Блок управления книгой --- #}
         {% if book_info %}
-            {# 1. Выбор языка перевода #}
-            <p>
-                <label for="language-select">Целевой язык:</label>
-                <select id="language-select" name="target_language" disabled>
-                     <option value="russian" {% if target_language == 'russian' %}selected{% endif %}>Russian</option>
-                     <option value="english" {% if target_language == 'english' %}selected{% endif %}>English</option>
-                     <option value="german" {% if target_language == 'german' %}selected{% endif %}>German</option>
-                     <option value="french" {% if target_language == 'french' %}selected{% endif %}>French</option>
-                     <option value="spanish" {% if target_language == 'spanish' %}selected{% endif %}>Spanish</option>
-                </select>
-            </p>
             {# 2. Выбор модели #}
             <p>
                 <label for="model-select">Модель:</label>
