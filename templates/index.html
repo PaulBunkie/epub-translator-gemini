@@ -47,7 +47,7 @@
 
         /* Список книг */
         ul { list-style: none; padding: 0; }
-        li.book-item { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;}
+        li.book-item { border-bottom: 1px solid #eee; padding: 5px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;}
         li.book-item:last-child { border-bottom: none; }
         .book-info { flex-grow: 1; margin-right: 15px; word-break: break-all; }
         .book-title { font-weight: bold; display: block; margin-bottom: 3px;}
@@ -152,10 +152,10 @@
                         <span class="book-title">
                             {{ book.display_name | default('No Name') }}
                             {% if book.target_language %}
-                                <span style="font-size: 0.8em; padding: 1px 4px; margin-left: 5px; background-color: #ffecec; border: 1px solid #e0c0c0; border-radius: 3px; color: #c00; white-space: nowrap;">{{ book.target_language }}</span>
+                                <span style="font-size: 0.6em; padding: 0px 3px; margin-left: 4px; background-color: #ffecec; border: 1px solid #e0c0c0; border-radius: 3px; color: #c00; white-space: nowrap;">{{ book.target_language }}</span>
                             {% endif %}
                         </span>
-                        <span class="book-status">
+                        <span class="book-status" style="font-size: 0.8em;">
                              {% set total = book.total_sections | default(0) %}
                              {% if total > 0 %}
                                  Статус: {{ book.status | default('N/A') | replace('_', ' ') | capitalize }}
@@ -166,10 +166,10 @@
                     </div>
                     <div class="book-actions">
                          <a href="{{ url_for('view_book', book_id=book.book_id) }}">
-                              <button>Просмотр/Перевод</button>
+                              <button style="padding: 6px 12px; font-size: 0.95em; line-height: 1.2;">Просмотр</button>
                          </a>
                          <form action="{{ url_for('delete_book_request', book_id=book.book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Удалить книгу \'{{ book.display_name | escape }}\'?');">
-                             <button type="submit" class="delete-btn">Удалить</button>
+                             <button type="submit" class="delete-btn" style="padding: 6px 12px; font-size: 0.95em; line-height: 1.2;">Удалить</button>
                          </form>
                     </div>
                 </li>
