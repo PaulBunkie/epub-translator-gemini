@@ -44,11 +44,15 @@ document.addEventListener('DOMContentLoaded', () => {
      * Обновляет визуальный статус для одного или всех элементов TOC,
      * относящихся к указанному sectionId.
      * @param {string} sectionId - ID секции (файла).
-     * @param {string} newStatus - Новый статус.
+     * @param {object} sectionInfo - Объект с данными секции (status, model_name, error_message, etc.).
      * @param {boolean} updateAllMatching - Если true, обновить все элементы с этим sectionId.
      */
-    function updateSectionStatusUI(sectionId, newStatus, updateAllMatching = false) {
-        console.log(`[DEBUG-UI-Status] updateSectionStatusUI вызван для sectionId: ${sectionId}, newStatus: ${newStatus}, updateAllMatching: ${updateAllMatching}`);
+    function updateSectionStatusUI(sectionId, sectionInfo, updateAllMatching = false) {
+        const newStatus = sectionInfo.status || 'not_translated';
+        const modelName = sectionInfo.model_name;
+        const errorMessage = sectionInfo.error_message;
+
+        console.log(`[DEBUG-UI-Status] updateSectionStatusUI вызван для sectionId: ${sectionId}, newStatus: ${newStatus}, modelName: ${modelName}, updateAllMatching: ${updateAllMatching}`);
         if (!tocList) {
              console.log(`[DEBUG-UI-Status] tocList не найден.`);
              return;
@@ -82,18 +86,66 @@ document.addEventListener('DOMContentLoaded', () => {
             // Обновляем текст и стиль статуса
             if (statusSpan) {
                 statusSpan.className = `toc-status status-${newStatus}`;
-                let statusText = newStatus.replace(/_/g, ' ').replace(/^error$/, 'Error');
-                statusText = statusText.charAt(0).toUpperCase() + statusText.slice(1);
-                if (newStatus === 'error_context_limit') statusText = 'Error (Too Large)';
-                else if (newStatus === 'error_translation') statusText = 'Error (Translate)';
-                else if (newStatus === 'error_caching') statusText = 'Error (Cache)';
-                else if (newStatus === 'error_unknown') statusText = 'Error (Unknown)';
-                else if (newStatus === 'completed_empty') statusText = 'Empty Section';
-                else if (newStatus === 'translated') statusText = 'Translated'; // Явное имя
-                 else if (newStatus === 'cached') statusText = 'Translated'; // Заменяем cached на Translated
+                let statusText = ''; // Переопределяем для нового подхода
+                let tooltip = ''; // Переопределяем для нового подхода
+
+                // --- ИЗМЕНЕНИЕ: Определяем statusText (приоритет у имени модели) ---
+                // Если статус "успешный" и есть имя модели - показываем имя модели
+                if (modelName && ['translated', 'cached', 'summarized', 'analyzed'].includes(newStatus)) {
+                    // Показываем только часть имени после последнего слэша для краткости
+                    statusText = modelName.includes('/') ? modelName.substring(modelName.lastIndexOf('/') + 1) : modelName;
+                } else {
+                    // Иначе, показываем стандартный текст статуса
+                    switch (newStatus) {
+                        case 'completed_empty': statusText = 'Empty Section'; break;
+                        case 'processing': statusText = 'Processing'; break;
+                        case 'not_translated':
+                        case 'idle': statusText = 'Not Translated'; break;
+                        case 'error_context_limit': statusText = 'Error (Too Large)'; break;
+                        case 'error_translation': statusText = 'Error (Translate)'; break;
+                        case 'error_caching': statusText = 'Error (Cache)'; break;
+                        case 'error_extraction': statusText = 'Error (Extract)'; break;
+                        case 'error_unknown': statusText = 'Error (Unknown)'; break;
+                        default: // Для любых других неожиданных статусов
+                            statusText = newStatus.replace(/_/g, ' ').replace(/^error$/, 'Error');
+                            statusText = statusText.charAt(0).toUpperCase() + statusText.slice(1);
+                            break;
+                    }
+                }
+                 // --- КОНЕЦ ИЗМЕНЕНИЯ (statusText) ---
 
                 statusSpan.textContent = statusText;
                 console.log(`[DEBUG-UI-Status] statusSpan текст для ${sectionId} установлен: ${statusText}`);
+
+
+                // --- ИЗМЕНЕНИЕ: Формируем тултип (приоритет у ошибки) ---
+                if (errorMessage) {
+                    tooltip = errorMessage; // Если есть ошибка, тултип - сообщение об ошибке
+                } else if (['translated', 'cached', 'summarized', 'analyzed'].includes(newStatus)) {
+                    // Если нет ошибки, но статус "успешный", тултип - тип операции и лимиты
+                    let operationTypeForTooltip = '';
+                    switch (newStatus) {
+                         case 'translated':
+                         case 'cached': operationTypeForTooltip = 'Translated'; break;
+                         case 'summarized': operationTypeForTooltip = 'Summarized'; break;
+                         case 'analyzed': operationTypeForTooltip = 'Analyzed'; break;
+                    }
+                    tooltip = operationTypeForTooltip;
+
+                    // Добавляем лимиты токенов, если они есть в sectionInfo
+                    if (sectionInfo.input_token_limit || sectionInfo.output_token_limit) {
+                         tooltip += ` (In: ${sectionInfo.input_token_limit || 'N/A'}, Out: ${sectionInfo.output_token_limit || 'N/A'})`;
+                    }
+                }
+                // Если нет ни ошибки, ни "успешного" статуса для тултипа, тултип остается пустым
+
+                if (tooltip) {
+                    statusSpan.title = tooltip;
+                } else {
+                    statusSpan.removeAttribute('title');
+                }
+                // --- КОНЕЦ ИЗМЕНЕНИЯ (Тултип) ---
+
             } else { console.log(`[DEBUG-UI-Status] statusSpan для ${sectionId} не найден.`); }
 
             // Обновляем видимость ссылки скачивания и кнопки обновления
@@ -121,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  if (!newStatus.startsWith('error')) {
                      loadAndDisplaySection(sectionId, true); // Обновляем контент
                  } else {
-                      displayTranslatedText(`(Ошибка перевода раздела: ${statusSpan ? statusSpan.textContent : newStatus})`);
+                      displayTranslatedText(`(Ошибка обработки раздела: ${errorMessage || newStatus})`);
                  }
             }
         });
@@ -155,16 +207,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Обновляем статусы всех секций в TOC
         if (bookData.sections && tocList) {
-            // --- ИЗМЕНЕНИЕ: Перебираем секции из данных поллинга и вызываем updateSectionStatusUI для каждой ---
-            for (const [sectionId, sectionInfo] of Object.entries(bookData.sections)) { // Получаем sectionInfo (объект)
+            for (const [sectionId, sectionInfo] of Object.entries(bookData.sections)) { // sectionInfo содержит status, model_name и т.д.
                  if (!sectionInfo) continue; // Пропускаем, если данных нет
 
-                 const newStatus = sectionInfo.status || 'not_translated';
-                 // Вызываем основную функцию обновления UI секции
+                 // --- ИЗМЕНЕНИЕ: Передаем ВЕСЬ объект sectionInfo ---
                  // updateAllMatching = true, потому что это общее обновление от поллинга
-                 updateSectionStatusUI(sectionId, newStatus, true); 
+                 updateSectionStatusUI(sectionId, sectionInfo, true);
+                 // --- КОНЕЦ ИЗМЕНЕНИЯ ---
             }
-            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
         } else if (!tocList) {
              console.error("TOC list element not found for status update!");
         }
