@@ -224,7 +224,7 @@ def index():
     """ Отображает главную страницу со списком книг. """
     print("Загрузка главной страницы...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'gemini-1.5-flash')  # Возвращаемся к Gemini по умолчанию
+    selected_model = session.get('model_name', 'meta-llama/llama-4-scout:free')
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     
     # Получаем список моделей
@@ -366,21 +366,17 @@ def upload_file():
 @app.route('/book/<book_id>', methods=['GET'])
 def view_book(book_id):
     print(f"Запрос страницы книги: {book_id}")
-    book_info = get_book(book_id) # get_book уже обрабатывает старые книги, возвращая 'russian' если поле отсутствует или пустое
+    book_info = get_book(book_id)
     if book_info is None: print(f"  Книга {book_id} не найдена.\n"); return "Книга не найдена.", 404
 
-    # --- ИЗМЕНЕНИЕ: Определяем target_language для отображения ---
-    # Приоритет: 1. target_language из БД (обработано в get_book) 2. Из параметра запроса 3. Из сессии 4. Дефолт русский
-    # Используем язык из book_info как основной, если он есть.
-    # Параметр запроса 'lang' все еще может использоваться для принудительной смены языка просмотра (но не языка перевода/кэша)
-    # Но для консистентности, давайте брать из БД как основу.
-    book_db_language = book_info.get('target_language') # Язык, сохраненный в БД
-
-    # Используем язык из БД, если он есть, иначе берем из запроса или сессии
+    book_db_language = book_info.get('target_language')
     target_language = book_db_language or request.args.get('lang') or session.get('target_language', 'russian')
 
-    selected_model = session.get('model_name', 'gemini-1.5-flash')
-    selected_operation = session.get('operation_type', 'translate') # Get operation type from session, default to 'translate'
+    # --- ИЗМЕНЕНИЕ: Меняем модель по умолчанию на 'meta-llama/llama-4-scout:free' ---
+    selected_model = session.get('model_name', 'meta-llama/llama-4-scout:free')
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+    selected_operation = session.get('operation_type', 'translate')
 
     # --- Сохраняем определенный язык в сессию для последующих действий ---
     session['target_language'] = target_language

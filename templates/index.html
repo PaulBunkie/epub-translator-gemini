@@ -129,7 +129,7 @@
                     {% endfor %}
                     </optgroup>
                 {% else %}
-                    <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>
+                    <option value="{{ selected_model | default('meta-llama/llama-4-scout:free') }}" selected>
                         {{ selected_model | default('gemini-1.5-flash') }}
                     </option>
                     <option disabled>Не удалось загрузить список моделей</option>
