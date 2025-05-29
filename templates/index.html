@@ -144,13 +144,18 @@
 
     <h2>Ранее загруженные книги</h2>
 
-    {% if uploaded_books %}
-        <ul>
+    <ul>
+        {% if uploaded_books %}
             {% for book in uploaded_books %}
                 <li class="book-item">
                     <div class="book-info">
-                        <span class="book-title">{{ book.display_name | default('No Name') }}</span>
-                         <span class="book-status">
+                        <span class="book-title">
+                            {{ book.display_name | default('No Name') }}
+                            {% if book.target_language %}
+                                <span style="font-size: 0.8em; padding: 1px 4px; margin-left: 5px; background-color: #ffecec; border: 1px solid #e0c0c0; border-radius: 3px; color: #c00; white-space: nowrap;">{{ book.target_language }}</span>
+                            {% endif %}
+                        </span>
+                        <span class="book-status">
                              {% set total = book.total_sections | default(0) %}
                              {% if total > 0 %}
                                  Статус: {{ book.status | default('N/A') | replace('_', ' ') | capitalize }}
@@ -160,19 +165,19 @@
                          </span>
                     </div>
                     <div class="book-actions">
-                        <a href="{{ url_for('view_book', book_id=book.book_id) }}">
-                             <button>Просмотр/Перевод</button>
-                        </a>
-                        <form action="{{ url_for('delete_book_request', book_id=book.book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Удалить книгу \'{{ book.display_name | escape }}\'?');">
-                            <button type="submit" class="delete-btn">Удалить</button>
-                        </form>
+                         <a href="{{ url_for('view_book', book_id=book.book_id) }}">
+                              <button>Просмотр/Перевод</button>
+                         </a>
+                         <form action="{{ url_for('delete_book_request', book_id=book.book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Удалить книгу \'{{ book.display_name | escape }}\'?');">
+                             <button type="submit" class="delete-btn">Удалить</button>
+                         </form>
                     </div>
                 </li>
             {% endfor %}
-        </ul>
-    {% else %}
-        <p>Еще не загружено ни одной книги.</p>
-    {% endif %}
+        {% else %}
+            <p>Еще не загружено ни одной книги.</p>
+        {% endif %}
+    </ul>
 
 <script>
     // Скрипт для показа оверлея при отправке формы

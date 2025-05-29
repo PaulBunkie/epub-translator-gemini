@@ -244,7 +244,14 @@ def index():
     uploaded_books = []
     try:
         db_books = get_all_books()
-        for book_data in db_books: uploaded_books.append({'book_id': book_data['book_id'], 'display_name': book_data['filename'], 'status': book_data['status'], 'total_sections': get_section_count_for_book(book_data['book_id']), 'default_language': default_language})
+        for book_data in db_books:
+            uploaded_books.append({
+                'book_id': book_data['book_id'],
+                'display_name': book_data['filename'],
+                'status': book_data['status'],
+                'total_sections': get_section_count_for_book(book_data['book_id']),
+                'target_language': book_data.get('target_language')
+            })
         uploaded_books.sort(key=lambda x: x['display_name'].lower())
         print(f"  Найдено книг в БД: {len(uploaded_books)}")
     except Exception as e: print(f"ОШИБКА при получении списка книг: {e}"); traceback.print_exc()
