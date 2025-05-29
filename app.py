@@ -33,7 +33,7 @@ from db_manager import (
     update_section_status, reset_stuck_processing_sections, get_section_count_for_book
 )
 from translation_module import (
-    configure_api, translate_text, CONTEXT_LIMIT_ERROR, get_models_list, load_models_on_startup
+    configure_api, translate_text, CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR, get_models_list, load_models_on_startup
 )
 from epub_parser import (
     get_epub_structure, extract_section_text, get_epub_toc
@@ -179,23 +179,42 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
         else:
             if task_id in active_tasks: active_tasks[task_id]["status"] = "translating"
             api_result = translate_text(original_text, target_language, model_name, prompt_ext=prompt_ext, operation_type=operation_type)
-            if api_result == CONTEXT_LIMIT_ERROR: current_status = "error_context_limit"; error_message = "Текст раздела слишком велик."
+
+            # --- ДОБАВЛЕНА ЛОГИКА ОБРАБОТКИ EMPTY_RESPONSE_ERROR ---
+            if api_result == EMPTY_RESPONSE_ERROR:
+                current_status = "error_empty_response_retries"
+                error_message = "Модель вернула пустой результат после всех попыток."
+                print(f"Фоновая задача {task_id}: {error_message} для {section_id}.")
+            # --- КОНЕЦ ДОБАВЛЕННОЙ ЛОГИКИ ---
+            elif api_result == CONTEXT_LIMIT_ERROR:
+                current_status = "error_context_limit"
+                error_message = "Текст раздела слишком велик."
+                print(f"Фоновая задача {task_id}: {error_message} для {section_id}.")
             elif api_result is not None:
                  if task_id in active_tasks: active_tasks[task_id]["status"] = "caching"
                  if save_translation_to_cache(epub_filepath, section_id, target_language, api_result): current_status = "translated"
                  else: current_status = "error_caching"; error_message = "Не удалось сохранить в кэш."
-            else: current_status = "error_translation"; error_message = "Ошибка API перевода или фильтр."
+                 print(f"Фоновая задача {task_id}: Успешно сохранено в кэш для {section_id}.")
+            else: # Это случай, когда translate_text вернул None после ошибок API
+                current_status = "error_translation"
+                error_message = "Ошибка API перевода или фильтр."
+                print(f"Фоновая задача {task_id}: {error_message} для {section_id}.")
+
             update_section_status(book_id, section_id, current_status, model_name, target_language, error_message, operation_type=operation_type)
         update_overall_book_status(book_id)
     except Exception as e:
-        print(f"КРИТИЧЕСКАЯ ОШИБКА в фоновой задаче {task_id}: {e}"); traceback.print_exc()
-        error_message = f"BG Task Error: {e}"; current_status = "error_unknown"
+        print(f"Фоновая задача {task_id}: Необработанная ошибка при обработке секции {section_id}: {e}")
+        import traceback
+        traceback.print_exc() # Логируем полный трейсбэк
+        current_status = "error_unknown"
+        error_message = f"Необработанная ошибка: {e}"
         update_section_status(book_id, section_id, current_status, model_name, target_language, error_message, operation_type=operation_type)
+        update_overall_book_status(book_id)
     finally:
         if task_id in active_tasks:
              active_tasks[task_id]["status"] = current_status
              if error_message: active_tasks[task_id]["error_message"] = error_message
-        print(f"Фоновая задача {task_id}: Завершена ({section_id}) со статусом {current_status}")
+        print(f"Фоновая задача {task_id} завершена.")
         update_overall_book_status(book_id)
 
 

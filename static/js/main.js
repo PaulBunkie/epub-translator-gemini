@@ -411,6 +411,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
             });
 
+            // --- ДОБАВЛЕНО: Запускаем поллинг после отправки запроса ---
+            startPolling();
+            // --- КОНЕЦ ДОБАВЛЕНО ---
+
             console.log(`[startSectionTranslation] Response status for ${sectionId}: ${response.status}`);
             if (!response.ok) {
                 // ... обработка ошибок ...
@@ -475,6 +479,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     operation_type: operationType // Include operation type in the request body
                 })
             });
+
+            // --- ДОБАВЛЕНО: Запускаем поллинг после отправки запроса ---
+            startPolling();
+            // --- КОНЕЦ ДОБАВЛЕНО ---
+
             if (!response.ok) {
                  const errorData = await response.json().catch(() => ({}));
                 console.error(`Failed to start 'translate all': ${response.status}`, errorData);

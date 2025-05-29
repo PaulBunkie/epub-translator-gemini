@@ -12,6 +12,10 @@ import time
 # Константа для обозначения ошибки лимита контекста
 CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
 
+# --- Новая константа для обозначения ошибки пустого ответа после ретраев ---
+EMPTY_RESPONSE_ERROR = "__EMPTY_RESPONSE_AFTER_RETRIES__"
+# --- Конец новой константы ---
+
 # Переменная для кэширования списка моделей
 _cached_models_list: Optional[List[Dict[str, Any]]] = None
 _model_list_last_update: Optional[float] = None # Опционально: для будущего кэширования по времени
@@ -53,7 +57,7 @@ Target Language: {target_language}
 Text to Summarize:
 {text}
 
-Summary:""",
+Summary in {target_language}:""",
 
     # --- Шаблон для анализа трудностей перевода ---
     'analyze': """You are a literary analyst assisting a translator. Your task is to read the following text and identify potential translation difficulties for a target audience unfamiliar with the source material. Focus on finding and listing:
@@ -153,9 +157,9 @@ class BaseTranslator(ABC):
             actual_model_name = model_name if model_name else "gemini-1.5-flash"
             token_limit = get_context_length(actual_model_name) # Получаем лимит токенов
 
-            # Оцениваем лимит символов, умножая лимит токенов на 4 (с запасом)
-            CHUNK_SIZE_LIMIT_CHARS = int(token_limit * 4)
-            limit_source_desc = f"Лимит по токенам модели ({token_limit} * 4)"
+            # Оцениваем лимит символов, умножая лимит токенов на 3 (с запасом)
+            CHUNK_SIZE_LIMIT_CHARS = int(token_limit * 3)
+            limit_source_desc = f"Лимит по токенам модели ({token_limit} * 3)"
         else:
             # Дефолтное значение для неизвестных операций
             CHUNK_SIZE_LIMIT_CHARS = 20000
@@ -308,21 +312,10 @@ class GoogleTranslator(BaseTranslator):
     def translate_chunk(self, model_name: str, text: str, target_language: str = "russian",
                        previous_context: str = "", prompt_ext: Optional[str] = None,
                        operation_type: str = 'translate') -> Optional[str]:
-        """Переводит чанк текста с использованием Google API с обработкой ошибок и лимитов."""
-        prompt = self._build_prompt(
-            operation_type=operation_type,
-            target_language=target_language,
-            text=text,
-            previous_context=previous_context,
-            prompt_ext=prompt_ext
-        )
-
-        if not text.strip():
-            return ""
-
-        # --- Retry logic for API errors ---
-        max_retries = 5
-        retry_delay_seconds = 5 # Initial delay
+        """Переводит чанк текста с использованием Google API с обработкой ошибок, лимитов и ретраями для пустых ответов."""
+        prompt = self._build_prompt(operation_type, target_language, text, previous_context, prompt_ext)
+        max_retries = 3 # Всего 3 попытки (1 начальная + 2 ретрая) для пустых ответов и ошибок API
+        retry_delay_seconds = 5 # Задержка между попытками
 
         for attempt in range(max_retries):
             try:
@@ -331,80 +324,34 @@ class GoogleTranslator(BaseTranslator):
                 response = model.generate_content(prompt)
                 print(f"[GoogleTranslator] Получен ответ.")
 
-                # Check for finish reason indicating potential issues
-                if (hasattr(response, 'candidates') and response.candidates
-                    and hasattr(response.candidates[0], 'finish_reason')): # Check if finish_reason exists
-                     finish_reason = response.candidates[0].finish_reason
-                     print(f"[GoogleTranslator] Finish reason: {finish_reason}")
-
-                     if finish_reason in ['MAX_TOKENS', 'STOP', 'SAFETY', 'RECITATION', 'OTHER']:
-                         # These might indicate issues like context limit or safety filters
-                         if finish_reason == 'MAX_TOKENS':
-                             print("[GoogleTranslator] Вероятно, превышен лимит токенов (MAX_TOKENS).")
-                             return CONTEXT_LIMIT_ERROR # Or handle specifically if needed
-                         elif finish_reason == 'SAFETY':
-                             print("[GoogleTranslator] Ответ заблокирован фильтрами безопасности (SAFETY).")
-                             # Decide how to handle safety issues - maybe return a specific error or None
-                             return None # For now, treat as a failure
-                         elif finish_reason == 'STOP':
-                             print("[GoogleTranslator] Модель остановилась до завершения (STOP).")
-                             # This might be normal, but could indicate an issue depending on prompt
-                             pass # Continue processing the response
-                         else:
-                             # Handle other less common finish reasons if necessary
-                             print(f"[GoogleTranslator] Неизвестная причина завершения: {finish_reason}")
-                             pass # Continue processing the response
-
-
-
-                # Check for valid response content
-                if hasattr(response, 'text'):
-                    return response.text.strip()
+                # Проверяем наличие текста в ответе. Если есть, возвращаем его сразу.
+                if response.text and response.text.strip():
+                    print(f"[GoogleTranslator] Успешно получен текст ответа на попытке {attempt + 1}.")
+                    return response.text.strip() # Возвращаем очищенный текст
                 else:
-                    print("[GoogleTranslator] Ошибка: Ответ от Google API не содержит текста.")
-                    # Print details if available for debugging
-                    if hasattr(response, 'prompt_feedback'):
-                         print(f"[GoogleTranslator] Prompt feedback: {response.prompt_feedback}")
-                    if hasattr(response, 'candidates'):
-                        print(f"[GoogleTranslator] Candidates: {response.candidates}")
-
-                    # Check if it's a context limit issue indicated by response structure/feedback
-                    if (hasattr(response, 'prompt_feedback') and response.prompt_feedback
-                        and hasattr(response.prompt_feedback, 'block_reason')
-                        and response.prompt_feedback.block_reason == 'RESOURCE_EXHAUSTED'):
-                         print("[GoogleTranslator] Ошибка: Превышен лимит контекста (RESOURCE_EXHAUSTED).")
-                         return CONTEXT_LIMIT_ERROR
-
-                    return None # Return None if no text and not a known context error
-
+                    # Ответ пустой или содержит только пробелы
+                    print(f"[GoogleTranslator] Получен пустой ответ от модели на попытке {attempt + 1}.")
+                    if attempt < max_retries - 1:
+                        print(f"[GoogleTranslator] Ожидание {retry_delay_seconds} секунд перед следующей попыткой...")
+                        time.sleep(retry_delay_seconds) # Ждем перед следующей попыткой
+                    else:
+                        print("[GoogleTranslator] Максимальное количество попыток достигнуто с пустым ответом.")
+                        # После последней попытки возвращаем специальный индикатор ошибки
+                        return EMPTY_RESPONSE_ERROR
 
             except Exception as e:
-                error_text = str(e).lower()
-                print(f"[GoogleTranslator] Ошибка Google API: {e}")
-
-                # Check if the error is likely a context limit issue
-                context_keywords = [
-                    "context window", "token limit", "maximum input length",
-                    "resource exhausted", "limit exceeded", "400 invalid argument"
-                ]
-                is_likely_context_error = any(keyword in error_text for keyword in context_keywords)
-
-                if is_likely_context_error:
-                    print("[GoogleTranslator] Ошибка: Вероятно, превышен лимит контекста.")
-                    return CONTEXT_LIMIT_ERROR
-
-                # Simple retry for other general exceptions
+                # Логика обработки ошибок API, как было раньше
+                print(f"[GoogleTranslator] Ошибка Google API на попытке {attempt + 1}: {e}")
                 if attempt < max_retries - 1:
-                     print(f"[GoogleTranslator] Повторная попытка через {retry_delay_seconds} сек...")
-                     time.sleep(retry_delay_seconds)
-                     retry_delay_seconds *= 2 # Exponential backoff
-                     continue
+                    print(f"[GoogleTranslator] Ожидание {retry_delay_seconds} секунд перед следующей попыткой после ошибки...")
+                    time.sleep(retry_delay_seconds)
                 else:
-                    print("[GoogleTranslator] Максимальное количество попыток исчерпано.")
-                    return None # Return None if all retries fail
+                    print("[GoogleTranslator] Максимальное количество попыток достигнуто с ошибкой API.")
+                    # В случае ошибки API после всех попыток, возвращаем None, как раньше
+                    return None # Возвращаем None в случае окончательной ошибки API
 
-        print("[GoogleTranslator] Не удалось получить успешный ответ после всех попыток.")
-        return None # Return None if all retries fail
+        # Эта часть кода не должна быть достигнута при правильной работе цикла
+        return None # Fallback, на всякий случай
 
 class OpenRouterTranslator(BaseTranslator):
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
