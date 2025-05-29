@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} updateAllMatching - Если true, обновить все элементы с этим sectionId.
      */
     function updateSectionStatusUI(sectionId, sectionInfo, updateAllMatching = false) {
+        // Извлекаем статус и имя модели из sectionInfo
         const newStatus = sectionInfo.status || 'not_translated';
         const modelName = sectionInfo.model_name;
         const errorMessage = sectionInfo.error_message;
@@ -68,6 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const previousStatus = sectionItem.dataset.status;
+            // --- ДОБАВЛЕН ЛОГ: Текущий статус из DOM ---
+            console.log(`[DEBUG-UI-Status] DOM Status для ${sectionId} перед обновлением: ${previousStatus}`);
+            // --- КОНЕЦ ДОБАВЛЕННОГО ЛОГА ---
+
             console.log(`[DEBUG-UI-Status] Секция ${sectionId} (DOM): Предыдущий статус: ${previousStatus}, Новый статус: ${newStatus}`);
 
             // Обновляем только если статус реально изменился
@@ -78,10 +83,11 @@ document.addEventListener('DOMContentLoaded', () => {
             sectionItem.dataset.status = newStatus;
             console.log(`[DEBUG-UI-Status] Статус в dataset для ${sectionId} обновлен на: ${sectionItem.dataset.status}`);
 
+
             const statusSpan = sectionItem.querySelector('.toc-status');
             const downloadLink = sectionItem.querySelector('.download-section-link');
             const processingIndicator = sectionItem.querySelector('.processing-indicator');
-            const updateBtn = sectionItem.querySelector('.update-translation-btn'); // Находим кнопку обновления
+            const updateBtn = sectionItem.querySelector('.update-translation-btn');
 
             // Обновляем текст и стиль статуса
             if (statusSpan) {
@@ -89,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let statusText = ''; // Переопределяем для нового подхода
                 let tooltip = ''; // Переопределяем для нового подхода
 
-                // --- ИЗМЕНЕНИЕ: Определяем statusText (приоритет у имени модели) ---
+                // --- Определяем statusText (приоритет у имени модели) ---
                 // Если статус "успешный" и есть имя модели - показываем имя модели
                 if (modelName && ['translated', 'cached', 'summarized', 'analyzed'].includes(newStatus)) {
                     // Показываем только часть имени после последнего слэша для краткости
@@ -112,13 +118,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             break;
                     }
                 }
-                 // --- КОНЕЦ ИЗМЕНЕНИЯ (statusText) ---
 
                 statusSpan.textContent = statusText;
                 console.log(`[DEBUG-UI-Status] statusSpan текст для ${sectionId} установлен: ${statusText}`);
 
 
-                // --- ИЗМЕНЕНИЕ: Формируем тултип (приоритет у ошибки) ---
+                // --- Формируем тултип (приоритет у ошибки) ---
                 if (errorMessage) {
                     tooltip = errorMessage; // Если есть ошибка, тултип - сообщение об ошибке
                 } else if (['translated', 'cached', 'summarized', 'analyzed'].includes(newStatus)) {
@@ -144,39 +149,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     statusSpan.removeAttribute('title');
                 }
-                // --- КОНЕЦ ИЗМЕНЕНИЯ (Тултип) ---
 
             } else { console.log(`[DEBUG-UI-Status] statusSpan для ${sectionId} не найден.`); }
 
             // Обновляем видимость ссылки скачивания и кнопки обновления
             const isReady = ['translated', 'completed_empty', 'cached', 'summarized', 'analyzed'].includes(newStatus);
-            const canUpdate = isReady || newStatus.startsWith('error_'); // Обновлять можно готовые или ошибочные
+            const canUpdate = isReady || newStatus.startsWith('error_');
 
             if (downloadLink) { downloadLink.classList.toggle('hidden', !isReady); console.log(`[DEBUG-UI-Status] downloadLink hidden для ${sectionId}: ${!isReady}`); } else { console.log(`[DEBUG-UI-Status] downloadLink для ${sectionId} не найден.`); }
 
-            // Управляем состоянием disabled кнопки обновления
             if (updateBtn) {
-                updateBtn.classList.toggle('hidden', !canUpdate); // Показываем/скрываем
-                updateBtn.disabled = newStatus === 'processing'; // Отключаем, если статус processing
+                updateBtn.classList.toggle('hidden', !canUpdate);
+                updateBtn.disabled = newStatus === 'processing';
                 console.log(`[DEBUG-UI-Status] updateBtn hidden для ${sectionId}: ${!canUpdate}, disabled: ${updateBtn.disabled}`);
             } else { console.log(`[DEBUG-UI-Status] updateBtn для ${sectionId} не найден.`); }
 
-            // Обновляем видимость индикатора загрузки
             if (processingIndicator) {
                  processingIndicator.style.display = newStatus === 'processing' ? 'inline' : 'none';
                  console.log(`[DEBUG-UI-Status] processingIndicator display для ${sectionId} установлен: ${processingIndicator.style.display}`);
             } else { console.log(`[DEBUG-UI-Status] processingIndicator для ${sectionId} не найден.`); }
 
-            // Если активная секция завершила обработку (при общем обновлении)
             if (sectionId === activeSectionId && previousStatus === 'processing' && newStatus !== 'processing' && updateAllMatching) {
                 console.log(`Polling update finished for active section ${sectionId}, new status: ${newStatus}. Reloading content.`);
                  if (!newStatus.startsWith('error')) {
-                     loadAndDisplaySection(sectionId, true); // Обновляем контент
+                     loadAndDisplaySection(sectionId, true);
                  } else {
                       displayTranslatedText(`(Ошибка обработки раздела: ${errorMessage || newStatus})`);
                  }
             }
-        });
+        }); // Конец forEach
     }
 
     /**
@@ -290,37 +291,32 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.ok) {
                 const data = await response.json();
                 displayTranslatedText(data.text);
-                // --- УДАЛЯЕМ: Логика обновления статуса при успешной загрузке ---
-                // Статус должен обновляться только через поллинг
-                /*
-                 if (currentTocItem) {
-                     const newStatus = currentTocItem.dataset.status || 'translated';
-                     updateSectionStatusUI(sectionId, newStatus, true);
-                 } else {
-                     updateSectionStatusUI(sectionId, 'translated', true);
-                 }
-                */
-                // --- КОНЕЦ УДАЛЯЕМОГО БЛОКА ---
-
+                // Статус обновится поллингом
             } else if (response.status === 404) {
                 const errorData = await response.json().catch(() => ({ error: "Not found" }));
                 console.warn(`Translation not found for ${sectionId}: ${errorData.error || ''}. isUpdate: ${isUpdate}`);
 
-                // --- ИЗМЕНЕНИЕ: НЕ вызываем startSectionTranslation при 404, особенно при !isUpdate ---
-                if (!isUpdate) {
-                     // Это первый клик или обновление после загрузки страницы, и результат не найден.
-                     // Показываем сообщение, что результат не найден, и полагаемся на поллинг.
-                     displayTranslatedText(`(Результат обработки раздела не найден или еще не готов. Статус будет обновлен.)`);
-                     // UI статус должен обновиться поллингом.
+                // Если это первый клик (не обновление от поллинга) И статус не processing
+                if (!isUpdate && currentStatus !== 'processing') {
+                     console.log(`[loadAndDisplaySection] 404 при первом клике на не обработанную секцию. Запускаем обработку для ${sectionId}.`);
+                     // --- ИЗМЕНЕНИЕ: Запускаем обработку, т.к. результата нет ---
+                     startSectionTranslation(sectionId);
+                     // startSectionTranslation сама обновит статус на processing
+                     // и покажет сообщение об ожидании
+                     // displayTranslatedText уже не нужно вызывать здесь, startSectionTranslation сделает это
+                     // Вместо этого можно показать сообщение "Запускаем обработку..."
+                      displayTranslatedText(
+                           'Запускаем обработку раздела...\n\n' +
+                           '(Обработка может занимать до нескольких минут в зависимости от выбранной модели и размера раздела. Пожалуйста, дождитесь завершения.)'
+                      );
+                     // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
                  } else {
-                     // Это обновление от поллинга (isUpdate=true), и результат все еще 404.
-                     // Значит, что-то пошло не так, или секция действительно пуста, или поллинг не успевает.
-                     // Показываем сообщение об ошибке или отсутствии результата.
+                     // Это либо обновление от поллинга (isUpdate=true), либо секция уже processing.
+                     // Показываем сообщение об отсутствии результата или ошибке.
                       displayTranslatedText(`(Результат обработки раздела не найден или ошибка: ${errorData.error || 'Неизвестная ошибка'})`);
-                      // Можно обновить UI статус на ошибку, если он не processing и не empty
-                      // updateSectionStatusUI(sectionId, 'error_translation', true); // Пример
+                      // UI статус должен обновиться поллингом, если это не processing
                  }
-                // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             } else {
                 const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
@@ -395,8 +391,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const modelName = modelSelect ? modelSelect.value : initialSelectedModel; // Use initialSelectedModel as fallback
         const operationType = operationSelect ? operationSelect.value : 'translate'; // Get selected operation type
 
+        // --- ДОБАВЛЕН ЛОГ: Перед вызовом updateSectionStatusUI на processing ---
+        console.log(`[DEBUG-Start] Вызов updateSectionStatusUI для ${sectionId} со статусом 'processing' перед запросом.`);
+        // --- КОНЕЦ ДОБАВЛЕННОГО ЛОГА ---
         // Обновляем UI секции на processing
-        updateSectionStatusUI(sectionId, 'processing', true);
+        // Передаем минимальный sectionInfo объект с только статусом
+        updateSectionStatusUI(sectionId, { status: 'processing' }, true);
 
         try {
             const response = await fetchWithTimeout(`/translate_section/${currentBookId}/${sectionId}`, {
@@ -413,19 +413,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
             console.log(`[startSectionTranslation] Response status for ${sectionId}: ${response.status}`);
             if (!response.ok) {
-                // ... (обработка ошибок ответа сервера как раньше) ...
-                const errorData = await response.json().catch(() => ({}));
-                console.error(`[startSectionTranslation] Failed to start translation for ${sectionId}: ${response.status}`, errorData);
-                if(activeSectionId === sectionId) displayTranslatedText(`Ошибка запуска перевода (${response.status}): ${errorData.error || ''}`);
-                updateSectionStatusUI(sectionId, `error_start_${response.status}`, true);
+                // ... обработка ошибок ...
+                 const errorData = await response.json().catch(() => ({}));
+                 const errorStatus = `error_start_${response.status}`;
+                 console.error(`[startSectionTranslation] Failed to start translation for ${sectionId}: ${response.status}`, errorData);
+                 if(activeSectionId === sectionId) displayTranslatedText(`Ошибка запуска перевода (${response.status}): ${errorData.error || ''}`);
+                 // --- ДОБАВЛЕН ЛОГ: Перед вызовом updateSectionStatusUI на ошибку ---
+                 console.log(`[DEBUG-Start] Вызов updateSectionStatusUI для ${sectionId} со статусом ошибки '${errorStatus}'.`);
+                 // --- КОНЕЦ ДОБАВЛЕННОГО ЛОГА ---
+                 updateSectionStatusUI(sectionId, { status: errorStatus, error_message: errorData.error }, true); // Обновляем статус на ошибку
             } else {
                 const data = await response.json();
                 console.log(`[startSectionTranslation] Translation started successfully for ${sectionId}:`, data);
-                // Сообщение об ожидании уже выведено выше
+                // Сообщение об ожидании уже выведено выше, UI статус обновлен на processing
             }
         } catch (error) { // Ловим именно сетевую ошибку fetch
             console.error(`[startSectionTranslation] FETCH FAILED for ${sectionId}:`, error);
-            updateSectionStatusUI(sectionId, 'error_network', true);
+             // --- ДОБАВЛЕН ЛОГ: Перед вызовом updateSectionStatusUI на сетевую ошибку ---
+             console.log(`[DEBUG-Start] Вызов updateSectionStatusUI для ${sectionId} со статусом 'error_network'.`);
+             // --- КОНЕЦ ДОБАВЛЕННОГО ЛОГА ---
+            updateSectionStatusUI(sectionId, { status: 'error_network', error_message: error.message }, true); // Обновляем статус на сетевую ошибку
              if (sectionId === activeSectionId) {
                 displayTranslatedText(`Сетевая ошибка при запуске перевода: ${error.message}`);
             }
@@ -447,7 +454,11 @@ document.addEventListener('DOMContentLoaded', () => {
             tocList.querySelectorAll('.toc-item[data-status="not_translated"]').forEach(item => {
                  const sectionId = item.dataset.sectionId;
                  if (sectionId) {
-                      updateSectionStatusUI(sectionId, 'processing', true);
+                      // --- ДОБАВЛЕН ЛОГ: Перед вызовом updateSectionStatusUI на processing ---
+                      console.log(`[DEBUG-StartAll] Вызов updateSectionStatusUI для ${sectionId} со статусом 'processing' перед запросом.`);
+                      // --- КОНЕЦ ДОБАВЛЕННОГО ЛОГА ---
+                      // Передаем минимальный sectionInfo объект с только статусом
+                      updateSectionStatusUI(sectionId, { status: 'processing' }, true);
                  }
             });
         }
@@ -467,12 +478,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) {
                  const errorData = await response.json().catch(() => ({}));
                 console.error(`Failed to start 'translate all': ${response.status}`, errorData);
+                // Не обновляем статус секций здесь, т.к. они уже были установлены в processing.
+                // Ошибки на уровне отдельных секций будут приходить через поллинг.
             } else {
                 const data = await response.json();
                 console.log(`'Translate all' request sent, ${data.launched_tasks} tasks launched.`);
             }
         } catch (error) {
              console.error(`Network error starting 'translate all':`, error);
+             // Аналогично, ошибки на уровне секций придут через поллинг.
         }
     }
 
