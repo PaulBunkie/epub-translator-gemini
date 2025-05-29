@@ -122,7 +122,7 @@
             {# 1. Выбор языка перевода #}
             <p>
                 <label for="language-select">Целевой язык:</label>
-                <select id="language-select" name="target_language">
+                <select id="language-select" name="target_language" disabled>
                      <option value="russian" {% if target_language == 'russian' %}selected{% endif %}>Russian</option>
                      <option value="english" {% if target_language == 'english' %}selected{% endif %}>English</option>
                      <option value="german" {% if target_language == 'german' %}selected{% endif %}>German</option>

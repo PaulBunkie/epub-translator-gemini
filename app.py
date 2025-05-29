@@ -317,7 +317,7 @@ def upload_file():
                   else: print(f"  ОШИБКА: Не совпало количество названий TOC.")
              else: print("  ОШИБКА: Не удалось перевести оглавление.")
 
-        if create_book(book_id, original_filename, filepath, toc):
+        if create_book(book_id, original_filename, filepath, toc, target_language):
              print(f"  Книга '{book_id}' сохранена в БД.")
              sec_created_count = 0
              if section_ids:
@@ -359,18 +359,31 @@ def upload_file():
 @app.route('/book/<book_id>', methods=['GET'])
 def view_book(book_id):
     print(f"Запрос страницы книги: {book_id}")
-    book_info = get_book(book_id)
-    if book_info is None: print(f"  Книга {book_id} не найдена."); return "Книга не найдена.", 404
-    target_language = request.args.get('lang') or session.get('target_language', 'russian')
+    book_info = get_book(book_id) # get_book уже обрабатывает старые книги, возвращая 'russian' если поле отсутствует или пустое
+    if book_info is None: print(f"  Книга {book_id} не найдена.\n"); return "Книга не найдена.", 404
+
+    # --- ИЗМЕНЕНИЕ: Определяем target_language для отображения ---
+    # Приоритет: 1. target_language из БД (обработано в get_book) 2. Из параметра запроса 3. Из сессии 4. Дефолт русский
+    # Используем язык из book_info как основной, если он есть.
+    # Параметр запроса 'lang' все еще может использоваться для принудительной смены языка просмотра (но не языка перевода/кэша)
+    # Но для консистентности, давайте брать из БД как основу.
+    book_db_language = book_info.get('target_language') # Язык, сохраненный в БД
+
+    # Используем язык из БД, если он есть, иначе берем из запроса или сессии
+    target_language = book_db_language or request.args.get('lang') or session.get('target_language', 'russian')
+
     selected_model = session.get('model_name', 'gemini-1.5-flash')
     selected_operation = session.get('operation_type', 'translate') # Get operation type from session, default to 'translate'
 
+    # --- Сохраняем определенный язык в сессию для последующих действий ---
     session['target_language'] = target_language
     session['operation_type'] = selected_operation # Save operation type to session
+    session['model_name'] = selected_model # Save selected model to session
 
-    print(f"  Параметры для отображения: lang='{target_language}', model='{selected_model}'")
+
+    print(f"  Параметры для отображения: lang='{target_language}', model='{selected_model}'.\n")
     available_models = get_models_list()
-    if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей.")
+    if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей.\n")
     prompt_ext_text = book_info.get('prompt_ext', '')
 
     resp = make_response(render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation))
@@ -382,8 +395,8 @@ def view_book(book_id):
 
 @app.route('/save_prompt_ext/<book_id>', methods=['POST'])
 def save_prompt_ext(book_id):
-    print(f"Запрос на сохранение prompt_ext для книги: {book_id}")
-    if not request.is_json: print("  Ошибка: Запрос не JSON."); return jsonify({"success": False, "error": "Request must be JSON"}), 400
+    print(f"Запрос на сохранение prompt_ext для книги: {book_id}\n")
+    if not request.is_json: print("  Ошибка: Запрос не JSON.\n"); return jsonify({"success": False, "error": "Request must be JSON"}), 400
     data = request.get_json(); prompt_text = data.get('prompt_text')
     if prompt_text is None: print("  Ошибка: Отсутствует поле 'prompt_text'."); return jsonify({"success": False, "error": "Missing 'prompt_text'"}), 400
     if not get_book(book_id): print(f"  Ошибка: Книга {book_id} не найдена."); return jsonify({"success": False, "error": "Book not found"}), 404
@@ -549,7 +562,9 @@ def get_book_status(book_id):
 def get_section_translation_text(book_id, section_id):
     book_info = get_book(book_id);
     if book_info is None: return jsonify({"error": "Book not found"}), 404
-    filepath = book_info.get("filepath"); target_language = request.args.get('lang') or session.get('target_language', 'russian')
+    filepath = book_info.get("filepath");
+    target_language = book_info.get('target_language', session.get('target_language', 'russian'))
+
     translation = get_translation_from_cache(filepath, section_id, target_language)
     if translation is not None: return jsonify({"text": translation})
     else:
@@ -561,7 +576,9 @@ def get_section_translation_text(book_id, section_id):
 def download_section(book_id, section_id):
     book_info = get_book(book_id);
     if book_info is None: return "Book not found", 404
-    filepath = book_info.get("filepath"); target_language = request.args.get('lang') or session.get('target_language', 'russian')
+    filepath = book_info.get("filepath");
+    target_language = book_info.get('target_language', session.get('target_language', 'russian'))
+
     translation = get_translation_from_cache(filepath, section_id, target_language)
     if translation is not None:
         safe_id = "".join(c for c in section_id if c.isalnum() or c in ('_','-')).rstrip(); filename = f"{safe_id}_{target_language}.txt"
@@ -572,21 +589,59 @@ def download_section(book_id, section_id):
 def download_full(book_id):
     book_info = get_book(book_id);
     if book_info is None: return "Book not found", 404
-    filepath = book_info.get("filepath"); target_language = request.args.get('lang') or session.get('target_language', 'russian')
-    section_ids = book_info.get("section_ids_list", [])
-    if not section_ids: section_ids = list(book_info.get('sections', {}).keys());
-    if not section_ids: return "No sections found", 500
-    update_overall_book_status(book_id); book_info = get_book(book_id)
+    filepath = book_info.get("filepath");
+    target_language = book_info.get('target_language', session.get('target_language', 'russian'))
+
     if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
-    full_text_parts = []; missing = []; errors = []; sections_status = book_info.get('sections', {})
-    for id in section_ids: data = sections_status.get(id, {}); status = data.get('status', '?'); tr = get_translation_from_cache(filepath, id, target_language);
-    if tr is not None: full_text_parts.extend([f"\n\n==== {id} ({status}) ====\n\n", tr])
-    elif status.startswith("error_"): errors.append(id); full_text_parts.append(f"\n\n==== {id} (ОШИБКА: {data.get('error_message', status)}) ====\n\n")
-    else: missing.append(id); full_text_parts.append(f"\n\n==== {id} (ОШИБКА: Нет кэша {target_language}) ====\n\n")
-    if not full_text_parts: return f"Нет текста для '{target_language}'.", 404
-    if missing: full_text_parts.insert(0, f"ПРЕДУПРЕЖДЕНИЕ: Нет кэша {target_language} для: {', '.join(missing)}\n\n")
-    if errors: full_text_parts.insert(0, f"ПРЕДУПРЕЖДЕНИЕ: Ошибки в секциях: {', '.join(errors)}\n\n")
-    full_text = "".join(full_text_parts); base_name = os.path.splitext(book_info['filename'])[0]; out_fn = f"{base_name}_{target_language}_translated.txt"
+
+    # Вместо получения section_ids из toc или sections.keys(),
+    # всегда берем все ключи из словаря sections, т.к. это полный список обработанных секций
+    sections_status = book_info.get('sections', {})
+    if not sections_status:
+        return "No sections found in book data", 500 # Добавил более явное сообщение об ошибке
+
+    section_ids_to_process = sections_status.keys() # Берем ВСЕ ID секций из БД
+
+    full_text_parts = []; missing_cache = []; errors = [];
+    for id in section_ids_to_process:
+        data = sections_status.get(id, {})
+        status = data.get('status', '?')
+        error_message = data.get('error_message')
+
+        # Всегда пытаемся получить кэш для каждой секции, независимо от статуса в БД
+        tr = get_translation_from_cache(filepath, id, target_language)
+
+        # Условие для добавления в итоговый текст:
+        # 1. Кэш найден (даже если пустой, т.к. completed_empty секции должны быть включены)
+        # ИЛИ 2. Статус секции указывает на ошибку (чтобы включить информацию об ошибке в файл)
+        if tr is not None: # get_translation_from_cache возвращает None только при ошибке чтения или отсутствии файла
+             # Кэш успешно прочитан (даже если файл был пустой для completed_empty)
+             full_text_parts.extend([f"\n\n==== {id} ({status}) ====\n\n", tr])
+        elif status.startswith("error_"):
+             # Кэша нет, но статус - ошибка. Добавляем заголовок с ошибкой.
+             errors.append(id)
+             full_text_parts.append(f"\n\n==== {id} (ОШИБКА: {error_message or status}) ====\n\n")
+        else:
+             # Кэша нет, и статус не ошибка (например, 'not_translated'). Отмечаем как пропущенное.
+             missing_cache.append(id)
+             full_text_parts.append(f"\n\n==== {id} (ПРЕДУПРЕЖДЕНИЕ: Нет кэша {target_language}, статус: {status}) ====\n\n")
+
+
+    if not full_text_parts:
+         # Это должно произойти только если sections_status не пуст, но для всех секций
+         # get_translation_from_cache вернул None и статус не error_
+         return f"Не удалось получить текст или информацию об ошибке для '{target_language}'.", 404
+
+    # Добавляем предупреждения в начало, если есть пропущенные или ошибочные секции
+    warnings = []
+    if missing_cache:
+        warnings.append(f"ПРЕДУПРЕЖДЕНИЕ: Нет кэша {target_language} (или ошибка чтения кэша) для секций: {", ".join(missing_cache)}\n")
+    if errors:
+        warnings.append(f"ПРЕДУПРЕЖДЕНИЕ: Ошибки обработки для секций: {", ".join(errors)}\n")
+
+    full_text = "".join(warnings) + "".join(full_text_parts) # Добавляем предупреждения в начало
+
+    base_name = os.path.splitext(book_info['filename'])[0]; out_fn = f"{base_name}_{target_language}_translated.txt"
     return Response(full_text, mimetype="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{out_fn}"})
 
 @app.route('/api/models', methods=['GET'])
@@ -599,7 +654,7 @@ def api_get_models():
 def download_epub(book_id):
     book_info = get_book(book_id);
     if book_info is None: return "Book not found", 404
-    target_language = request.args.get('lang') or session.get('target_language', 'russian')
+    target_language = book_info.get('target_language', session.get('target_language', 'russian'))
     update_overall_book_status(book_id); book_info = get_book(book_id)
     if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
     epub_bytes = create_translated_epub(book_info, target_language) # book_info уже содержит 'sections'

@@ -249,25 +249,27 @@ class BaseTranslator(ABC):
             print(f"[BaseTranslator] -- Перевод чанка {i}/{len(chunks)} ({len(chunk)} симв.)...")
             context_fragment = " ".join(last_successful_translation.split()[-100:]) if last_successful_translation else ""
             
-            # Вызываем абстрактный метод translate_chunk
-            translated_chunk = self.translate_chunk(
-                model_name,
-                chunk,
-                target_language,
-                previous_context=context_fragment,
-                prompt_ext=prompt_ext,
-                operation_type=operation_type
-            )
+            # Вызываем абстрактный метод translate_chunk для перевода текущего чанка
+            # Передаем контекст предыдущего успешного перевода и prompt_ext
+            chunk_result = self.translate_chunk(model_name, chunk, target_language, previous_context=context_fragment, prompt_ext=prompt_ext, operation_type=operation_type)
 
-            if translated_chunk == CONTEXT_LIMIT_ERROR:
-                print(f"[BaseTranslator] Ошибка лимита контекста на чанке {i}.")
-                return CONTEXT_LIMIT_ERROR
-            elif translated_chunk is None:
-                print(f"[BaseTranslator] Ошибка перевода чанка {i}.")
-                return None
-            else:
-                translated_chunks.append(translated_chunk)
-                last_successful_translation = translated_chunk
+            # --- ДОБАВЛЕНО: Обработка EMPTY_RESPONSE_ERROR из translate_chunk ---
+            if chunk_result == EMPTY_RESPONSE_ERROR:
+                print(f"[BaseTranslator] -- Чанк {i} вернул EMPTY_RESPONSE_ERROR после ретраев. Прерываем перевод.\n")
+                return EMPTY_RESPONSE_ERROR # Пропагандируем ошибку пустого ответа после ретраев
+            # --- КОНЕЦ ДОБАВЛЕНО ---
+
+            if chunk_result is None:
+                print(f"[BaseTranslator] -- Чанк {i} вернул None. Прерываем перевод.\n")
+                return None # Ошибка в чанке, останавливаем весь перевод
+
+            if chunk_result == CONTEXT_LIMIT_ERROR:
+                print(f"[BaseTranslator] -- Чанк {i} превысил лимит контекста. Прерываем перевод.\n")
+                return CONTEXT_LIMIT_ERROR # Пропагандируем ошибку лимита контекста
+
+            # Если чанк успешно переведен, добавляем его к общему результату
+            translated_chunks.append(chunk_result)
+            last_successful_translation = chunk_result
 
             # --- НОВАЯ ЛОГИКА: Короткая задержка после обработки каждого чанка ---
             # Добавляем небольшую задержку, чтобы снизить частоту запросов для больших секций

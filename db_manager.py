@@ -41,17 +41,31 @@ def init_db():
         # --- Проверка и добавление столбца prompt_ext в таблицу books ---
         print("[DB] Checking 'prompt_ext' column in 'books' table...")
         cursor.execute("PRAGMA table_info(books)")
-        fetched_rows = cursor.fetchall()
-        columns = [info[1] for info in fetched_rows]
-        # print(f"[DEBUG DB] Columns found in 'books': {columns}") # Отладка списка столбцов
+        fetched_rows_prompt = cursor.fetchall()
+        columns_prompt = [info[1] for info in fetched_rows_prompt]
 
-        if 'prompt_ext' not in columns:
+        if 'prompt_ext' not in columns_prompt:
             print("[DB] Column 'prompt_ext' not found. Adding column...")
             cursor.execute("ALTER TABLE books ADD COLUMN prompt_ext TEXT NULL DEFAULT ''")
-            conn.commit() # Коммит после ALTER TABLE
+            conn.commit()
             print("[DB] Column 'prompt_ext' added successfully.")
         else:
             print("[DB] Column 'prompt_ext' already exists.")
+
+        # --- Проверка и добавление столбца target_language в таблицу books ---
+        print("[DB] Checking 'target_language' column in 'books' table...")
+        cursor.execute("PRAGMA table_info(books)")
+        fetched_rows_lang = cursor.fetchall()
+        columns_lang = [info[1] for info in fetched_rows_lang]
+
+        if 'target_language' not in columns_lang:
+            print("[DB] Column 'target_language' not found. Adding column...")
+            # Добавляем колонку с DEFAULT значением (можно взять из сессии при создании книги в app.py, но здесь дефолт пустой)
+            cursor.execute("ALTER TABLE books ADD COLUMN target_language TEXT NULL DEFAULT ''")
+            conn.commit()
+            print("[DB] Column 'target_language' added successfully.")
+        else:
+            print("[DB] Column 'target_language' already exists.")
         # --- Конец добавления столбца ---
 
         # --- Создание таблицы sections ---
@@ -98,7 +112,7 @@ def init_db():
         if conn:
             conn.close()
 
-def create_book(book_id, filename, filepath, toc):
+def create_book(book_id, filename, filepath, toc, target_language: str):
     """Создает запись о книге в базе данных."""
     conn = None
     try:
@@ -108,9 +122,9 @@ def create_book(book_id, filename, filepath, toc):
         toc_json_str = json.dumps(toc, ensure_ascii=False) if toc else None
 
         cursor.execute("""
-            INSERT INTO books (book_id, filename, filepath, status, toc_json)
-            VALUES (?, ?, ?, ?, ?)
-        """, (book_id, filename, filepath, 'idle', toc_json_str))
+            INSERT INTO books (book_id, filename, filepath, status, toc_json, target_language)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (book_id, filename, filepath, 'idle', toc_json_str, target_language))
 
         conn.commit()
         print(f"[DB] Book '{filename}' (ID: {book_id}) added.")
@@ -143,8 +157,15 @@ def get_book(book_id):
             book_info = dict(row) # Преобразуем в словарь
 
             # Гарантируем наличие ключа prompt_ext (для старых записей или если DEFAULT не сработал)
-            if 'prompt_ext' not in book_info:
+            if 'prompt_ext' not in book_info or book_info['prompt_ext'] is None: # Добавляем проверку на None
                  book_info['prompt_ext'] = ''
+
+            # --- ДОБАВЛЕНО: Обработка target_language для обратной совместимости ---
+            # Если target_language отсутствует или пустое, считаем его 'russian'
+            if 'target_language' not in book_info or not book_info['target_language']:
+                 print(f"[DB get_book] WARN: target_language отсутствует или пусто для книги {book_id}. Устанавливаем 'russian'.")
+                 book_info['target_language'] = 'russian'
+            # --- КОНЕЦ ДОБАВЛЕНО ---
 
             # Получаем секции и добавляем их в результат
             sections_dict = get_sections_for_book(book_id)
@@ -580,7 +601,7 @@ if __name__ == '__main__':
      # --- Создание книги ---
      print("\nTesting book creation...")
      if not get_book(test_book_id):
-         create_book(test_book_id, test_filename, test_filepath, test_toc)
+         create_book(test_book_id, test_filename, test_filepath, test_toc, "en")
      else:
           print(f"Book '{test_book_id}' already exists, skipping creation.")
 
