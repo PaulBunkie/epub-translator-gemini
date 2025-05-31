@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB Translator Workflow</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .upload-form {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .book-list {
+            list-style: none;
+            padding: 0;
+        }
+        .book-item {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .book-info strong {
+            font-size: 1.1em;
+        }
+        .book-status {
+            font-size: 0.9em;
+            color: #555;
+        }
+         .book-info span.language {
+            font-size: 0.8em;
+            color: red;
+            margin-left: 5px;
+            font-weight: bold;
+            vertical-align: middle;
+         }
+        .book-actions button {
+            margin-left: 10px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+         .status-processing {
+            color: orange;
+            font-weight: bold;
+         }
+         .status-complete {
+            color: green;
+            font-weight: bold;
+         }
+         .status-complete_with_errors {
+            color: darkorange;
+            font-weight: bold;
+         }
+         .status-error, .status-error_unknown {
+            color: red;
+            font-weight: bold;
+         }
+         .status-idle {
+            color: gray;
+         }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EPUB Workflow Dashboard</h1>
+
+        <div class="upload-form">
+            <h2>Upload New EPUB for Workflow</h2>
+            <form action="{{ url_for('workflow_upload_file') }}" method="post" enctype="multipart/form-data">
+                <input type="file" name="epub_file" accept=".epub" required>
+                 <label for="target_language">Target Language:</label>
+                <select name="target_language" id="target_language">
+                    <option value="russian">Russian</option>
+                    <option value="english">English</option>
+                    <option value="german">German</option>
+                    <option value="french">French</option>
+                    <option value="spanish">Spanish</option>
+                    <!-- Add more languages as needed -->
+                </select>
+                <button type="submit">Upload and Start Workflow</button>
+            </form>
+        </div>
+
+        <h2>Books in Workflow</h2>
+        <ul class="book-list">
+            {% for book in workflow_books %}
+                <li class="book-item">
+                    <div class="book-info">
+                        <strong>{{ book.filename }}</strong>
+                        {% if book.target_language %}
+                            <span class="language">({{ book.target_language }})</span>
+                        {% endif %}
+                        <div class="book-status book-status-{{ book.status | lower }}">
+                            Status: {{ book.status or 'unknown' }}
+                            {% if book.total_sections is not none %}
+                                ({{ book.completed_sections_count or 0 }} / {{ book.total_sections or 0 }} sections)
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="book-actions">
+                        {# TODO: Add link to book workflow detail page #}
+                        <button onclick="alert('View workflow details for {{ book.book_id }}')">View Workflow</button>
+                         {# TODO: Add Re-run/Cancel/Download buttons #}
+                    </div>
+                </li>
+            {% else %}
+                <p>No books found in the workflow yet. Upload one above!</p>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <script>
+        // Basic script to update status periodically (client-side polling)
+        // TODO: Implement proper polling for workflow status updates
+        console.log("Workflow dashboard loaded.");
+    </script>
+</body>
+</html> 

@@ -1,0 +1,82 @@
+import os
+import json
+import traceback
+
+# Базовая директория для кэша рабочего процесса
+WORKFLOW_CACHE_BASE_DIR = '.epub_cache/workflow'
+
+# Убедимся, что базовая директория кэша существует при импорте модуля
+os.makedirs(WORKFLOW_CACHE_BASE_DIR, exist_ok=True)
+
+def _get_cache_dir_for_stage(book_id, stage_name):
+    """Возвращает путь к директории для кэша определенного этапа для данной книги."""
+    # Например: .epub_cache/workflow/book-id-123/summaries/
+    return os.path.join(WORKFLOW_CACHE_BASE_DIR, book_id, stage_name)
+
+def _get_cache_file_path(book_id, section_id, stage_name, file_extension='.txt'):
+    """Возвращает полный путь к файлу кэша для секции на определенном этапе."""
+    stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
+    # Имя файла будет просто ID секции с расширением
+    filename = f'{section_id}{file_extension}'
+    return os.path.join(stage_dir, filename)
+
+def save_section_stage_result(book_id, section_id, stage_name, content):
+    """Сохраняет результат обработки секции на определенном этапе в файловый кэш."""
+    print(f"[WorkflowCache] Попытка сохранить кэш для книги {book_id}, секции {section_id}, этапа {stage_name}")
+    stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
+    file_path = _get_cache_file_path(book_id, section_id, stage_name)
+
+    try:
+        # Создаем директории, если их нет
+        os.makedirs(stage_dir, exist_ok=True)
+
+        # Сохраняем контент в файл
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"[WorkflowCache] Кэш сохранен успешно: {file_path}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowCache] ОШИБКА при сохранении кэша для {file_path}: {e}")
+        traceback.print_exc()
+        return False
+
+def load_section_stage_result(book_id, section_id, stage_name):
+    """Загружает результат обработки секции на определенном этапе из файлового кэша."""
+    file_path = _get_cache_file_path(book_id, section_id, stage_name)
+    print(f"[WorkflowCache] Попытка загрузить кэш из: {file_path}")
+
+    if not os.path.exists(file_path):
+        print(f"[WorkflowCache] Кэш не найден: {file_path}")
+        return None
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        print(f"[WorkflowCache] Кэш загружен успешно: {file_path} (Длина: {len(content)} chars)")
+        return content
+    except Exception as e:
+        print(f"[WorkflowCache] ОШИБКА при загрузке кэша из {file_path}: {e}")
+        traceback.print_exc()
+        return None
+
+def delete_section_stage_result(book_id, section_id, stage_name):
+    """Удаляет файл кэша для секции на определенном этапе."""
+    file_path = _get_cache_file_path(book_id, section_id, stage_name)
+    print(f"[WorkflowCache] Попытка удалить кэш: {file_path}")
+
+    if not os.path.exists(file_path):
+        print(f"[WorkflowCache] Кэш не найден, удаление не требуется: {file_path}")
+        return False # Файл не найден, считаем успешным удалением (в смысле, его нет)
+
+    try:
+        os.remove(file_path)
+        print(f"[WorkflowCache] Кэш удален успешно: {file_path}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowCache] ОШИБКА при удалении кэша {file_path}: {e}")
+        traceback.print_exc()
+        return False
+
+# TODO: Возможно, добавить функцию для удаления кэша всей книги

@@ -44,6 +44,9 @@ from cache_manager import (
 )
 import alice_handler
 import location_finder
+import workflow_db_manager
+import epub_parser
+import workflow_processor
 
 # --- Настройки ---
 UPLOAD_FOLDER = 'uploads'
@@ -773,6 +776,182 @@ def api_find_persons_locations():
         return jsonify(error_response), 500
 # --- КОНЕЦ НОВЫХ МАРШРУТОВ ---
 
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ЗАГРУЗКИ И ЗАПУСКА РАБОЧЕГО ПРОЦЕССА ---
+@app.route('/workflow_upload', methods=['POST'])
+def workflow_upload_file():
+    """ Обрабатывает загрузку EPUB для нового рабочего процесса, создает запись в новой БД и запускает процесс. """
+    print("Запрос на загрузку файла для рабочего процесса.")
+    if 'epub_file' not in request.files: return "Файл не найден", 400
+    file = request.files['epub_file'];
+    if file.filename == '': return "Файл не выбран", 400
+    if not allowed_file(file.filename): return "Ошибка: Недопустимый тип файла.", 400
+
+    # Целевой язык пока берем из формы или сессии (по аналогии со старым)
+    form_language = request.form.get('target_language') # TODO: Убедиться, что форма на новой главной странице передает язык
+    target_language = form_language or session.get('target_language', 'russian')
+
+    original_filename = secure_filename(file.filename)
+    temp_dir = app.config['UPLOAD_FOLDER']
+    temp_filepath = None # Инициализируем None
+    filepath = None
+    book_id = None
+
+    try:
+        # Сохранение и определение Book ID
+        temp_filename = f"temp_{uuid.uuid4().hex}.epub"
+        temp_filepath = os.path.join(temp_dir, temp_filename)
+        file.save(temp_filepath); print(f"Файл временно сохранен: {temp_filepath}")
+
+        book_id = _get_epub_id(temp_filepath); print(f"Вычислен Book ID: {book_id}")
+
+        # Проверяем, существует ли книга уже в новой БД
+        if workflow_db_manager.get_book_workflow(book_id):
+             print(f"Книга с ID {book_id} уже существует в Workflow DB. Перенаправление...")
+             # TODO: Перенаправить на страницу новой книги
+             return f"Книга с ID {book_id} уже существует.", 200 # Временно возвращаем сообщение
+
+        # Если книга новая, сохраняем файл с уникальным именем
+        unique_filename = f"{book_id}.epub"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+
+        # Убедимся, что файл с таким именем не существует (на всякий случай, хотя Book ID должен быть уникальным)
+        if os.path.exists(filepath):
+             print(f"Предупреждение: Файл книги {book_id} уже существует при новой загрузке. Удаляем старый.")
+             try: os.remove(filepath) # Удаляем старый файл, если он почему-то остался
+             except OSError as e: print(f"Ошибка при удалении старого файла {filepath}: {e}")
+
+        os.rename(temp_filepath, filepath); print(f"Файл перемещен в хранилище workflow: {filepath}"); temp_filepath = None # Файл успешно перемещен, обнуляем temp_filepath
+
+        # Парсим структуру EPUB и оглавление
+        section_ids, id_to_href_map = epub_parser.get_epub_structure(filepath)
+        if section_ids is None: raise ValueError("Не удалось получить структуру EPUB для workflow.")
+        toc = epub_parser.get_epub_toc(filepath, id_to_href_map) or []
+
+        # Перевод оглавления для новой БД не требуется на этом этапе, т.к. мы не используем его для отображения секций как раньше.
+        # Названия секций в БД нужны только для информации. Возьмем оригинальные или заглушки.
+        sections_data_for_db = []
+        order_in_book = 0
+        # Создаем мапу href -> toc_title для быстрого поиска названия по href
+        href_to_title_map = {item['href']: item.get('title') for item in toc if item.get('href')}
+
+        for section_id_epub in section_ids:
+             # Ищем соответствующий элемент в TOC по EPUB ID (немного костыльно, но пока так)
+             # Лучше было бы, если get_epub_structure возвращал бы не только ID, но и href/title
+             # Найдем href для этого section_id_epub
+             section_href = id_to_href_map.get(section_id_epub)
+             section_title_original = href_to_title_map.get(section_href) if section_href else None # Берем название из TOC по href
+             # Если нет названия из TOC, попробуем использовать section_id_epub как название или заглушку
+             if not section_title_original:
+                 section_title_original = section_id_epub # Используем EPUB ID как название по умолчанию
+                 print(f"Предупреждение: Не найдено название TOC для секции {section_id_epub}. Используем ID.")
+
+             sections_data_for_db.append({
+                 'section_epub_id': section_id_epub,
+                 'section_title': section_title_original,
+                 'translated_title': None, # Переведенное название пока не нужно
+                 'order_in_book': order_in_book
+             })
+             order_in_book += 1
+
+        # Создаем запись о книге в новой БД
+        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language):
+             print(f"  Книга '{book_id}' сохранена в Workflow DB.")
+
+             # --- ДОБАВЛЯЕМ ИНИЦИАЛИЗАЦИЮ СТАТУСОВ ЭТАПОВ КНИГИ ---
+             workflow_db_manager._initialize_book_stage_statuses(book_id)
+             # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
+             sec_created_count = 0
+             # Создаем записи о секциях в новой БД
+             for section_data in sections_data_for_db:
+                  if workflow_db_manager.create_section_workflow(
+                      book_id,
+                      section_data['section_epub_id'],
+                      section_data['section_title'],
+                      section_data['translated_title'],
+                      section_data['order_in_book']
+                  ):
+                       sec_created_count += 1
+             print(f"  Создано {sec_created_count} записей о секциях в Workflow DB.")
+
+             # --- Запускаем рабочий процесс для книги ---
+             # Запускаем в отдельном потоке, чтобы запрос не висел
+             # TODO: Использовать более надежный способ запуска фоновых задач, например, очередь задач (Celery, Redis Queue)
+             # Пока используем простой поток для демонстрации
+             import threading
+             # --- ИЗМЕНЕНИЕ: Запускаем поток с контекстом приложения ---
+             def run_workflow_in_context(app, book_id):
+                 with app.app_context():
+                     workflow_processor.start_book_workflow(book_id)
+             threading.Thread(target=run_workflow_in_context, args=(app, book_id,)).start()
+             # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+             print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
+
+             # TODO: Перенаправить на страницу новой главной страницы workflow
+             # Пока просто возвращаем успешный ответ
+             return f"Книга {original_filename} загружена и запущен рабочий процесс с ID: {book_id}", 200
+
+        else:
+             # Если не удалось создать запись книги в БД, удаляем файл
+             print(f"ОШИБКА: Не удалось сохранить книгу '{book_id}' в Workflow DB! Удаляем файл.")
+             if filepath and os.path.exists(filepath):
+                 try: os.remove(filepath)
+                 except OSError as e: print(f"  Не удалось удалить файл {filepath} после ошибки БД: {e}")
+             return "Ошибка сервера при сохранении информации о книге в Workflow DB.", 500
+
+    except Exception as e:
+        print(f"ОШИБКА при обработке загрузки для workflow: {e}"); traceback.print_exc()
+        # Удаляем временный и сохраненный файлы в случае любой ошибки
+        if temp_filepath and os.path.exists(temp_filepath):
+            try: os.remove(temp_filepath)
+            except OSError as e_del: print(f"  Не удалось удалить временный файл {temp_filepath} после ошибки: {e_del}")
+        if filepath and os.path.exists(filepath):
+            try: os.remove(filepath)
+            except OSError as e_del: print(f"  Не удалось удалить файл {filepath} после ошибки: {e_del}")
+
+        return "Ошибка сервера при обработке файла для рабочего процесса.", 500
+
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ОТОБРАЖЕНИЯ СПИСКА КНИГ В РАБОЧЕМ ПРОЦЕССЕ ---
+@app.route('/workflow', methods=['GET'])
+def workflow_index():
+    """ Отображает страницу со списком книг в новом рабочем процессе. """
+    print("Загрузка страницы списка книг рабочего процесса...")
+
+    workflow_books = []
+    try:
+        # Получаем список книг из новой базы данных
+        db_books = workflow_db_manager.get_all_books_workflow()
+        for book_data in db_books:
+             # Получаем количество секций для отображения прогресса
+             total_sections = workflow_db_manager.get_section_count_for_book_workflow(book_data['book_id'])
+             # Получаем количество секций, завершенных на этапе суммаризации (для отображения прогресса на главном экране)
+             completed_sections_count = workflow_db_manager.get_completed_sections_count_for_stage_workflow(book_data['book_id'], 'summarize')
+
+             workflow_books.append({
+                 'book_id': book_data['book_id'],
+                 'filename': book_data['filename'], # Используем 'filename' для отображения
+                 'status': book_data['current_workflow_status'],
+                 'target_language': book_data.get('target_language'),
+                 'total_sections': total_sections,
+                 'completed_sections_count': completed_sections_count # Передаем количество завершенных секций
+             })
+        workflow_books.sort(key=lambda x: x['filename'].lower()) # Сортируем по имени файла
+        print(f"  Найдено книг в Workflow DB: {len(workflow_books)}")
+    except Exception as e:
+        print(f"ОШИБКА при получении списка книг из Workflow DB: {e}")
+        import traceback
+        traceback.print_exc() # Логируем полный трейсбэк
+
+    # TODO: Добавить передачу языка и модели по умолчанию, если они нужны на этой странице
+    # TODO: Добавить логику получения списка доступных моделей, если форма загрузки будет использовать выбор модели
+
+    resp = make_response(render_template('workflow_index.html', workflow_books=workflow_books))
+    # Наследуем CSP политику от основной страницы
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    resp.headers['Content-Security-Policy'] = csp_policy
+
+    return resp
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
@@ -781,6 +960,10 @@ if __name__ == '__main__':
     try:
         configure_api() # Проверка ключей API
         load_models_on_startup() # <-- ДОБАВЛЯЕМ ЭТОТ ВЫЗОВ
+        # --- ИЗМЕНЕНИЕ: Добавляем инициализацию workflow DB ---
+        with app.app_context():
+            workflow_db_manager.init_workflow_db()
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
     except ValueError as e:
         print(f"Ошибка конфигурации API: {e}")
