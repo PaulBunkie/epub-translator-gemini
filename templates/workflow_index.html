@@ -77,6 +77,46 @@
             color: gray;
          }
 
+        /* Styles for the workflow progress overlay */
+        .workflow-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Styles for the content inside the workflow overlay */
+        .workflow-overlay-content {
+            background-color: #fff;
+            color: #333;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .workflow-overlay-content h2 {
+            margin-top: 0;
+            color: #333; /* Ensure heading is dark */
+        }
+
+        .workflow-overlay-content p {
+            margin-bottom: 0;
+        }
+
+        /* Style for error status in overlay */
+        .workflow-overlay-content .status-error {
+            color: red;
+            font-weight: bold;
+        }
+
     </style>
 </head>
 <body>
@@ -120,28 +160,10 @@
                         </div>
                     </div>
                     <div class="book-actions">
-                        {# TODO: Add link to book workflow detail page #}
-                        {# <button onclick="alert('View workflow details for {{ book.book_id }}')">View Workflow</button> #}
-                         {# Add Download Summary Link #}
-                        {% if book.status == 'completed' and book.completed_sections_count == book.total_sections and book.total_sections > 0%}
-                            <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию</a>
-                        {% elif book.status == 'completed' and book.completed_sections_count == 0 and book.total_sections > 0 %}
-                             {# Completed but empty sections, still show download link? Or indicate empty? #}
-                             {# For now, same as completed, link will point to empty file #}
-                             <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию (пусто)</a>
-                        {% elif book.status == 'completed_with_errors' %}
-                              {# Completed with errors - still show download, file will contain error markers #}
-                             <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию (с ошибками)</a>
-                        {% else %}
-                             {# Placeholder or disabled button while not completed #}
-                             <span class="download-summary-placeholder">Суммаризация не готова</span>
-                        {% endif %}
-
-                         {# TODO: Add Re-run/Cancel buttons #}
-                    </div>
-                    <div class="book-actions">
+                        {# Ссылка и плейсхолдер теперь всегда рендерятся, видимость контролирует JS #}
                         <a href="#" class="download-summary-link" style="display: none;">Скачать суммаризацию</a>
                         <span class="download-summary-placeholder">Суммаризация не готова</span>
+                        {# Кнопка Удалить также всегда рендерится #}
                         <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
                     </div>
                 </li>
@@ -152,8 +174,8 @@
     </div>
 
     <!-- Overlay for progress display -->
-    <div id="progressOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); color: white; z-index: 1000;">
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+    <div id="progressOverlay" class="workflow-overlay" style="display: none;">
+        <div class="workflow-overlay-content">
             <h2>Processing Workflow...</h2>
             <p id="progressText">Starting...</p>
             <!-- Optional: Add a loading spinner -->

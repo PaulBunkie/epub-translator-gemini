@@ -414,7 +414,6 @@ def get_completed_sections_count_for_stage_workflow(book_id, stage_name):
             WHERE s.book_id = ? AND sss.stage_name = ? AND sss.status IN ('completed', 'cached', 'completed_empty')
         '''
         params = (book_id, stage_name)
-        print(f"[WorkflowDB] DEBUG: Подсчет завершенных секций: Запрос: {query.strip()} | Параметры: {params}")
         
         cursor = db.execute('''
             SELECT COUNT(sss.id)
@@ -423,7 +422,6 @@ def get_completed_sections_count_for_stage_workflow(book_id, stage_name):
             WHERE s.book_id = ? AND sss.stage_name = ? AND sss.status IN ('completed', 'cached', 'completed_empty')
         ''', (book_id, stage_name))
         count = cursor.fetchone()[0]
-        print(f"[WorkflowDB] DEBUG: Подсчет завершенных секций: Результат COUNT: {count}")
         return count
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА при подсчете завершенных секций для книги '{book_id}' этапа '{stage_name}': {e}")

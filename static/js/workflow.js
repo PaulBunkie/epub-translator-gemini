@@ -75,11 +75,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="book-actions">
                                  <span class="download-summary-placeholder">Суммаризация не готова</span>
                                 <a href="#" class="download-summary-link" style="display: none;">Скачать суммаризацию</a>
+                                <button class="delete-book-button" data-book-id="${result.book_id}">Удалить</button>
                             </div>
                         `;
-                         // Append the new item to the list
-                         bookList.appendChild(bookItem);
-                         console.log('New book item added to DOM.');
+                        // Append the new item to the list
+                        bookList.appendChild(bookItem);
+                        console.log('New book item added to DOM.');
                     }
                     // --- End NEW LOGIC ---
 
@@ -97,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const errorText = result.error || `HTTP error! Status: ${response.status}`;
                 updateProgressText(`Upload failed: ${errorText}`);
                 console.error('Upload failed:', response.status, response.statusText, result);
-                // Keep overlay open with error message
+                 // Keep overlay open with error message
             }
         } catch (error) {
             updateProgressText(`An error occurred during upload: ${error}`);
@@ -215,20 +216,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     // --- End of MODIFICATION for book item update ---
 
 
-                    // --- MODIFICATION: Check if the summarization workflow stage is complete ---
-                    // Stop polling and initiate download only when the 'summarize' stage is complete.
-                    if (summaryStageData && summaryStageData.status === 'completed') {
+                    // --- MODIFICATION: Check if the summarization workflow stage is complete or has errored ---
+                    // Stop polling and hide overlay when the 'summarize' stage is complete, errored, or completed with errors.
+                    const isSummarizationFinished = summaryStageData && 
+                                                  (summaryStageData.status === 'completed' || 
+                                                   summaryStageData.status === 'completed_empty' ||
+                                                   summaryStageData.status === 'completed_with_errors' ||
+                                                   summaryStageData.status === 'error' ||
+                                                   summaryStageData.status.startsWith('error_'));
+
+                    if (isSummarizationFinished) {
                         console.log(`Summarization stage complete for book ${bookId}. Stopping polling.`);
                         clearInterval(pollingInterval); // Stop polling
                         pollingInterval = null; // Clear the variable
                         hideProgressOverlay(); // Hide progress overlay
 
-                         // Automatically trigger download (optional, might annoy users)
-                         // console.log("Initiating download...");
-                         // window.location.href = `/workflow_download_summary/${bookId}`;
-
                          // Instead of auto-download, ensure the download link is visible (handled above)
                          console.log("Download link for summarization should now be visible.");
+                    } else if (bookStatus && (bookStatus === 'error' || bookStatus.startsWith('error_'))) {
+                        // Also stop polling and hide overlay if the overall book status is an error
+                        console.log(`Book ${bookId} overall status is error: ${bookStatus}. Stopping polling.`);
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                        hideProgressOverlay();
                     }
 
                 } else {
@@ -336,24 +346,36 @@ document.addEventListener('DOMContentLoaded', () => {
              const downloadLink = bookItem.querySelector('.download-summary-link');
              const downloadPlaceholder = bookItem.querySelector('.download-summary-placeholder');
 
+             // Debugging: Log elements found and their initial state
+             console.log('DEBUG Download elements:', {
+                 downloadLinkFound: !!downloadLink, // True if element is found
+                 downloadPlaceholderFound: !!downloadPlaceholder, // True if element is found
+                 downloadLinkDisplay: downloadLink ? downloadLink.style.display : 'N/A',
+                 downloadPlaceholderDisplay: downloadPlaceholder ? downloadPlaceholder.style.display : 'N/A'
+             });
+
              if (summaryStageData && summaryStageData.status === 'completed') {
+                 console.log('DEBUG: Setting display for completed status.');
                  if (downloadLink) downloadLink.style.display = ''; // Show the link
                  if (downloadPlaceholder) downloadPlaceholder.style.display = 'none'; // Hide placeholder
                   if (downloadLink) downloadLink.href = `/workflow_download_summary/${bookId}`;
              } else if (summaryStageData && (summaryStageData.status === 'error' || summaryStageData.status.startsWith('error_'))) {
-                 if (downloadLink) downloadLink.style.display = 'none'; // Hide link
+                 console.log('DEBUG: Setting display for error status.');
+                  if (downloadLink) downloadLink.style.display = 'none'; // Hide link
                  if (downloadPlaceholder) {
                      downloadPlaceholder.style.display = '';
                      downloadPlaceholder.textContent = `Ошибка суммаризации: ${summaryStageData.status}`; // Show error
                  }
              } else if (bookStatus && bookStatus.startsWith('error_')) {
-                 if (downloadLink) downloadLink.style.display = 'none'; // Hide link
+                 console.log('DEBUG: Setting display for book error status.');
+                  if (downloadLink) downloadLink.style.display = 'none'; // Hide link
                  if (downloadPlaceholder) {
                      downloadPlaceholder.style.display = '';
                      downloadPlaceholder.textContent = `Ошибка книги: ${bookStatus}`; // Show error
                  }
              } else {
-                 if (downloadLink) downloadLink.style.display = 'none'; // Hide link
+                 console.log('DEBUG: Setting display for other status.');
+                  if (downloadLink) downloadLink.style.display = 'none'; // Hide link
                  if (downloadPlaceholder) {
                      downloadPlaceholder.style.display = '';
                      downloadPlaceholder.textContent = 'Суммаризация не готова'; // Placeholder
