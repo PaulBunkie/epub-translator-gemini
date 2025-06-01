@@ -370,7 +370,7 @@ def start_book_workflow(book_id: str):
 
             current_status = book_info.get('current_workflow_status', 'idle')
             # Не запускаем, если уже в процессе или завершено успешно
-            if current_status in ['processing', 'complete']:
+            if current_status in ['processing', 'completed']:
                 print(f"[WorkflowProcessor] Рабочий процесс для книги ID {book_id} уже в статусе '{current_status}'. Запуск отменен.")
                 return False
 
@@ -381,7 +381,7 @@ def start_book_workflow(book_id: str):
             sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
             if not sections:
                 print(f"[WorkflowProcessor] Предупреждение: Для книги ID {book_id} не найдено секций.")
-                workflow_db_manager.update_book_workflow_status(book_id, 'complete', error_message='No sections found')
+                workflow_db_manager.update_book_workflow_status(book_id, 'completed', error_message='No sections found')
                 return True
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
@@ -403,7 +403,7 @@ def start_book_workflow(book_id: str):
 
              # Если статус не указывает на завершение или ошибку, ставим в очередь
              # Добавляем 'queued' в список статусов, которые не должны быть переставлены в очередь
-             if current_stage_status not in ['complete', 'cached', 'error', 'skipped', 'processing', 'queued']:
+             if current_stage_status not in ['completed', 'cached', 'error', 'skipped', 'processing', 'queued']:
                   print(f"[WorkflowProcessor] Ставим в очередь секцию ID {section_id} ({section_data.get('section_epub_id')}) для этапа '{first_stage_name}'.")
                   # Устанавливаем статус секции на 'queued'
                   workflow_db_manager.update_section_stage_status_workflow(
@@ -462,7 +462,7 @@ def start_book_workflow(book_id: str):
             if all_sections_count > 0 and completion_count == all_sections_count:
                 # All sections have a final status (complete, cached, or error)
                 if error_sections_count == 0:
-                    stage_status = 'complete'
+                    stage_status = 'completed'
                     print(f"[WorkflowProcessor] Стадия '{first_stage_name}' для книги ID {book_id} завершена успешно (все секции завершены без ошибок).")
                 else:
                     stage_status = 'error'
@@ -475,13 +475,13 @@ def start_book_workflow(book_id: str):
             final_book_workflow_status = 'processing' # Default remains processing if there's a next stage
             final_error_message = None
 
-            if stage_status == 'complete':
+            if stage_status == 'completed':
                 if next_stage_name:
                     # Stage completed successfully, there is a next stage - overall status remains processing
                      print(f"[WorkflowProcessor] Стадия '{first_stage_name}' завершена успешно. Есть следующий этап '{next_stage_name}'. Общий статус книги остается 'processing'.")
                 else:
                      # Last stage completed successfully
-                     final_book_workflow_status = 'complete'
+                     final_book_workflow_status = 'completed'
                      final_error_message = 'Workflow completed successfully.'
                      print(f"[WorkflowProcessor] Последняя стадия '{first_stage_name}' завершена успешно. Общий статус книги: '{final_book_workflow_status}'.")
             elif stage_status == 'error':
@@ -507,7 +507,7 @@ def start_book_workflow(book_id: str):
                  print(f"[WorkflowProcessor] Общий статус книги ID {book_id} остается 'processing'.")
 
             # TODO: Implement actual stage transition logic here
-            if stage_status == 'complete' and next_stage_name:
+            if stage_status == 'completed' and next_stage_name:
                  # Move to the next stage (e.g., analysis) - For now, workflow stops here
                  print(f"[WorkflowProcessor] Переход к следующему этапу '{next_stage_name}' для книги ID {book_id} (пока не реализовано)...")
 

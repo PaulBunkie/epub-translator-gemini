@@ -11,6 +11,7 @@ import time
 import traceback # Для вывода ошибок
 import atexit
 import threading
+import html
 
 # Flask и связанные утилиты
 from flask import (
@@ -47,6 +48,7 @@ import location_finder
 import workflow_db_manager
 import epub_parser
 import workflow_processor
+import workflow_cache_manager
 
 # --- Настройки ---
 UPLOAD_FOLDER = 'uploads'
@@ -157,7 +159,7 @@ def update_overall_book_status(book_id):
     overall_status = "idle"
     if processing_count > 0: overall_status = "processing"
     elif (translated_count + error_count) == total_needed and processing_count == 0:
-         overall_status = "complete" if error_count == 0 else "complete_with_errors"
+         overall_status = "completed" if error_count == 0 else "completed_with_errors"
 
     if book_data.get('status') != overall_status:
         if update_book_status(book_id, overall_status): print(f"Общий статус книги '{book_id}' -> '{overall_status}'.")
@@ -270,15 +272,25 @@ def index():
 def delete_book_request(book_id):
     """ Удаляет книгу, ее файл и кэш. """
     print(f"Запрос на удаление книги: {book_id}")
-    book_info = get_book(book_id)
+    # --- ИЗМЕНЕНИЕ: Используем workflow_db_manager ---
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     if book_info:
         filepath = book_info.get("filepath"); original_filename = book_info.get("filename", book_id)
-        if delete_book(book_id): print(f"  Запись '{original_filename}' удалена из БД.")
-        else: print(f"  ОШИБКА удаления записи из БД!")
+        # --- ИЗМЕНЕНИЕ: Используем workflow_db_manager для удаления из БД workflow ---
+        if workflow_db_manager.delete_book_workflow(book_id): print(f"  Запись '{original_filename}' удалена из Workflow БД.")
+        else: print(f"  ОШИБКА удаления записи из Workflow БД!")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         if filepath and os.path.exists(filepath):
             try: os.remove(filepath); print(f"  Файл {filepath} удален.")
             except OSError as e: print(f"  Ошибка удаления файла {filepath}: {e}")
-        if filepath: delete_book_cache(filepath)
+        # --- ИЗМЕНЕНИЕ: Используем workflow_cache_manager для удаления кеша workflow ---
+        # workflow_cache_manager.delete_book_workflow_cache принимает только book_id
+        workflow_cache_manager.delete_book_workflow_cache(book_id)
+        print(f"  Кеш workflow для книги {book_id} удален.")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
     else: print(f"  Книга {book_id} не найдена в БД.")
     return redirect(url_for('index'))
 
@@ -598,7 +610,7 @@ def download_full(book_id):
     filepath = book_info.get("filepath");
     target_language = book_info.get('target_language', session.get('target_language', 'russian'))
 
-    if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
+    if book_info.get('status') not in ["complete", "completed_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
 
     # Вместо получения section_ids из toc или sections.keys(),
     # всегда берем все ключи из словаря sections, т.к. это полный список обработанных секций
@@ -662,7 +674,7 @@ def download_epub(book_id):
     if book_info is None: return "Book not found", 404
     target_language = book_info.get('target_language', session.get('target_language', 'russian'))
     update_overall_book_status(book_id); book_info = get_book(book_id)
-    if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
+    if book_info.get('status') not in ["completed", "completed_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
     epub_bytes = create_translated_epub(book_info, target_language) # book_info уже содержит 'sections'
     if epub_bytes is None: return "Server error generating EPUB", 500
     base_name = os.path.splitext(book_info.get('filename', 'tr_book'))[0]; out_fn = f"{base_name}_{target_language}_translated.epub"
@@ -889,7 +901,11 @@ def workflow_upload_file():
 
              # TODO: Перенаправить на страницу новой главной страницы workflow
              # Пока просто возвращаем успешный ответ
-             return f"Книга {original_filename} загружена и запущен рабочий процесс с ID: {book_id}", 200
+             # return f"Книга {original_filename} загружена и запущен рабочий процесс с ID: {book_id}", 200
+             
+             # --- ИЗМЕНЕНИЕ: Возвращаем JSON с book_id ---
+             return jsonify({"status": "success", "message": "Книга загружена и запущен рабочий процесс.", "book_id": book_id, "filename": original_filename, "total_sections_count": sec_created_count}), 200
+             # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         else:
              # Если не удалось создать запись книги в БД, удаляем файл
@@ -952,6 +968,215 @@ def workflow_index():
 
     return resp
 
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ СКАЧИВАНИЯ СУММАРИЗАЦИИ WORKFLOW ---
+@app.route('/workflow_download_summary/<book_id>', methods=['GET'])
+def workflow_download_summary(book_id):
+    print(f"Запрос на скачивание суммаризации для книги: {book_id}")
+    # Убедимся, что вызываем функции работы с workflow DB/кешем
+    # from . import workflow_db_manager, workflow_cache_manager # Remove commented import
+    # import os # Remove commented import
+    # import html # Remove commented import
+    # from flask import Response # Remove commented import
+
+    # 1. Получаем информацию о книге из Workflow DB
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if book_info is None:
+        print(f"  [DownloadSummary] Книга с ID {book_id} не найдена в Workflow DB.")
+        return "Book not found", 404
+
+    # Проверяем статус этапа суммаризации книги.
+    # Получаем статусы этапов книги
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    summarize_stage_status = book_stage_statuses.get('summarize', {}).get('status')
+
+    # TODO: Решить, нужно ли требовать статус complete или разрешать скачивание partial results
+    # Пока требуем complete
+    # На фронтенде ссылка должна появляться только при complete статусе.
+    if summarize_stage_status != 'completed':
+         print(f"  [DownloadSummary] Этап суммаризации для книги {book_id} не завершен. Статус: {summarize_stage_status}")
+         # Возвращаем 409 Conflict, чтобы показать, что ресурс не готов
+         return f"Summarization not complete (Status: {summarize_stage_status}).", 409
+
+    # 2. Получаем список секций для книги
+    # Берем секции из Workflow DB, они упорядочены по order_in_book
+    sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+    if not sections:
+        print(f"  [DownloadSummary] Не найдено секций для книги {book_id} в Workflow DB.")
+        # Это unexpected, т.к. книга есть, а секций нет. Возможно, ошибка парсинга при загрузке.
+        return "No sections found for this book", 500
+
+    full_summary_parts = []
+    missing_summaries = [] # Секции, для которых не удалось получить результат
+    error_sections = [] # Секции, где этап суммаризации завершился с ошибкой
+
+    # 3. Итерируемся по секциям и загружаем суммаризацию из workflow кеша
+    for section_data in sections:
+        section_id = section_data['section_id'] # Внутренний ID секции из БД
+        section_epub_id = section_data['section_epub_id'] # Оригинальный EPUB ID секции
+        # Используем заголовок из БД, если есть, иначе заглушку с порядковым номером
+        section_title = section_data.get('section_title') or f'Section {section_data["order_in_book"] + 1}'
+        # Используем переведенный заголовок, если есть, для отображения в файле
+        display_title = section_data.get('translated_title') or section_title
+
+        # Получаем статус этой секции для этапа суммаризации из данных секции
+        # (Эти статусы уже загружены workflow_db_manager.get_sections_for_book_workflow)
+        section_stage_statuses = section_data.get('stage_statuses', {})
+        summarize_section_status = section_stage_statuses.get('summarize', {}).get('status')
+        section_error_message = section_stage_statuses.get('summarize', {}).get('error_message')
+
+
+        summary_text = None
+        # Пробуем загрузить результат суммаризации для секции из workflow кеша
+        try:
+             # workflow_cache_manager.load_section_stage_result принимает book_id, section_id (internal DB ID), stage_name
+             summary_text = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
+        except Exception as e:
+             # Ошибка при чтении из кеша - такое возможно.
+             print(f"  [DownloadSummary] ОШИБКА при загрузке суммаризации из кеша для секции {section_id} (EPUB ID: {section_epub_id}): {e}")
+             # Помечаем как missing
+             missing_summaries.append(section_epub_id)
+             # Добавляем в файл информацию об ошибке чтения кеша
+             escaped_title = html.escape(display_title)
+             full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ПРЕДУПРЕЖДЕНИЕ: Ошибка загрузки суммаризации из кеша) ====\n\n")
+             continue # Переходим к следующей секции
+
+        # Обработка результата, полученного из кеша, и статуса секции из БД
+        if summary_text is not None and summary_text.strip() != "":
+            # Успешно загружена непустая суммаризация ИЛИ загружен пустой файл для completed_empty
+            # (т.к. load_section_stage_result для completed_empty вернет пустую строку, а не None)
+            # Проверяем статус секции, чтобы понять причину пустого текста, если он пустой
+            if summary_text.strip() == "" and summarize_section_status != 'completed_empty':
+                 # Текст пустой, но статус не completed_empty - это unexpected
+                 missing_summaries.append(section_epub_id)
+                 escaped_title = html.escape(display_title)
+                 full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ПРЕДУПРЕЖДЕНИЕ: Суммаризация пуста, статус {summarize_section_status or 'unknown'}) ====\n\n")
+            else:
+                 # Успешно загружена непустая суммаризация ИЛИ пустая для completed_empty
+                 escaped_title = html.escape(display_title)
+                 # Добавляем заголовок секции и текст суммаризации
+                 full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} ====\n\n{summary_text}")
+
+        elif summarize_section_status and (summarize_section_status == 'error' or summarize_section_status.startswith('error_')):
+             # В кеше нет текста (или ошибка загрузки), а статус секции в БД - ошибка.
+             error_sections.append(section_epub_id)
+             escaped_title = html.escape(display_title)
+             full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ОШИБКА: {section_error_message or summarize_section_status}) ====\n\n")
+        else:
+            # Если статус не error_ и не completed_empty, и текст из кеша None/пустой (и не completed_empty).
+            # Это означает, что для этой секции нет готового результата суммаризации в кеше,
+            # хотя общий статус книги 'complete'. Такого быть не должно при корректном workflow.
+            # Обработаем на всякий случай.
+             missing_summaries.append(section_epub_id)
+             escaped_title = html.escape(display_title)
+             full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ПРЕДУПРЕЖДЕНИЕ: Суммаризация недоступна. Статус секции: {summarize_section_status or 'unknown'}) ====\n\n")
+
+
+    # Проверяем, удалось ли получить хоть какой-то контент (даже ошибки/предупреждения)
+    if not full_summary_parts:
+         # Это может произойти, если не удалось получить ни одного результата или ошибки для всех секций
+         print(f"  [DownloadSummary] Не удалось собрать текст суммаризации для книги {book_id} из кеша workflow.")
+         # Если статус книги complete, но нет данных, возможно, проблема в кеше.
+         return "Could not retrieve any summary text from workflow cache.", 500
+
+
+    # Добавляем предупреждения в начало, если есть пропущенные или ошибочные секции
+    # Если есть missing_summaries или error_sections, добавляем общий заголовок предупреждений
+    all_warnings = []
+    if missing_summaries or error_sections:
+         all_warnings.append("==== ПРЕДУПРЕЖДЕНИЯ / ERRORS ====\n\n")
+    if missing_summaries:
+        # Corrected f-string syntax
+        all_warnings.append(f"Не удалось загрузить суммаризацию из кеша workflow (или результат был пуст при неожиданном статусе) для секций (EPUB ID): {', '.join(missing_summaries)}\n\n")
+    if error_sections:
+        # Corrected f-string syntax
+        all_warnings.append(f"Суммаризация завершилась с ошибками на уровне секций для (EPUB ID): {', '.join(error_sections)}\n\n")
+    if all_warnings:
+         all_warnings.append("==== КОНЕЦ ПРЕДУПРЕЖДЕНИЙ / END OF ERRORS ====\n\n")
+
+    full_summary_text = "".join(all_warnings) + "\n".join(full_summary_parts) # Добавляем предупреждения в начало
+
+    # 4. Формируем и отдаем файл
+    # Имя файла для скачивания: [имя_оригинала_без_расширения]_summarized.txt
+    # Берем оригинальное имя файла из book_info
+    base_name = os.path.splitext(book_info.get('filename', 'summary_book'))[0]
+    out_fn = f"{base_name}_summarized.txt"
+
+    # Возвращаем текст как файл
+    return Response(full_summary_text, mimetype="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{out_fn}"})
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ---
+
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛУЧЕНИЯ СТАТУСА WORKFLOW КНИГИ ---
+@app.route('/workflow_book_status/<book_id>', methods=['GET'])
+def get_workflow_book_status(book_id):
+    print(f"Запрос статуса workflow для книги: {book_id}")
+
+    # Убедимся, что вызываем функции работы с workflow DB
+    # Импорты workflow_db_manager, json, Response, jsonify должны быть на верхнем уровне
+
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+
+    if book_info is None:
+        print(f"  Книга с ID {book_id} не найдена в Workflow DB.")
+        return jsonify({"error": "Book not found in workflow database"}), 404
+
+    # Получаем детальные статусы этапов и секций из book_info
+    # get_book_workflow уже должен загружать 'book_stage_statuses' и 'sections'
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    sections = book_info.get('sections', []) # Список секций с их stage_statuses
+
+    # Формируем ответ
+    response_data = {
+        "book_id": book_info.get('book_id'),
+        "filename": book_info.get('filename'),
+        "current_workflow_status": book_info.get('current_workflow_status'),
+        "book_stage_statuses": book_stage_statuses,
+        "total_sections_count": book_info.get('total_sections_count', len(sections)), # Берем из book_info или считаем
+        "sections_status_summary": {} # Сводка статусов секций по этапам
+    }
+
+    # --- Добавляем completed_count для этапа summarize в book_stage_statuses ---
+    if 'summarize' in response_data['book_stage_statuses']:
+        # get_book_workflow уже добавил completed_sections_count_summarize в book_info
+        completed_sum_count = book_info.get('completed_sections_count_summarize', 0)
+        response_data['book_stage_statuses']['summarize']['completed_count'] = completed_sum_count
+    # --- Конец добавления completed_count ---
+
+    # Подсчитаем количество секций для каждого статуса на каждом этапе
+    stage_names = list(book_stage_statuses.keys()) # Получаем список этапов книги
+    # Также добавим этапы, которые есть у секций, но могут отсутствовать на уровне книги пока
+    for section in sections:
+         for stage_name in section.get('stage_statuses', {}).keys():
+              if stage_name not in stage_names: stage_names.append(stage_name)
+
+    for stage_name in stage_names:
+         response_data['sections_status_summary'][stage_name] = {
+             'total': len(sections),
+             'completed': 0,
+             'completed_empty': 0,
+             'processing': 0,
+             'queued': 0,
+             'error': 0,
+             'skipped': 0,
+             'pending': 0,
+             'cached': 0 # Для перевода
+         }
+         for section in sections:
+              section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
+              if section_stage_status in response_data['sections_status_summary'][stage_name]:
+                   response_data['sections_status_summary'][stage_name][section_stage_status] += 1
+              else:
+                   # Если встречен неизвестный статус
+                   print(f"  [WorkflowStatusAPI] Предупреждение: Неизвестный статус секции '{section.get('section_epub_id')}' для этапа '{stage_name}': '{section_stage_status}'")
+                   # Можно добавить в отдельную категорию или игнорировать
+
+    # TODO: Включить в ответ детальные статусы каждой секции, если нужно для фронтенда
+    # response_data['sections_details'] = sections # Осторожно: может быть большой объем данных!
+
+    return jsonify(response_data), 200
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА СТАТУСА ---
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
@@ -969,5 +1194,4 @@ if __name__ == '__main__':
         print(f"Ошибка конфигурации API: {e}")
         # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
         exit(1)
-
 # --- END OF FILE app.py ---

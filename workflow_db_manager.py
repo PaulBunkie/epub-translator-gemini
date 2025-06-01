@@ -91,7 +91,7 @@ def init_workflow_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     section_id INTEGER NOT NULL, -- Внешний ключ к sections
                     stage_name TEXT NOT NULL, -- Внешний ключ к workflow_stages (только per-section)
-                    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'queued', 'processing', 'complete', 'error', 'skipped', 'cached', 'completed_empty'
+                    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'queued', 'processing', 'completed', 'error', 'skipped', 'cached', 'completed_empty'
                     model_name TEXT, -- Модель, использованная для этой секции на этом этапе
                     error_message TEXT -- Сообщение об ошибке для этой секции на этом этапе
                     ,
@@ -110,7 +110,7 @@ def init_workflow_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     book_id TEXT NOT NULL, -- Внешний ключ к books
                     stage_name TEXT NOT NULL, -- Внешний ключ к workflow_stages (только book-level)
-                    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'queued', 'processing', 'complete', 'error', 'skipped'
+                    status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'queued', 'processing', 'completed', 'error', 'skipped'
                     model_name TEXT, -- Модель, использованная для этого этапа на уровне книги
                     error_message TEXT -- Сообщение об ошибке для этого этапа
                     ,
@@ -403,7 +403,7 @@ def get_section_count_for_book_workflow(book_id):
         return 0
 
 def get_completed_sections_count_for_stage_workflow(book_id, stage_name):
-    """Возвращает количество секций книги, завершивших определенный per-section этап ('complete' или 'cached')."""
+    """Возвращает количество секций книги, завершивших определенный per-section этап ('completed' или 'cached')."""
     db = get_workflow_db()
     try:
         # Debug print: Show the query and parameters
@@ -411,19 +411,19 @@ def get_completed_sections_count_for_stage_workflow(book_id, stage_name):
             SELECT COUNT(sss.id)
             FROM section_stage_statuses sss
             JOIN sections s ON sss.section_id = s.section_id
-            WHERE s.book_id = ? AND sss.stage_name = ? AND sss.status IN ('complete', 'cached', 'completed_empty')
+            WHERE s.book_id = ? AND sss.stage_name = ? AND sss.status IN ('completed', 'cached', 'completed_empty')
         '''
         params = (book_id, stage_name)
-        print(f"[WorkflowDB] Подсчет завершенных секций: Запрос: {query.strip()} | Параметры: {params}")
+        print(f"[WorkflowDB] DEBUG: Подсчет завершенных секций: Запрос: {query.strip()} | Параметры: {params}")
         
         cursor = db.execute('''
             SELECT COUNT(sss.id)
             FROM section_stage_statuses sss
             JOIN sections s ON sss.section_id = s.section_id
-            WHERE s.book_id = ? AND sss.stage_name = ? AND sss.status IN ('complete', 'cached', 'completed_empty')
+            WHERE s.book_id = ? AND sss.stage_name = ? AND sss.status IN ('completed', 'cached', 'completed_empty')
         ''', (book_id, stage_name))
         count = cursor.fetchone()[0]
-        print(f"[WorkflowDB] Подсчет завершенных секций: Результат COUNT: {count}")
+        print(f"[WorkflowDB] DEBUG: Подсчет завершенных секций: Результат COUNT: {count}")
         return count
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА при подсчете завершенных секций для книги '{book_id}' этапа '{stage_name}': {e}")
@@ -497,13 +497,14 @@ def update_section_stage_status_workflow(
             # Определяем значения для start_time и end_time в зависимости от нового статуса
             current_time = time.time() # Получаем текущее время в виде timestamp
             start_time_val = current_time if status in ('processing', 'queued') else None
-            end_time_val = current_time if status in ('complete', 'cached', 'completed_empty', 'error') else None
+            end_time_val = current_time if status in ('completed', 'cached', 'completed_empty', 'error') else None
 
             if exists:
                 # Запись существует, обновляем
                 print(f"[WorkflowDB] Обновление статуса для секции {section_id} этапа {stage_name} на '{status}'.")
 
                 # Строим SQL запрос для обновления. Обновляем все поля времени явно.
+                print(f"[WorkflowDB] DEBUG: UPDATE section_stage_statuses SET status = '{status}', model_name = '{model_name}', error_message = '{error_message}', start_time = {start_time_val}, end_time = {end_time_val} WHERE section_id = {section_id} AND stage_name = '{stage_name}'.")
                 db.execute('''
                     UPDATE section_stage_statuses
                     SET status = ?, model_name = ?, error_message = ?, start_time = ?, end_time = ?
@@ -514,6 +515,7 @@ def update_section_stage_status_workflow(
             else:
                 # Записи не существует, вставляем новую
                 print(f"[WorkflowDB] Вставка новой записи статуса для секции {section_id} этапа {stage_name} со статусом '{status}'.")
+                print(f"[WorkflowDB] DEBUG: INSERT INTO section_stage_statuses (section_id, stage_name, status, model_name, error_message, start_time, end_time) VALUES ({section_id}, '{stage_name}', '{status}', '{model_name}', '{error_message}', {start_time_val}, {end_time_val}).")
                 db.execute('''
                     INSERT INTO section_stage_statuses (section_id, stage_name, status, model_name, error_message, start_time, end_time)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -522,6 +524,7 @@ def update_section_stage_status_workflow(
 
             # Явный коммит после обновления/вставки статуса секции
             db.commit()
+            print(f"[WorkflowDB] DEBUG: Явный коммит после обновления/вставки статуса секции {section_id} этапа {stage_name}.")
             return True # Возвращаем True только при успешном коммите
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА обновления статуса этапа '{stage_name}' для секции '{section_id}': {e}")
@@ -561,7 +564,7 @@ def update_book_stage_status_workflow(book_id, stage_name, status, model_name=No
             # Определяем значения для start_time и end_time в зависимости от нового статуса
             current_time = time.time() # Получаем текущее время в виде timestamp
             start_time_val = current_time if status in ('processing', 'queued') else None
-            end_time_val = current_time if status in ('complete', 'error') else None # Book-level statuses don't have cached/completed_empty
+            end_time_val = current_time if status in ('completed', 'error') else None # Book-level statuses don't have cached/completed_empty
 
             # Строим SQL запрос для обновления. Обновляем все поля времени явно.
             cursor = db.execute('''

@@ -61,11 +61,11 @@
             color: orange;
             font-weight: bold;
          }
-         .status-complete {
+         .status-completed {
             color: green;
             font-weight: bold;
          }
-         .status-complete_with_errors {
+         .status-completed_with_errors {
             color: darkorange;
             font-weight: bold;
          }
@@ -103,23 +103,46 @@
         <h2>Books in Workflow</h2>
         <ul class="book-list">
             {% for book in workflow_books %}
-                <li class="book-item">
+                <li class="book-item" data-book-id="{{ book.book_id }}">
                     <div class="book-info">
                         <strong>{{ book.filename }}</strong>
                         {% if book.target_language %}
                             <span class="language">({{ book.target_language }})</span>
                         {% endif %}
                         <div class="book-status book-status-{{ book.status | lower }}">
-                            Status: {{ book.status or 'unknown' }}
+                            Status: <span class="book-overall-status">{{ book.status or 'unknown' }}</span>
                             {% if book.total_sections is not none %}
-                                ({{ book.completed_sections_count or 0 }} / {{ book.total_sections or 0 }} sections)
+                                <!-- Display progress for summarize stage -->
+                                <span class="summarize-progress">
+                                    Summarization: <span class="completed-count">{{ book.completed_sections_count or 0 }}</span> / <span class="total-count">{{ book.total_sections or 0 }}</span> sections
+                                </span>
                             {% endif %}
                         </div>
                     </div>
                     <div class="book-actions">
                         {# TODO: Add link to book workflow detail page #}
-                        <button onclick="alert('View workflow details for {{ book.book_id }}')">View Workflow</button>
-                         {# TODO: Add Re-run/Cancel/Download buttons #}
+                        {# <button onclick="alert('View workflow details for {{ book.book_id }}')">View Workflow</button> #}
+                         {# Add Download Summary Link #}
+                        {% if book.status == 'completed' and book.completed_sections_count == book.total_sections and book.total_sections > 0%}
+                            <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию</a>
+                        {% elif book.status == 'completed' and book.completed_sections_count == 0 and book.total_sections > 0 %}
+                             {# Completed but empty sections, still show download link? Or indicate empty? #}
+                             {# For now, same as completed, link will point to empty file #}
+                             <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию (пусто)</a>
+                        {% elif book.status == 'completed_with_errors' %}
+                              {# Completed with errors - still show download, file will contain error markers #}
+                             <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию (с ошибками)</a>
+                        {% else %}
+                             {# Placeholder or disabled button while not completed #}
+                             <span class="download-summary-placeholder">Суммаризация не готова</span>
+                        {% endif %}
+
+                         {# TODO: Add Re-run/Cancel buttons #}
+                    </div>
+                    <div class="book-actions">
+                        <a href="#" class="download-summary-link" style="display: none;">Скачать суммаризацию</a>
+                        <span class="download-summary-placeholder">Суммаризация не готова</span>
+                        <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
                     </div>
                 </li>
             {% else %}
@@ -128,10 +151,43 @@
         </ul>
     </div>
 
+    <!-- Overlay for progress display -->
+    <div id="progressOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); color: white; z-index: 1000;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+            <h2>Processing Workflow...</h2>
+            <p id="progressText">Starting...</p>
+            <!-- Optional: Add a loading spinner -->
+            <div class="spinner" style="margin-top: 20px;"></div>
+        </div>
+    </div>
+
     <script>
         // Basic script to update status periodically (client-side polling)
         // TODO: Implement proper polling for workflow status updates
         console.log("Workflow dashboard loaded.");
+
+        // Placeholder for loading spinner style
+        const style = document.createElement('style');
+        style.innerHTML = `
+            .spinner {
+                border: 4px solid rgba(255, 255, 255, 0.3);
+                border-top: 4px solid #fff;
+                border-radius: 50%;
+                width: 30px;
+                height: 30px;
+                animation: spin 1s linear infinite;
+            }
+
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // TODO: Add JavaScript logic for form submission, polling, and download
+
     </script>
+    <script src="{{ url_for('static', filename='js/workflow.js') }}"></script>
 </body>
 </html> 
