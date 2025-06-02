@@ -5,9 +5,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressOverlay = document.getElementById('progressOverlay');
     const progressText = document.getElementById('progressText');
     const bookList = document.querySelector('.book-list');
+    const toggleBookListBtn = document.getElementById('toggleBookListBtn');
+    const bookListContainer = document.getElementById('bookListContainer');
 
     // Use a Map to store polling intervals for each book
     const activePollingIntervals = new Map(); // Map<book_id, interval_id>
+
+    if (toggleBookListBtn && bookListContainer) {
+        toggleBookListBtn.addEventListener('click', () => {
+            bookListContainer.classList.toggle('hidden-list');
+            const isHidden = bookListContainer.classList.contains('hidden-list');
+            // Update text for link to keep 'Books in Workflow' and toggle arrow
+            toggleBookListBtn.textContent = isHidden ? 'Books in Workflow ▼' : 'Books in Workflow ▲';
+        });
+        // Optional: Hide by default and show button text as "Show"
+        bookListContainer.classList.add('hidden-list');
+        // Update initial text for link to 'Books in Workflow ▼'
+        toggleBookListBtn.textContent = 'Books in Workflow ▼';
+    }
 
     // --- Function to show progress overlay ---
     function showProgressOverlay(message = 'Starting...') {
@@ -340,6 +355,12 @@ document.addEventListener('DOMContentLoaded', () => {
          if (bookItem) {
              const bookStatus = statusData.current_workflow_status;
              const summaryStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null;
+
+             // Update displayed language
+             const languageSpan = bookItem.querySelector('.book-info .language');
+             if (languageSpan && statusData.target_language) {
+                 languageSpan.textContent = `(${statusData.target_language})`;
+             }
 
              const totalSections = statusData.total_sections_count || 0;
              const completedSummary = summaryStageData ? 

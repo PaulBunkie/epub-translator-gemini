@@ -1103,6 +1103,7 @@ def get_workflow_book_status(book_id):
     response_data = {
         "book_id": book_info.get('book_id'),
         "filename": book_info.get('filename'),
+        "target_language": book_info.get('target_language'), # Add target_language
         "current_workflow_status": book_info.get('current_workflow_status'),
         "book_stage_statuses": book_stage_statuses,
         "total_sections_count": book_info.get('total_sections_count', len(sections)), # Берем из book_info или считаем

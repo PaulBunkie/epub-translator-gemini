@@ -117,6 +117,21 @@
             font-weight: bold;
         }
 
+        /* Styles for the book list toggle */
+        .hidden-list {
+            display: none;
+        }
+
+        /* Styles for the book list toggle link */
+        .toggle-list-link {
+            font-size: 0.6em; /* Match previous size, not too small */
+            text-decoration: none;
+            border-bottom: 1px dotted #007bff; /* Blue dotted underline */
+            color: #007bff; /* Blue color */
+            cursor: pointer;
+            font-weight: normal; /* Remove bold inherited from h2 */
+        }
+
     </style>
 </head>
 <body>
@@ -140,7 +155,10 @@
             </form>
         </div>
 
-        <h2>Books in Workflow</h2>
+        <h2>
+            <a href="#" id="toggleBookListBtn" class="toggle-list-link">Hide ▼</a>
+        </h2>
+        <div id="bookListContainer">
         <ul class="book-list">
             {% for book in workflow_books %}
                 <li class="book-item" data-book-id="{{ book.book_id }}">
@@ -171,6 +189,7 @@
                 <p>No books found in the workflow yet. Upload one above!</p>
             {% endfor %}
         </ul>
+        </div>
     </div>
 
     <!-- Overlay for progress display -->
