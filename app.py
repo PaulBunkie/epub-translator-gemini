@@ -1019,8 +1019,8 @@ def workflow_download_summary(book_id):
         return "No sections found for this book", 500
 
     full_summary_parts = []
-    missing_summaries = [] # Секции, для которых не удалось получить результат
-    error_sections = [] # Секции, где этап суммаризации завершился с ошибкой
+    # missing_summaries = [] # Секции, для которых не удалось получить результат # REMOVED
+    # error_sections = [] # Секции, где этап суммаризации завершился с ошибкой # REMOVED
 
     # 3. Итерируемся по секциям и загружаем суммаризацию из workflow кеша
     for section_data in sections:
@@ -1035,70 +1035,58 @@ def workflow_download_summary(book_id):
         # (Эти статусы уже загружены workflow_db_manager.get_sections_for_book_workflow)
         section_stage_statuses = section_data.get('stage_statuses', {})
         summarize_section_status = section_stage_statuses.get('summarize', {}).get('status')
-        section_error_message = section_stage_statuses.get('summarize', {}).get('error_message')
+        # section_error_message = section_stage_statuses.get('summarize', {}).get('error_message') # REMOVED
 
 
         summary_text = None
-        try:
-             summary_text = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
-        except Exception as e:
-             print(f"  [DownloadSummary] ОШИБКА при загрузке суммаризации из кеша для секции {section_id} (EPUB ID: {section_epub_id}): {e}")
-             continue # Пропускаем секцию при ошибке чтения кеша
+        # --- MODIFICATION: Only try to load cache if status is completed or completed_empty ---
+        if summarize_section_status in ['completed', 'completed_empty']:
+            try:
+                 summary_text = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
+            except Exception as e:
+                 print(f"  [DownloadSummary] ОШИБКА при загрузке суммаризации из кеша для секции {section_id} (EPUB ID: {section_epub_id}): {e}")
+                 # Don't continue, the summary_text will be None and handled below
 
-        # Обработка результата, полученного из кеша, и статуса секции из БД
-        if summary_text is not None and summary_text.strip() != "":
-            # Успешно загружена непустая суммаризация ИЛИ загружен пустой файл для completed_empty
-            # (т.к. load_section_stage_result для completed_empty вернет пустую строку, а не None)
-            # Проверяем статус секции, чтобы понять причину пустого текста, если он пустой
-            if summary_text.strip() == "" and summarize_section_status != 'completed_empty':
-                 # Текст пустой, но статус не completed_empty - это unexpected
-                 missing_summaries.append(section_epub_id)
+        # --- MODIFICATION: Only include completed/completed_empty sections ---
+        if summary_text is not None: # load_section_stage_result returns None on error/missing file, empty string "" for completed_empty
+             # Check if the status is actually completed or completed_empty before adding
+             if summarize_section_status in ['completed', 'completed_empty']:
+                 # Successfully loaded summary for a completed/completed_empty section
                  escaped_title = html.escape(display_title)
-                 full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ПРЕДУПРЕЖДЕНИЕ: Суммаризация пуста, статус {summarize_section_status or 'unknown'}) ====\n\n")
-            else:
-                 # Успешно загружена непустая суммаризация ИЛИ пустая для completed_empty
-                 escaped_title = html.escape(display_title)
-                 # Добавляем заголовок секции и текст суммаризации
-                 full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} ====\n\n{summary_text}")
+                 # Add header for non-empty completed sections, skip header for completed_empty
+                 if summary_text.strip() != "":
+                     full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} ====\n\n{summary_text}")
+                 elif summarize_section_status == 'completed_empty':
+                      # For completed_empty sections, add a header indicating it was empty but processed
+                      full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (Раздел пуст / Пропущен по размеру) ====\n\n")
+                 # If summary_text is empty but status is 'completed', something is wrong, but we won't include warnings.
+                 # We just won't add this section content.
 
-        elif summarize_section_status and (summarize_section_status == 'error' or summarize_section_status.startswith('error_')):
-             # В кеше нет текста (или ошибка загрузки), а статус секции в БД - ошибка.
-             error_sections.append(section_epub_id)
-             escaped_title = html.escape(display_title)
-             full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ОШИБКА: {section_error_message or summarize_section_status}) ====\n\n")
-        else:
-            # Если статус не error_ и не completed_empty, и текст из кеша None/пустой (и не completed_empty).
-            # Это означает, что для этой секции нет готового результата суммаризации в кеше,
-            # хотя общий статус книги 'complete'. Такого быть не должно при корректном workflow.
-            # Обработаем на всякий случай.
-             missing_summaries.append(section_epub_id)
-             escaped_title = html.escape(display_title)
-             full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ПРЕДУПРЕЖДЕНИЕ: Суммаризация недоступна. Статус секции: {summarize_section_status or 'unknown'}) ====\n\n")
+        # REMOVED all other elif/else conditions for error and missing sections
 
+    # --- MODIFICATION: Remove warnings logic ---
+    # if not full_summary_parts:
+    #      # Это может произойти, если не удалось получить ни одного результата или ошибки для всех секций
+    #      print(f"  [DownloadSummary] Не удалось собрать текст суммаризации для книги {book_id} из кеша workflow.")
+    #      # Если статус книги complete, но нет данных, возможно, проблема в кеше.
+    #      return "Could not retrieve any summary text from workflow cache.", 500
 
-    # Проверяем, удалось ли получить хоть какой-то контент (даже ошибки/предупреждения)
-    if not full_summary_parts:
-         # Это может произойти, если не удалось получить ни одного результата или ошибки для всех секций
-         print(f"  [DownloadSummary] Не удалось собрать текст суммаризации для книги {book_id} из кеша workflow.")
-         # Если статус книги complete, но нет данных, возможно, проблема в кеше.
-         return "Could not retrieve any summary text from workflow cache.", 500
+    # --- MODIFICATION: Remove warning headers ---
+    # all_warnings = []
+    # if missing_summaries or error_sections:
+    #      all_warnings.append("==== ПРЕДУПРЕЖДЕНИЯ / ERRORS ====\n\n")
+    # if missing_summaries:
+    #     # Corrected f-string syntax
+    #     all_warnings.append(f"Не удалось загрузить суммаризацию из кеша workflow (или результат был пуст при неожиданном статусе) для секций (EPUB ID): {', '.join(missing_summaries)}\n\n")
+    # if error_sections:
+    #     # Corrected f-string syntax
+    #     all_warnings.append(f"Суммаризация завершилась с ошибками на уровне секций для (EPUB ID): {', '.join(error_sections)}\n\n")
+    # if all_warnings:
+    #      all_warnings.append("==== КОНЕЦ ПРЕДУПРЕЖДЕНИЙ / END OF ERRORS ====\n\n")
 
-
-    # Добавляем предупреждения в начало, если есть пропущенные или ошибочные секции
-    # Если есть missing_summaries или error_sections, добавляем общий заголовок предупреждений
-    all_warnings = []
-    if missing_summaries or error_sections:
-         all_warnings.append("==== ПРЕДУПРЕЖДЕНИЯ / ERRORS ====\n\n")
-    if missing_summaries:
-        # Corrected f-string syntax
-        all_warnings.append(f"Не удалось загрузить суммаризацию из кеша workflow (или результат был пуст при неожиданном статусе) для секций (EPUB ID): {', '.join(missing_summaries)}\n\n")
-    if error_sections:
-        # Corrected f-string syntax
-        all_warnings.append(f"Суммаризация завершилась с ошибками на уровне секций для (EPUB ID): {', '.join(error_sections)}\n\n")
-    if all_warnings:
-         all_warnings.append("==== КОНЕЦ ПРЕДУПРЕЖДЕНИЙ / END OF ERRORS ====\n\n")
-
-    full_summary_text = "".join(all_warnings) + "\n".join(full_summary_parts) # Добавляем предупреждения в начало
+    # --- MODIFICATION: Combine parts without warnings ---
+    # full_summary_text = "".join(all_warnings) + "\n".join(full_summary_parts) # Добавляем предупреждения в начало
+    full_summary_text = "".join(full_summary_parts) # Combine parts directly
 
     # 4. Формируем и отдаем файл
     # Имя файла для скачивания: [имя_оригинала_без_расширения]_summarized.txt

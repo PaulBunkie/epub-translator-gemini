@@ -33,20 +33,18 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'meta-llama/llama-4-scout:free'
+SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free'
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # TODO: Определить шаблон промпта для суммаризации
 # Пока используем простой шаблон
-SUMMARIZATION_PROMPT_TEMPLATE = "Summarize the following text in Russian:\n\n{text}"
 
 # --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'meta-llama/llama-4-scout:free' # Можно использовать ту же модель или другую
+ANALYSIS_MODEL = 'meta-llama/llama-4-maverick:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
 # TODO: Определить шаблон промпта для анализа. Он должен использовать результат суммаризации.
 # Пример: Проанализируй ключевые сущности (персонажи, места, события) на основе следующего текста.
-ANALYSIS_PROMPT_TEMPLATE = "Based on the following summarized text, identify and list the key entities (characters, places, events) mentioned. Provide brief descriptions for each. \n\nSummarized Text:\n{summarized_text}"
 
 # --- Workflow Configuration ---
 DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after retries) as completed_empty instead of error
@@ -112,7 +110,7 @@ def process_section_summarization(book_id: str, section_id: int):
         target_language = book_info['target_language']
         operation_type = SUMMARIZATION_STAGE_NAME
         model_name = SUMMARIZATION_MODEL
-        prompt_ext = SUMMARIZATION_PROMPT_TEMPLATE.format(text=section_content)
+        prompt_ext = None # No additional prompt needed for basic summarization
 
         summarized_text = None
         status = 'error' # Default status in case of failure
