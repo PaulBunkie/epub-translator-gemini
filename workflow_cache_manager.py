@@ -1,6 +1,7 @@
 import os
 import json
 import traceback
+import shutil
 
 # Базовая директория для кэша рабочего процесса
 WORKFLOW_CACHE_BASE_DIR = '.epub_cache/workflow'
@@ -76,6 +77,24 @@ def delete_section_stage_result(book_id, section_id, stage_name):
         return True
     except Exception as e:
         print(f"[WorkflowCache] ОШИБКА при удалении кэша {file_path}: {e}")
+        traceback.print_exc()
+        return False
+
+def delete_book_workflow_cache(book_id):
+    """Удаляет всю директорию кэша для данной книги."""
+    book_cache_dir = os.path.join(WORKFLOW_CACHE_BASE_DIR, book_id)
+    print(f"[WorkflowCache] Попытка удалить директорию кэша книги: {book_cache_dir}")
+
+    if not os.path.exists(book_cache_dir):
+        print(f"[WorkflowCache] Директория кэша книги не найдена, удаление не требуется: {book_cache_dir}")
+        return False # Директория не найдена, считаем успешным удалением
+
+    try:
+        shutil.rmtree(book_cache_dir)
+        print(f"[WorkflowCache] Директория кэша книги удалена успешно: {book_cache_dir}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowCache] ОШИБКА при удалении директории кэша книги {book_cache_dir}: {e}")
         traceback.print_exc()
         return False
 

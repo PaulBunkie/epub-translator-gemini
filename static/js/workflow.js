@@ -6,8 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressText = document.getElementById('progressText');
     const bookList = document.querySelector('.book-list');
 
-    let pollingInterval = null; // To store the interval timer
-    let currentBookId = null; // To store the book_id being processed
+    // Use a Map to store polling intervals for each book
+    const activePollingIntervals = new Map(); // Map<book_id, interval_id>
 
     // --- Function to show progress overlay ---
     function showProgressOverlay(message = 'Starting...') {
@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Check if book_id is in the JSON response
                 if (result && result.book_id) {
-                    currentBookId = result.book_id;
+                    const currentBookId = result.book_id; // Use const, no need for global currentBookId
                     console.log('Processing started for Book ID:', currentBookId);
                     updateProgressText('File uploaded. Starting workflow...');
 
@@ -109,12 +109,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Function to start polling for workflow status ---
     function startPolling(bookId) {
-        if (pollingInterval) clearInterval(pollingInterval); // Clear previous interval if any
+        // Stop existing polling for this book if it's already active
+        if (activePollingIntervals.has(bookId)) {
+            console.log(`Stopping existing polling for book ${bookId}`);
+            clearInterval(activePollingIntervals.get(bookId));
+        }
 
         // --- MODIFICATION: Use the new workflow status API endpoint ---
         const statusApiUrl = `/workflow_book_status/${bookId}`;
 
-        pollingInterval = setInterval(async () => {
+        const intervalId = setInterval(async () => {
             console.log(`Polling status for book ${bookId} at ${statusApiUrl}...`);
 
             try {
@@ -137,7 +141,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const summaryStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null;
 
                     const totalSections = statusData.total_sections_count || 0;
-                    const completedSummary = summaryStageData ? (summaryStageData.completed_count || 0) : 0;
+                    const completedSummary = summaryStageData ? 
+                                             ((summaryStageData.completed_count || 0) + 
+                                              (summaryStageData.skipped_count || 0) + 
+                                              (summaryStageData.completed_empty_count || 0)) : 0;
 
                     // Determine overall progress display (focusing on summarize for now)
                     let progressMessage = `Book Status: ${bookStatus}`;
@@ -156,7 +163,23 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Update overall status text (optional, focus on stage status)
                         const overallStatusSpan = bookItem.querySelector('.book-overall-status');
                          if (overallStatusSpan) {
-                            overallStatusSpan.textContent = summaryStageData ? summaryStageData.status : (bookStatus || 'unknown');
+                            // Prioritize summarization stage status if available and finished
+                            let statusToDisplay = bookStatus || 'unknown';
+                            if (summaryStageData) {
+                                const summarizeStageStatus = summaryStageData.status || 'unknown';
+                                if (['completed', 'completed_empty', 'completed_with_errors', 'error'].includes(summarizeStageStatus) || summarizeStageStatus.startsWith('error_')) {
+                                    statusToDisplay = summarizeStageStatus;
+                                }
+                                 // Always show summarize stage status if available, even if not finished, unless book status is a final error
+                                 else if (bookStatus && (bookStatus === 'error' || bookStatus.startsWith('error_'))) {
+                                     statusToDisplay = bookStatus;
+                                 } else {
+                                      statusToDisplay = summarizeStageStatus;
+                                 }
+                            }
+
+                            overallStatusSpan.textContent = statusToDisplay;
+
                              // Update status class for styling
                             overallStatusSpan.parentElement.className = 'book-status'; // Reset to base class
                             const statusClass = (summaryStageData ? summaryStageData.status : bookStatus || '').toLowerCase().replace(/_/g, '-');
@@ -227,8 +250,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (isSummarizationFinished) {
                         console.log(`Summarization stage complete for book ${bookId}. Stopping polling.`);
-                        clearInterval(pollingInterval); // Stop polling
-                        pollingInterval = null; // Clear the variable
+                        clearInterval(intervalId); // Stop this specific polling interval
+                        activePollingIntervals.delete(bookId); // Remove from Map
                         hideProgressOverlay(); // Hide progress overlay
 
                          // Instead of auto-download, ensure the download link is visible (handled above)
@@ -236,8 +259,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (bookStatus && (bookStatus === 'error' || bookStatus.startsWith('error_'))) {
                         // Also stop polling and hide overlay if the overall book status is an error
                         console.log(`Book ${bookId} overall status is error: ${bookStatus}. Stopping polling.`);
-                        clearInterval(pollingInterval);
-                        pollingInterval = null;
+                        clearInterval(intervalId);
+                        activePollingIntervals.delete(bookId);
                         hideProgressOverlay();
                     }
 
@@ -247,21 +270,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateProgressText(`Error polling status: ${response.status}`);
                     // Optionally stop polling on certain errors like 404
                      if (response.status === 404) {
-                         clearInterval(pollingInterval);
-                         pollingInterval = null;
-                         updateProgressText(`Book ${bookId} not found. Polling stopped.`);
-                          hideProgressOverlay(); // Hide overlay on 404
+                         clearInterval(intervalId);
+                         activePollingIntervals.delete(bookId);
+                          updateProgressText(`Book ${bookId} not found. Polling stopped.`);
+                           hideProgressOverlay(); // Hide overlay on 404
                      }
                 }
             } catch (error) {
                 console.error(`An error occurred during polling for book ${bookId}:`, error);
                 updateProgressText(`Polling error: ${error}`);
                  // Stop polling on network errors
-                 clearInterval(pollingInterval);
-                 pollingInterval = null;
+                 clearInterval(intervalId);
+                 activePollingIntervals.delete(bookId);
                  hideProgressOverlay();
             }
         }, 3000); // Poll every 3 seconds
+        // Store the interval ID in the map
+        activePollingIntervals.set(bookId, intervalId);
     }
 
     // --- Initial check and polling start for existing books on page load ---
@@ -317,18 +342,37 @@ document.addEventListener('DOMContentLoaded', () => {
              const summaryStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null;
 
              const totalSections = statusData.total_sections_count || 0;
-             const completedSummary = summaryStageData ? (summaryStageData.completed_count || 0) : 0;
+             const completedSummary = summaryStageData ? 
+                                              ((summaryStageData.completed_count || 0) + 
+                                               (summaryStageData.skipped_count || 0) + 
+                                               (summaryStageData.completed_empty_count || 0)) : 0;
 
              // Update overall status text
              const overallStatusSpan = bookItem.querySelector('.book-overall-status');
              if (overallStatusSpan) {
-                 overallStatusSpan.textContent = summaryStageData ? summaryStageData.status : (bookStatus || 'unknown');
-                 // Update status class for styling
-                 overallStatusSpan.parentElement.className = 'book-status'; // Reset to base class
-                 const statusClass = (summaryStageData ? summaryStageData.status : bookStatus || '').toLowerCase().replace(/_/g, '-');
-                 if (statusClass) {
-                     overallStatusSpan.parentElement.classList.add(`book-status-${statusClass}`);
+                 // Prioritize summarization stage status if available and finished
+                 let statusToDisplay = bookStatus || 'unknown';
+                 if (summaryStageData) {
+                     const summarizeStageStatus = summaryStageData.status || 'unknown';
+                     if (['completed', 'completed_empty', 'completed_with_errors', 'error'].includes(summarizeStageStatus) || summarizeStageStatus.startsWith('error_')) {
+                         statusToDisplay = summarizeStageStatus;
+                     }
+                          // Always show summarize stage status if available, even if not finished, unless book status is a final error
+                          else if (bookStatus && (bookStatus === 'error' || bookStatus.startsWith('error_'))) {
+                              statusToDisplay = bookStatus;
+                          } else {
+                               statusToDisplay = summarizeStageStatus;
+                          }
                  }
+
+                 overallStatusSpan.textContent = statusToDisplay;
+
+                 // Update status class for styling
+                overallStatusSpan.parentElement.className = 'book-status'; // Reset to base class
+                const statusClass = (summaryStageData ? summaryStageData.status : bookStatus || '').toLowerCase().replace(/_/g, '-');
+                if (statusClass) {
+                    overallStatusSpan.parentElement.classList.add(`book-status-${statusClass}`);
+                }
              }
 
              // Update summarization progress counts
@@ -396,15 +440,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Function to delete a book workflow ---
+    // --- Function to handle book deletion ---
     async function deleteBook(bookId) {
-        console.log(`Attempting to delete book workflow with ID: ${bookId}`);
-        if (!confirm('Вы уверены, что хотите удалить этот рабочий процесс книги?')) {
-            return;
-        }
-
+        // --- MODIFICATION: Remove confirmation and always attempt deletion ---
         try {
-            const response = await fetch(`/delete_book/${bookId}`, {
+            console.log(`Attempting to delete book workflow with ID: ${bookId}`);
+            const response = await fetch(`/workflow_delete_book/${bookId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -419,15 +460,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     bookItem.remove();
                      console.log(`Book item ${bookId} removed from DOM.`);
                 }
-                // Optional: Show a success message to the user
-                alert('Рабочий процесс книги удален.');
+                // Optional: Show a success message to the user (can be removed if no visual feedback is desired)
+                // alert('Рабочий процесс книги удален.');
+
+                 // Also stop polling for the deleted book if it was active
+                 if (activePollingIntervals.has(bookId)) {
+                     console.log(`Stopping polling for deleted book ${bookId}`);
+                     clearInterval(activePollingIntervals.get(bookId));
+                     activePollingIntervals.delete(bookId);
+                 }
+
             } else {
                 const errorText = await response.text();
                 console.error(`Failed to delete book workflow ${bookId}: ${response.status} ${response.statusText}. Response: ${errorText}`);
+                // Still show alert on failure
                 alert(`Не удалось удалить рабочий процесс книги: ${errorText}`);
             }
         } catch (error) {
             console.error(`Error deleting book workflow ${bookId}:`, error);
+            // Still show alert on error
             alert(`Произошла ошибка при удалении рабочего процесса книги: ${error}`);
         }
     }

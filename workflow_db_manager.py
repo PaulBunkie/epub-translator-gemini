@@ -212,11 +212,8 @@ def get_book_workflow(book_id):
             # Пока просто вернем общее количество секций и количество завершенных на первом per-section этапе
             book_info['total_sections_count'] = get_section_count_for_book_workflow(book_id)
 
-            # TODO: Реализовать функцию для получения прогресса по текущему per-section этапу
-            # Например: get_progress_for_current_per_section_stage(book_id)
-            # Пока используем get_completed_sections_count_for_stage_workflow для summarize
-            book_info['completed_sections_count_summarize'] = get_completed_sections_count_for_stage_workflow(book_id, 'summarize')
-
+            # Используем новую функцию для получения количества обработанных секций (completed + skipped + empty)
+            book_info['processed_sections_count_summarize'] = get_processed_sections_count_for_stage_workflow(book_id, 'summarize')
 
             return book_info
         return None
@@ -238,8 +235,8 @@ def get_all_books_workflow():
             book_info = dict(row)
              # Получаем количество секций для отображения прогресса
             book_info['total_sections_count'] = get_section_count_for_book_workflow(book_info['book_id'])
-             # Получаем количество секций, завершенных на этапе суммаризации (для отображения прогресса на главном экране)
-            book_info['completed_sections_count_summarize'] = get_completed_sections_count_for_stage_workflow(book_info['book_id'], 'summarize')
+             # Получаем количество обработанных секций на этапе суммаризации (для отображения прогресса на главном экране)
+            book_info['processed_sections_count_summarize'] = get_processed_sections_count_for_stage_workflow(book_info['book_id'], 'summarize')
             # Обеспечиваем наличие target_language
             book_info['target_language'] = book_info.get('target_language') or 'russian' # Default to russian
             books_list.append(book_info)
@@ -702,5 +699,38 @@ def _initialize_book_stage_statuses(book_id):
     finally:
         pass # Ничего не делаем, закрытие через g.teardown
 # --- Конец вспомогательной функции ---
+
+# --- НОВАЯ ФУНКЦИЯ: Получить количество обработанных секций для этапа (включая completed, skipped, completed_empty) ---
+def get_processed_sections_count_for_stage_workflow(book_id: str, stage_name: str) -> int:
+    """Считает количество секций для книги, которые завершили обработку на указанном этапе (статусы completed, skipped, completed_empty)."""
+    db = get_workflow_db()
+    try:
+        # Нам нужно сначала получить внутренние section_id для данной книги
+        section_ids_cursor = db.execute('SELECT section_id FROM sections WHERE book_id = ?;', (book_id,))
+        section_ids = [row['section_id'] for row in section_ids_cursor.fetchall()]
+        
+        if not section_ids:
+            return 0 # Нет секций для этой книги
+        
+        # Формируем строку с плейсхолдерами для WHERE IN
+        placeholders = ', '.join('?' for _ in section_ids)
+        
+        cursor = db.execute(f'''
+            SELECT COUNT(*)
+            FROM section_stage_statuses
+            WHERE section_id IN ({placeholders})
+            AND stage_name = ?
+            AND status IN ('completed', 'skipped', 'completed_empty');
+        ''', section_ids + [stage_name]) # Передаем список section_ids и stage_name как параметры
+        
+        count = cursor.fetchone()[0] # Получаем результат COUNT(*)
+        # print(f"[WorkflowDB] Processed sections count for {book_id}/{stage_name}: {count}") # Отладочный вывод
+        return count
+        
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА при получении количества processed секций для {book_id}/{stage_name}: {e}")
+        traceback.print_exc()
+        return 0
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
 
 # --- END OF FILE workflow_db_manager.py ---

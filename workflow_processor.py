@@ -8,6 +8,29 @@ import traceback
 import workflow_cache_manager # TODO: Implement workflow_cache_manager DONE
 import time
 from flask import current_app
+import re
+
+# --- Constants for Workflow Processor ---
+MIN_SECTION_LENGTH = 700 # Minimum length of clean text for summarization/analysis
+
+# --- Helper function to clean HTML text ---
+def clean_html(html_content):
+    """
+    Удаляет HTML-теги из строки и возвращает чистый текст.
+    """
+    if not html_content:
+        return ""
+    # Удаляем скрипты и стили
+    cleaned_text = re.sub(r'<script.*?>.*?<\/script>', '', html_content, flags=re.IGNORECASE|re.DOTALL)
+    cleaned_text = re.sub(r'<style.*?>.*?<\/style>', '', cleaned_text, flags=re.IGNORECASE|re.DOTALL)
+    # Удаляем остальные HTML-теги
+    cleaned_text = re.sub(r'<.*?>', '', cleaned_text)
+    # Заменяем сущности HTML на их символьные представления (например, &amp; на &)
+    # Простая замена некоторых распространенных
+    cleaned_text = cleaned_text.replace('&nbsp;', ' ').replace('&amp;', '&').replace('&quot;', '"').replace('&apos;', "'").replace('&lt;', '<').replace('&gt;', '>')
+    # Удаляем лишние пробелы (включая табуляцию и переносы строк)
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
+    return cleaned_text
 
 # Hardcoded model for summarization for now
 SUMMARIZATION_MODEL = 'meta-llama/llama-4-scout:free'
@@ -73,6 +96,17 @@ def process_section_summarization(book_id: str, section_id: int):
             with current_app.app_context():
                  workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'completed_empty', error_message='Empty section content')
             return True # Возвращаем True, так как это не ошибка, а ожидаемое состояние
+
+        # --- НОВОЕ: Проверка длины текста после очистки от HTML ---
+        clean_text = clean_html(section_content)
+        if len(clean_text) < MIN_SECTION_LENGTH:
+            print(f"[WorkflowProcessor] Секция {section_epub_id} (ID: {section_id}) слишком короткая ({len(clean_text)} < {MIN_SECTION_LENGTH} символов). Пропускаем суммаризацию.")
+            with current_app.app_context():
+                 workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(clean_text)} chars)')
+                 # Сохраняем пустой результат в кэш для единообразия
+                 workflow_cache_manager.save_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME, "") # Сохраняем пустой результат
+            return True # Секция успешно пропущена
+        # --- КОНЕЦ НОВОГО БЛОКА ---
 
         # 4. Вызываем модель суммаризации с ретраями
         target_language = book_info['target_language']
@@ -234,26 +268,47 @@ def process_section_analysis(book_id: str, section_id: int):
         # 2. Обновляем статус секции в БД на 'processing' для стадии 'analyze'
         workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, ANALYSIS_STAGE_NAME, 'processing')
 
-        # 3. Получаем результат предыдущей стадии (суммаризацию) из кэша
+        # 3. Получаем контент секции из EPUB (для анализа мы также можем использовать исходный текст)
+        epub_filepath = book_info['filepath']
+        section_epub_id = section_info['section_epub_id']
+
+        section_content = epub_parser.extract_section_text(epub_filepath, section_epub_id)
+
+        if not section_content:
+            print(f"[WorkflowProcessor] Предупреждение: Контент секции {section_epub_id} (ID: {section_id}) пуст или не может быть извлечен для анализа. Помечаем как completed_empty.")
+            with current_app.app_context():
+                 workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, ANALYSIS_STAGE_NAME, 'completed_empty', error_message='Empty section content for analysis')
+                 # Сохраняем пустой результат в кэш для единообразия
+                 workflow_cache_manager.save_section_stage_result(book_id, section_id, ANALYSIS_STAGE_NAME, "")
+            return True # Возвращаем True, так как это не ошибка, а ожидаемое состояние
+
+        # --- НОВОЕ: Проверка длины текста после очистки от HTML для анализа ---
+        clean_text = clean_html(section_content)
+        if len(clean_text) < MIN_SECTION_LENGTH:
+            print(f"[WorkflowProcessor] Секция {section_epub_id} (ID: {section_id}) слишком короткая для анализа ({len(clean_text)} < {MIN_SECTION_LENGTH} символов). Пропускаем анализ.")
+            with current_app.app_context():
+                 workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, ANALYSIS_STAGE_NAME, 'skipped', error_message=f'Section too short for analysis ({len(clean_text)} chars)')
+                 # Сохраняем пустой результат в кэш для единообразия
+                 workflow_cache_manager.save_section_stage_result(book_id, section_id, ANALYSIS_STAGE_NAME, "") # Сохраняем пустой результат
+            return True # Секция успешно пропущена
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
+        # 4. Получаем результат предыдущей стадии (суммаризацию) из кэша (теперь после проверки длины)
         summarized_text = workflow_cache_manager.load_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME)
 
+        # Проверяем результат суммаризации еще раз, если он был получен (мог быть completed_empty или skipped)
         if summarized_text is None or not summarized_text.strip():
-             print(f"[WorkflowProcessor] Результат суммаризации для секции {section_id} книги {book_id} пуст или не найден. Пропускаем анализ и помечаем как completed_empty.")
-             # Если нет результата суммаризации, стадия анализа не может быть выполнена
-             with current_app.app_context():
-                 workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, ANALYSIS_STAGE_NAME, 'completed_empty', error_message='Summarization result missing or empty')
-             # Сохраняем пустой результат анализа в кэш
-             if workflow_cache_manager.save_section_stage_result(book_id, section_id, ANALYSIS_STAGE_NAME, ""):
-                 print(f"[WorkflowProcessor] Пустой результат анализа сохранен в кэш для секции {section_id}.")
-             return True # Возвращаем True, так как это не ошибка, а ожидаемое состояние
+            print(f"[WorkflowProcessor] Результат суммаризации для секции {section_id} книги {book_id} пуст или не найден после проверки длины. Пропускаем анализ и помечаем как completed_empty.")
+            with current_app.app_context():
+                workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, ANALYSIS_STAGE_NAME, 'completed_empty', error_message='Summarization result missing or empty after length check')
+                 # Сохраняем пустой результат анализа в кэш (уже сделано выше, но повторим для ясности)
+                workflow_cache_manager.save_section_stage_result(book_id, section_id, ANALYSIS_STAGE_NAME, "")
+            return True # Возвращаем True
 
-        print(f"[WorkflowProcessor] Получен результат суммаризации для секции {section_id} длиной {len(summarized_text)} символов.")
+        print(f"[WorkflowProcessor] Получен результат суммаризации для секции {section_id} длиной {len(summarized_text)} символов для анализа.")
 
-        # 4. Подготавливаем промпт для анализа
-        prompt_text = ANALYSIS_PROMPT_TEMPLATE.format(summarized_text=summarized_text)
-
-        # 5. Вызываем модель для анализа с ретраями
-        target_language = book_info.get('target_language', 'russian') # Анализ может быть на целевом языке или английском
+        # 5. Вызываем модель анализа с ретраями (теперь это пункт 5)
+        target_language = book_info['target_language']
         # TODO: Возможно, добавить опцию для выбора языка анализа
 
         analysis_result = None
@@ -268,7 +323,7 @@ def process_section_analysis(book_id: str, section_id: int):
                      text_to_translate=summarized_text, # Передаем суммаризированный текст
                      target_language=target_language,
                      model_name=ANALYSIS_MODEL,
-                     prompt_ext=prompt_text, # Передаем наш промпт для анализа
+                     prompt_ext=ANALYSIS_PROMPT_TEMPLATE.format(summarized_text=summarized_text), # Передаем наш промпт для анализа
                      operation_type=ANALYSIS_STAGE_NAME # Указываем тип операции
                  )
                  print(f"[WorkflowProcessor] Результат translate_text: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
@@ -448,7 +503,7 @@ def start_book_workflow(book_id: str):
 
                 # Считаем секции с финишным статусом для стадии
                 # Исправлено: изменено 'complete' на 'completed'
-                if current_stage_status in ['completed', 'cached', 'completed_empty']:
+                if current_stage_status in ['completed', 'cached', 'completed_empty', 'skipped']:
                     completed_sections_count += 1
                 elif current_stage_status and (current_stage_status == 'error' or current_stage_status.startswith('error_')):
                     error_sections_count += 1
@@ -457,16 +512,19 @@ def start_book_workflow(book_id: str):
 
             # Determine the stage status for the book level
             stage_status = 'processing' # Default status
+            stage_error_message = None
             completion_count = completed_sections_count + error_sections_count
 
             if all_sections_count > 0 and completion_count == all_sections_count:
-                # All sections have a final status (complete, cached, or error)
-                if error_sections_count == 0:
-                    stage_status = 'completed'
-                    print(f"[WorkflowProcessor] Стадия '{first_stage_name}' для книги ID {book_id} завершена успешно (все секции завершены без ошибок).")
-                else:
-                    stage_status = 'error'
-                    print(f"[WorkflowProcessor] Стадия '{first_stage_name}' для книги ID {book_id} завершена с ошибками в {error_sections_count} из {all_sections_count} секций.")
+                 # Все секции достигли конечного статуса (completed, cached, completed_empty, skipped, error)
+                 if error_sections_count == 0:
+                     stage_status = 'completed'
+                     print(f"[WorkflowProcessor] Стадия '{first_stage_name}' для книги ID {book_id} завершена успешно (все секции завершены без ошибок).")
+                 else:
+                     stage_status = 'completed_with_errors' # Новый статус для стадии завершенной с ошибками секций
+                     stage_error_message = f'Stage completed with errors in {error_sections_count}/{all_sections_count} sections.'
+                     print(f"[WorkflowProcessor] Стадия '{first_stage_name}' для книги ID {book_id} завершена с ошибками в {error_sections_count} из {all_sections_count} секций. Статус стадии: {stage_status}.")
+            # Если completion_count != all_sections_count, статус остается processing
 
             # TODO: Implement actual stage transition logic here
             next_stage_name = workflow_db_manager.get_next_stage_name_workflow(first_stage_name)

@@ -272,26 +272,39 @@ def index():
 def delete_book_request(book_id):
     """ Удаляет книгу, ее файл и кэш. """
     print(f"Запрос на удаление книги: {book_id}")
-    # --- ИЗМЕНЕНИЕ: Используем workflow_db_manager ---
-    book_info = workflow_db_manager.get_book_workflow(book_id)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    book_info = get_book(book_id) # Получаем информацию из старой БД
 
-    if book_info:
-        filepath = book_info.get("filepath"); original_filename = book_info.get("filename", book_id)
-        # --- ИЗМЕНЕНИЕ: Используем workflow_db_manager для удаления из БД workflow ---
-        if workflow_db_manager.delete_book_workflow(book_id): print(f"  Запись '{original_filename}' удалена из Workflow БД.")
-        else: print(f"  ОШИБКА удаления записи из Workflow БД!")
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    if book_info is None:
+        print(f"  Книга {book_id} не найдена в старой БД.")
+        return "Book not found in old database.", 404
 
-        if filepath and os.path.exists(filepath):
-            try: os.remove(filepath); print(f"  Файл {filepath} удален.")
-            except OSError as e: print(f"  Ошибка удаления файла {filepath}: {e}")
-        # --- ИЗМЕНЕНИЕ: Используем workflow_cache_manager для удаления кеша workflow ---
-        # workflow_cache_manager.delete_book_workflow_cache принимает только book_id
-        workflow_cache_manager.delete_book_workflow_cache(book_id)
-        print(f"  Кеш workflow для книги {book_id} удален.")
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-    else: print(f"  Книга {book_id} не найдена в БД.")
+    # Удаление из старой БД
+    if delete_book(book_id): # Используем старую функцию удаления
+        print(f"  Запись книги '{book_id}' удалена из старой БД.")
+    else:
+        print(f"  ОШИБКА удаления записи книги '{book_id}' из старой БД!")
+
+    # Удаление файла книги
+    filepath = book_info.get("filepath") # Путь к файлу берем из старой БД
+    if filepath and os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            print(f"  Файл книги {filepath} удален.")
+        except OSError as e:
+            print(f"  Ошибка удаления файла книги {filepath}: {e}")
+
+    # Удаление кэша старой системы перевода
+    delete_book_cache(book_id) # Используем старую функцию удаления кэша
+    print(f"  Старый кэш перевода для книги {book_id} удален.")
+
+    # Удаление книги из Workflow (если она там есть)
+    # Это отдельная операция, которая не должна блокировать удаление из старой системы
+    # TODO: Возможно, добавить здесь асинхронный вызов новой функции удаления из Workflow
+    # Пока просто логгируем, что ее нужно удалить и из Workflow вручную или через отдельную кнопку
+    print(f"  [INFO] Книга '{book_id}' также может существовать в системе Workflow. Пожалуйста, удалите ее оттуда отдельно, если требуется.")
+
+    # Перенаправляем пользователя на главную страницу старой системы
+    # (предполагается, что этот маршрут вызывается со старой главной страницы)
     return redirect(url_for('index'))
 
 @app.route('/upload', methods=['POST'])
@@ -1026,19 +1039,11 @@ def workflow_download_summary(book_id):
 
 
         summary_text = None
-        # Пробуем загрузить результат суммаризации для секции из workflow кеша
         try:
-             # workflow_cache_manager.load_section_stage_result принимает book_id, section_id (internal DB ID), stage_name
              summary_text = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
         except Exception as e:
-             # Ошибка при чтении из кеша - такое возможно.
              print(f"  [DownloadSummary] ОШИБКА при загрузке суммаризации из кеша для секции {section_id} (EPUB ID: {section_epub_id}): {e}")
-             # Помечаем как missing
-             missing_summaries.append(section_epub_id)
-             # Добавляем в файл информацию об ошибке чтения кеша
-             escaped_title = html.escape(display_title)
-             full_summary_parts.append(f"\n\n==== {section_epub_id} - {escaped_title} (ПРЕДУПРЕЖДЕНИЕ: Ошибка загрузки суммаризации из кеша) ====\n\n")
-             continue # Переходим к следующей секции
+             continue # Пропускаем секцию при ошибке чтения кеша
 
         # Обработка результата, полученного из кеша, и статуса секции из БД
         if summary_text is not None and summary_text.strip() != "":
@@ -1137,9 +1142,9 @@ def get_workflow_book_status(book_id):
 
     # --- Добавляем completed_count для этапа summarize в book_stage_statuses ---
     if 'summarize' in response_data['book_stage_statuses']:
-        # get_book_workflow уже добавил completed_sections_count_summarize в book_info
-        completed_sum_count = book_info.get('completed_sections_count_summarize', 0)
-        response_data['book_stage_statuses']['summarize']['completed_count'] = completed_sum_count
+        # Берем общее количество обработанных секций (completed + skipped + empty)
+        processed_sum_count = book_info.get('processed_sections_count_summarize', 0)
+        response_data['book_stage_statuses']['summarize']['completed_count'] = processed_sum_count
     # --- Конец добавления completed_count ---
 
     # Подсчитаем количество секций для каждого статуса на каждом этапе
@@ -1176,6 +1181,29 @@ def get_workflow_book_status(book_id):
     return jsonify(response_data), 200
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА СТАТУСА ---
+
+@app.route('/workflow_delete_book/<book_id>', methods=['POST'])
+def workflow_delete_book_request(book_id):
+    """ Удаляет книгу рабочего процесса, ее файл и кэш. """
+    print(f"Запрос на удаление книги рабочего процесса: {book_id}")
+
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+
+    if book_info:
+        filepath = book_info.get("filepath"); original_filename = book_info.get("filename", book_id)
+        if workflow_db_manager.delete_book_workflow(book_id): print(f"  Запись '{original_filename}' удалена из Workflow БД.")
+        else: print(f"  ОШИБКА удаления записи из Workflow БД!")
+
+        if filepath and os.path.exists(filepath):
+            try: os.remove(filepath); print(f"  Файл {filepath} удален.")
+            except OSError as e: print(f"  Ошибка удаления файла {filepath}: {e}")
+        # Удаление кэша книги Workflow
+        workflow_cache_manager.delete_book_workflow_cache(book_id)
+        print(f"  Кеш workflow для книги {book_id} удален.")
+    else: print(f"  Книга рабочего процесса {book_id} не найдена в БД.")
+
+    # Возвращаем JSON ответ, так как удаление происходит через AJAX
+    return jsonify({'success': True, 'book_id': book_id}), 200
 
 # --- Запуск приложения ---
 if __name__ == '__main__':
