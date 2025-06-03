@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('workflow.js loaded.');
+    // console.log('workflow.js loaded.'); // Убрана отладочная строка
 
     const uploadForm = document.querySelector('.upload-form form');
     const progressOverlay = document.getElementById('progressOverlay');
@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await response.json();
 
             if (response.ok) {
-                console.log('Upload successful:', result);
+                // console.log('Upload successful:', result); // Убрана отладочная строка
 
                 // Check if book_id is in the JSON response
                 if (result && result.book_id) {
@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     // Handle case where JSON is ok but book_id is missing
                     updateProgressText('Upload successful, but Book ID missing in response.');
-                    console.error('Book ID not found in upload response:', result);
+                    // console.error('Book ID not found in upload response:', result); // Убрана отладочная строка
                     setTimeout(hideProgressOverlay, 3000); // Hide after 3 seconds
                 }
 
@@ -114,12 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Handle HTTP errors (response not ok)
                 const errorText = result.error || `HTTP error! Status: ${response.status}`;
                 updateProgressText(`Upload failed: ${errorText}`);
-                console.error('Upload failed:', response.status, response.statusText, result);
+                // console.error('Upload failed:', response.status, response.statusText, result); // Убрана отладочная строка
                  // Keep overlay open with error message
             }
         } catch (error) {
             updateProgressText(`An error occurred during upload: ${error}`);
-            console.error('Upload error:', error);
+            // console.error('Upload error:', error); // Убрана отладочная строка
              // Keep overlay open with error message
         }
     });
@@ -145,12 +145,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log('Status update received:', statusData);
 
                     // Debugging: Log status data and derived variables
-                    console.log('DEBUG UI Update:', {
-                        statusData: statusData,
-                        summaryStageData: statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null,
-                        completedSummary: statusData.book_stage_statuses && statusData.book_stage_statuses.summarize ? (statusData.book_stage_statuses.summarize.completed_count || 0) : 0,
-                        totalSections: statusData.total_sections_count || 0
-                    });
+                    // console.log('DEBUG UI Update:', { // Убрана отладочная строка
+                    //     statusData: statusData,
+                    //     summaryStageData: statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null,
+                    //     completedSummary: statusData.book_stage_statuses && statusData.book_stage_statuses.summarize ? (statusData.book_stage_statuses.summarize.completed_count || 0) : 0,
+                    //     totalSections: statusData.total_sections_count || 0
+                    // });
 
                     // --- MODIFICATION: Update progress based on workflow status data ---
                     const bookStatus = statusData.current_workflow_status;
@@ -375,13 +375,13 @@ document.addEventListener('DOMContentLoaded', () => {
      // --- Helper function to update a single book list item based on status data ---
      function updateBookListItem(bookId, statusData) {
          // Debugging: Log status data and derived variables in helper function
-         console.log('DEBUG updateBookListItem:', {
-             bookId: bookId,
-             statusData: statusData,
-             summaryStageData: statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null,
-             completedSummary: statusData.book_stage_statuses && statusData.book_stage_statuses.summarize ? (statusData.book_stage_statuses.summarize.completed_count || 0) : 0,
-             totalSections: statusData.total_sections_count || 0
-         });
+         // console.log('DEBUG updateBookListItem:', { // Убрана отладочная строка
+         //     bookId: bookId,
+         //     statusData: statusData,
+         //     summaryStageData: statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null,
+         //     completedSummary: statusData.book_stage_statuses && statusData.book_stage_statuses.summarize ? (statusData.book_stage_statuses.summarize.completed_count || 0) : 0,
+         //     totalSections: statusData.total_sections_count || 0
+         // });
 
          const bookItem = bookList.querySelector(`[data-book-id="${bookId}"]`);
          if (bookItem) {
