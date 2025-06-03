@@ -654,8 +654,7 @@ def start_book_workflow(book_id: str):
                 stages_definitions = workflow_db_manager.get_all_stages_ordered_workflow() 
 
             book_workflow_error_overall = False # Flag if any stage finished with error or completed with errors
-            # Flag if *all* defined stages have reached a final state (not pending, queued, processing, or None)
-            all_defined_stages_in_final_state = True 
+            all_defined_stages_in_final_state = True # Flag if *all* defined stages have reached a final state
 
             defined_stage_names = [stage['stage_name'] for stage in stages_definitions]
 
@@ -672,69 +671,36 @@ def start_book_workflow(book_id: str):
                 # Final states should be: completed, cached, completed_empty, skipped, error, completed_with_errors
                 if status in ['pending', 'queued', 'processing'] or status is None:
                      all_defined_stages_in_final_state = False
-                     # If we find any stage still pending/processing, and there wasn't an overall error yet, 
-                     # the final status logic might need to handle this case (e.g., mark as error).
 
             # --- Determine the final book status based on overall stage outcomes ---
-            final_status_to_set = 'processing' # Default status if not all stages are final or if there was an issue
+            final_status_to_set = 'processing' # Default status
             final_error_message_to_set = None
 
             if all_defined_stages_in_final_state:
-                 # All defined stages have reached a final state (completed, error, skipped, etc.)
+                 # All defined stages have reached a final state
                  if book_workflow_error_overall:
                       # All stages finished, but at least one had an error/completed with errors
                       final_status_to_set = 'completed_with_errors'
-                      final_error_message_to_set = "Workflow completed, but some stages finished with errors." # Message can be improved
+                      final_error_message_to_set = "Workflow completed, but some stages finished with errors."
 
                  else:
-                      # All stages finished successfully (completed, skipped, empty, cached)
+                      # All stages finished successfully
                       final_status_to_set = 'completed'
                       final_error_message_to_set = None # Success message (optional)
 
             else:
-                 # Not all defined stages are in a final state after the loop.
-                 # This is unexpected if the loop processed all stages.
-                 # It might indicate a logic error in stage processing or interruption.
-                 # Mark as error unless an error was already flagged (in which case book_workflow_error_overall is True).
-                 if not book_workflow_error_overall: # If no errors were flagged, but stages are not final
-                      final_status_to_set = 'error'
-                      final_error_message_to_set = "Workflow ended with stages still pending or processing unexpectedly."
-                 else:
-                     # Errors were flagged AND stages are not final. Status should already be 'error' or 'completed_with_errors'
-                     # from inside the loop or previous runs. We can reinforce error status.
-                     final_status_to_set = 'error' # Ensure overall status is error
-                     final_error_message_to_set = "Workflow stopped due to errors and incomplete stages."
-
+                 # Not all defined stages are in a final state after the loop. This is an error.
+                 final_status_to_set = 'error'
+                 final_error_message_to_set = "Workflow ended with stages still pending or processing unexpectedly."
 
             # --- Update the final book status in the database ---
             with current_app.app_context():
                 # Get the current overall book status one last time before updating
                 current_overall_status_before_final_update = workflow_db_manager.get_book_workflow(book_id).get('current_workflow_status')
 
-                # Only update the status if:
-                # 1. The determined final status is different from the current status.
-                # 2. OR if the current status is 'processing' and we determined a final status (completed, completed_with_errors, error).
-                # 3. AND avoid downgrading a hard 'error' status to 'completed_with_errors' or 'completed'.
-                
-                update_needed = False
-                if final_status_to_set != current_overall_status_before_final_update:
-                     if current_overall_status_before_final_update == 'processing':
-                         update_needed = True # Always update if moving out of processing
-                     elif current_overall_status_before_final_update == 'error':
-                         # Only update if the new status is also 'error' (re-confirming error)
-                         if final_status_to_set == 'error':
-                             update_needed = True
-                     elif current_overall_status_before_final_update == 'completed_with_errors':
-                         # Update if moving to 'error' or confirming 'completed_with_errors'
-                         if final_status_to_set in ['error', 'completed_with_errors']:
-                             update_needed = True
-                     else: # Current status is completed, uploaded, idle (shouldn't be processing here)
-                         # If we reached here, it means we determined a different final_status_to_set
-                         # This might indicate a logic error, but let's allow update if it's an error
-                         if final_status_to_set in ['error', 'completed_with_errors']:
-                             update_needed = True
-
-                if update_needed:
+                # Only update the status if the determined final status is different
+                # and we are not trying to downgrade a hard error status.
+                if final_status_to_set != current_overall_status_before_final_update and not (current_overall_status_before_final_update == 'error' and final_status_to_set != 'error'):
                     print(f"[WorkflowProcessor] Финальное обновление общего статуса книги {book_id} на '{final_status_to_set}'. Message: '{final_error_message_to_set}'")
                     workflow_db_manager.update_book_workflow_status(book_id, final_status_to_set, error_message=final_error_message_to_set)
                 else:

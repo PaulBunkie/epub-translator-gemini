@@ -90,6 +90,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="book-actions">
                                  <span class="download-summary-placeholder">Суммаризация не готова</span>
                                 <a href="#" class="download-summary-link" style="display: none;">Скачать суммаризацию</a>
+                                <span class="download-analysis-placeholder" style="display: none;">Анализ не готов</span>
+                                <a href="#" class="download-analysis-link" style="display: none;">Скачать анализ</a>
                                 <button class="delete-book-button" data-book-id="${result.book_id}">Удалить</button>
                             </div>
                         `;
@@ -161,16 +163,41 @@ document.addEventListener('DOMContentLoaded', () => {
                                               (summaryStageData.skipped_count || 0) + 
                                               (summaryStageData.completed_empty_count || 0)) : 0;
 
-                    // Determine overall progress display (focusing on summarize for now)
-                    let progressMessage = `Book Status: ${bookStatus}`;
+                    // --- НОВАЯ ЛОГИКА ОСТАНОВКИ ПОЛЛИНГА: Проверяем только общий статус книги ---
+                    const isBookWorkflowFinished = bookStatus &&
+                                                  (bookStatus === 'completed' ||
+                                                   bookStatus === 'completed_with_errors' ||
+                                                   bookStatus === 'error' ||
+                                                   bookStatus.startsWith('error_'));
 
-                    if (summaryStageData) {
-                         progressMessage = `Summarization: ${completedSummary}/${totalSections} sections (${summaryStageData.status})`;
+                    if (isBookWorkflowFinished) {
+                        console.log(`Book workflow completed for book ${bookId}. Final status: ${bookStatus}. Stopping polling.`);
+                        clearInterval(intervalId);
+                        activePollingIntervals.delete(bookId);
+                        hideProgressOverlay();
+                        console.log(`Polling stopped for book ${bookId}. Overall status: ${bookStatus}.`);
+
                     } else {
-                         progressMessage = `Book Status: ${bookStatus} (Summarization stage info not available)`;
-                    }
+                        console.log(`Book ${bookId} workflow status is '${bookStatus}'. Polling continues.`);
+                        // Убедитесь, что оверлей показывается, если статус processing или queued, и скрыт иначе
+                        if (bookStatus === 'processing' || bookStatus === 'queued') {
+                             // Оверлей уже должен быть показан при старте или загрузке.
+                             // updateProgressText вызывается выше и обновляет текст.
+                             
+                             // --- NEW: Update overlay text with progress ---                             
+                             const activeStageName = statusData.current_stage_name || 'Processing'; // Get active stage name if available, else use 'Processing'
+                             updateProgressText(`${activeStageName}: ${completedSummary} / ${totalSections} sections`);
+                             // --- END NEW ---                             
 
-                    updateProgressText(progressMessage);
+                        } else {
+                             // Если статус не processing/queued, но и не финальный (что странно),
+                             // возможно, стоит скрыть оверлей или показать статус книги без деталей этапа.
+                             // В нормальном workflow эта ветка не должна достигаться до завершения.
+                             // Если все этапы прошли, а статус не финальный, возможно, проблема в бэкенде.
+                             hideProgressOverlay(); // На всякий случай скрываем, если статус неактивный и нефинальный
+                        }
+                    }
+                    // --- КОНЕЦ НОВОЙ ЛОГИКИ остановки поллинга и скрытия оверлея ---
 
                     // --- MODIFICATION: Find the book item in the list and update its display ---
                     const bookItem = bookList.querySelector(`[data-book-id="${bookId}"]`);
@@ -250,34 +277,39 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         }
 
+                        // --- НОВАЯ ЛОГИКА: Показ ссылки на скачивание АНАЛИЗА ---
+                        const downloadAnalysisLink = bookItem.querySelector('.download-analysis-link');
+                        const downloadAnalysisPlaceholder = bookItem.querySelector('.download-analysis-placeholder');
+                        const analysisStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.analyze : null; // Получаем данные этапа анализа
+
+                        if (analysisStageData && (analysisStageData.status === 'completed' || analysisStageData.status === 'completed_empty')) {
+                            // Анализ успешно завершен (включая пустые)
+                            if (downloadAnalysisLink) {
+                                downloadAnalysisLink.style.display = ''; // Показываем ссылку
+                                downloadAnalysisLink.href = `/workflow_download_analysis/${bookId}`; // Устанавливаем href
+                            }
+                            if (downloadAnalysisPlaceholder) downloadAnalysisPlaceholder.style.display = 'none'; // Скрываем плейсхолдер
+
+                        } else if (analysisStageData && (analysisStageData.status === 'error' || analysisStageData.status.startsWith('error_') || analysisStageData.status === 'completed_with_errors')) {
+                            // Анализ завершен с ошибкой или этап завершился с ошибками
+                             if (downloadAnalysisLink) downloadAnalysisLink.style.display = 'none'; // Скрываем ссылку
+                             if (downloadAnalysisPlaceholder) {
+                                 downloadAnalysisPlaceholder.style.display = '';
+                                 // Отображаем статус ошибки этапа
+                                 downloadAnalysisPlaceholder.textContent = `Ошибка анализа: ${analysisStageData.status}`;
+                             }
+                        } else {
+                            // Этап анализа еще не завершен (processing, queued, pending)
+                            if (downloadAnalysisLink) downloadAnalysisLink.style.display = 'none'; // Скрываем ссылку
+                             if (downloadAnalysisPlaceholder) {
+                                 downloadAnalysisPlaceholder.style.display = '';
+                                 downloadAnalysisPlaceholder.textContent = 'Анализ не готов'; // Показываем плейсхолдер "не готов"
+                             }
+                        }
+                        // --- КОНЕЦ НОВОЙ ЛОГИКИ для ссылки анализа ---
+
                     }
                     // --- End of MODIFICATION for book item update ---
-
-
-                    // --- MODIFICATION: Check if the summarization workflow stage is complete or has errored ---
-                    // Stop polling and hide overlay when the 'summarize' stage is complete, errored, or completed with errors.
-                    const isSummarizationFinished = summaryStageData && 
-                                                  (summaryStageData.status === 'completed' || 
-                                                   summaryStageData.status === 'completed_empty' ||
-                                                   summaryStageData.status === 'completed_with_errors' ||
-                                                   summaryStageData.status === 'error' ||
-                                                   summaryStageData.status.startsWith('error_'));
-
-                    if (isSummarizationFinished) {
-                        console.log(`Summarization stage complete for book ${bookId}. Stopping polling.`);
-                        clearInterval(intervalId); // Stop this specific polling interval
-                        activePollingIntervals.delete(bookId); // Remove from Map
-                        hideProgressOverlay(); // Hide progress overlay
-
-                         // Instead of auto-download, ensure the download link is visible (handled above)
-                         console.log("Download link for summarization should now be visible.");
-                    } else if (bookStatus && (bookStatus === 'error' || bookStatus.startsWith('error_'))) {
-                        // Also stop polling and hide overlay if the overall book status is an error
-                        console.log(`Book ${bookId} overall status is error: ${bookStatus}. Stopping polling.`);
-                        clearInterval(intervalId);
-                        activePollingIntervals.delete(bookId);
-                        hideProgressOverlay();
-                    }
 
                 } else {
                     // Handle non-OK HTTP responses during polling (e.g., 404 if book deleted)
@@ -407,45 +439,62 @@ document.addEventListener('DOMContentLoaded', () => {
                  summarizeProgressSpan.textContent = ''; // Or 'No sections'
              }
 
-             // Show download link or placeholder based on summarize stage status
-             const downloadLink = bookItem.querySelector('.download-summary-link');
-             const downloadPlaceholder = bookItem.querySelector('.download-summary-placeholder');
+             // --- НОВАЯ ЛОГИКА: Показ ссылки на скачивание СУММАРИЗАЦИИ ---
+             const downloadSummaryLink = bookItem.querySelector('.download-summary-link');
+             const downloadSummaryPlaceholder = bookItem.querySelector('.download-summary-placeholder');
 
-             // Debugging: Log elements found and their initial state
-             console.log('DEBUG Download elements:', {
-                 downloadLinkFound: !!downloadLink, // True if element is found
-                 downloadPlaceholderFound: !!downloadPlaceholder, // True if element is found
-                 downloadLinkDisplay: downloadLink ? downloadLink.style.display : 'N/A',
-                 downloadPlaceholderDisplay: downloadPlaceholder ? downloadPlaceholder.style.display : 'N/A'
-             });
-
-             if (summaryStageData && summaryStageData.status === 'completed') {
-                 console.log('DEBUG: Setting display for completed status.');
-                 if (downloadLink) downloadLink.style.display = ''; // Show the link
-                 if (downloadPlaceholder) downloadPlaceholder.style.display = 'none'; // Hide placeholder
-                  if (downloadLink) downloadLink.href = `/workflow_download_summary/${bookId}`;
-             } else if (summaryStageData && (summaryStageData.status === 'error' || summaryStageData.status.startsWith('error_'))) {
-                 console.log('DEBUG: Setting display for error status.');
-                  if (downloadLink) downloadLink.style.display = 'none'; // Hide link
-                 if (downloadPlaceholder) {
-                     downloadPlaceholder.style.display = '';
-                     downloadPlaceholder.textContent = `Ошибка суммаризации: ${summaryStageData.status}`; // Show error
+             if (summaryStageData && (summaryStageData.status === 'completed' || summaryStageData.status === 'completed_empty')) {
+                 if (downloadSummaryLink) {
+                     downloadSummaryLink.style.display = '';
+                     downloadSummaryLink.href = `/workflow_download_summary/${bookId}`;
                  }
-             } else if (bookStatus && bookStatus.startsWith('error_')) {
-                 console.log('DEBUG: Setting display for book error status.');
-                  if (downloadLink) downloadLink.style.display = 'none'; // Hide link
-                 if (downloadPlaceholder) {
-                     downloadPlaceholder.style.display = '';
-                     downloadPlaceholder.textContent = `Ошибка книги: ${bookStatus}`; // Show error
-                 }
+                 if (downloadSummaryPlaceholder) downloadSummaryPlaceholder.style.display = 'none';
+             } else if (summaryStageData && (summaryStageData.status === 'error' || summaryStageData.status.startsWith('error_') || summaryStageData.status === 'completed_with_errors')) {
+                  if (downloadSummaryLink) downloadSummaryLink.style.display = 'none';
+                  if (downloadSummaryPlaceholder) {
+                      downloadSummaryPlaceholder.style.display = '';
+                      downloadSummaryPlaceholder.textContent = `Ошибка суммаризации: ${summaryStageData.status}`;
+                  }
              } else {
-                 console.log('DEBUG: Setting display for other status.');
-                  if (downloadLink) downloadLink.style.display = 'none'; // Hide link
-                 if (downloadPlaceholder) {
-                     downloadPlaceholder.style.display = '';
-                     downloadPlaceholder.textContent = 'Суммаризация не готова'; // Placeholder
-                 }
+                  if (downloadSummaryLink) downloadSummaryLink.style.display = 'none';
+                  if (downloadSummaryPlaceholder) {
+                      downloadSummaryPlaceholder.style.display = '';
+                      downloadSummaryPlaceholder.textContent = 'Суммаризация не готова';
+                  }
              }
+             // --- КОНЕЦ НОВОЙ ЛОГИКИ для ссылки суммаризации ---
+
+             // --- НОВАЯ ЛОГИКА: Показ ссылки на скачивание АНАЛИЗА ---
+             const downloadAnalysisLink = bookItem.querySelector('.download-analysis-link');
+             const downloadAnalysisPlaceholder = bookItem.querySelector('.download-analysis-placeholder');
+             const analysisStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.analyze : null; // Получаем данные этапа анализа
+
+             if (analysisStageData && (analysisStageData.status === 'completed' || analysisStageData.status === 'completed_empty')) {
+                 // Анализ успешно завершен (включая пустые)
+                 if (downloadAnalysisLink) {
+                     downloadAnalysisLink.style.display = ''; // Показываем ссылку
+                     downloadAnalysisLink.href = `/workflow_download_analysis/${bookId}`; // Устанавливаем href
+                 }
+                 if (downloadAnalysisPlaceholder) downloadAnalysisPlaceholder.style.display = 'none'; // Скрываем плейсхолдер
+
+             } else if (analysisStageData && (analysisStageData.status === 'error' || analysisStageData.status.startsWith('error_') || analysisStageData.status === 'completed_with_errors')) {
+                 // Анализ завершен с ошибкой или этап завершился с ошибками
+                  if (downloadAnalysisLink) downloadAnalysisLink.style.display = 'none'; // Скрываем ссылку
+                  if (downloadAnalysisPlaceholder) {
+                      downloadAnalysisPlaceholder.style.display = '';
+                      // Отображаем статус ошибки этапа
+                      downloadAnalysisPlaceholder.textContent = `Ошибка анализа: ${analysisStageData.status}`;
+                  }
+             } else {
+                 // Этап анализа еще не завершен (processing, queued, pending)
+                 if (downloadAnalysisLink) downloadAnalysisLink.style.display = 'none'; // Скрываем ссылку
+                  if (downloadAnalysisPlaceholder) {
+                      downloadAnalysisPlaceholder.style.display = '';
+                      downloadAnalysisPlaceholder.textContent = 'Анализ не готов'; // Показываем плейсхолдер "не готов"
+                  }
+             }
+             // --- КОНЕЦ НОВОЙ ЛОГИКИ для ссылки анализа ---
+
          }
      }
 
