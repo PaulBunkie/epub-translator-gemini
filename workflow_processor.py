@@ -379,9 +379,6 @@ def start_book_workflow(book_id: str):
                 # TODO: Implement per-section stage processing logic (identify queued sections, process them in pool)
                 # For now, sequential processing of sections in 'pending' status for this stage
 
-                with current_app.app_context():
-                    sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
-
                 sections_to_process = []
                 for section_data in sections:
                      section_id = section_data['section_id']

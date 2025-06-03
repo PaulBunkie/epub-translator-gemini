@@ -936,6 +936,10 @@ def workflow_index():
              # Исправлено: используем get_processed_sections_count_for_stage_workflow
              processed_sections_count_summarize = workflow_db_manager.get_processed_sections_count_for_stage_workflow(book_data['book_id'], 'summarize')
 
+             # --- NEW: Get detailed stage statuses for the book ---
+             detailed_stage_statuses = workflow_db_manager.get_book_stage_statuses_workflow(book_data['book_id'])
+             # --- END NEW ---
+
              workflow_books.append({
                  'book_id': book_data['book_id'],
                  'filename': book_data['filename'], # Используем 'filename' для отображения
@@ -943,7 +947,10 @@ def workflow_index():
                  'target_language': book_data.get('target_language'),
                  'total_sections': total_sections,
                  # Исправлено: передаем количество обработанных секций для суммаризации
-                 'completed_sections_count': processed_sections_count_summarize
+                 'completed_sections_count': processed_sections_count_summarize,
+                 # --- NEW: Pass detailed stage statuses to the template ---
+                 'book_stage_statuses': detailed_stage_statuses
+                 # --- END NEW ---
              })
         workflow_books.sort(key=lambda x: x['filename'].lower()) # Сортируем по имени файла
         print(f"  Найдено книг в Workflow DB: {len(workflow_books)}")
@@ -1200,7 +1207,41 @@ def get_workflow_book_status(book_id):
     # TODO: Включить в ответ детальные статусы каждой секции, если нужно для фронтенда
     # response_data['sections_details'] = sections # Осторожно: может быть большой объем данных!
 
-    return jsonify(response_data), 200
+    # --- NEW: Determine the current active stage and add to book_info ---
+    current_active_stage_name = None
+    # Get all stages in order
+    stages_ordered = workflow_db_manager.get_all_stages_ordered_workflow()
+
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+
+    # Find the first stage with 'processing' or 'queued' status
+    for stage in stages_ordered:
+        stage_name = stage['stage_name']
+        status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+        if status in ['processing', 'queued']:
+            current_active_stage_name = stage_name
+            break # Found processing or queued, stop search
+
+    # If no processing/queued stage found, find the first 'pending' stage
+    if current_active_stage_name is None:
+        for stage in stages_ordered:
+            stage_name = stage['stage_name']
+            status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+            if status == 'pending':
+                current_active_stage_name = stage_name
+                break # Found pending, stop search
+
+    # If still no active stage found (all completed/error), take the last stage
+    if current_active_stage_name is None and stages_ordered:
+        current_active_stage_name = stages_ordered[-1]['stage_name'] # Take the name of the last stage
+
+    # Add the determined active stage name to the book_info dictionary
+    # ИСПРАВЛЕНИЕ: Добавляем поле в response_data, а не в book_info
+    response_data['current_stage_name'] = current_active_stage_name
+    # --- END NEW ---
+
+    # Возвращаем статус книги как JSON
+    return jsonify(response_data), 200 # <-- Эта строка
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТ СТАТУСА ---
 

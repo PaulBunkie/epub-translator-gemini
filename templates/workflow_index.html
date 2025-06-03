@@ -175,19 +175,42 @@
                                     Summarization: <span class="completed-count">{{ book.completed_sections_count or 0 }}</span> / <span class="total-count">{{ book.total_sections or 0 }}</span> sections
                                 </span>
                                 <!-- Display progress for analysis stage -->
-                                <span class="analysis-progress" style="display: none;">
-                                    Analysis: <span class="completed-count">0</span> / <span class="total-count">{{ book.total_sections or 0 }}</span> sections
+                                {% if book.book_stage_statuses and book.book_stage_statuses.analyze %}
+                                <span class="analysis-progress">
+                                    Analysis: {{ book.book_stage_statuses.analyze.status or '...' }}
                                 </span>
+                                {% endif %}
                             {% endif %}
                         </div>
                     </div>
                     <div class="book-actions">
                         {# Ссылка и плейсхолдер теперь всегда рендерятся, видимость контролирует JS #}
-                        <a href="#" class="download-summary-link" style="display: none;">Скачать суммаризацию</a>
-                        <span class="download-summary-placeholder">Суммаризация не готова</span>
-                        {# Ссылка и плейсхолдер для анализа #}
-                        <a href="#" class="download-analysis-link" style="display: none; margin-left: 10px;">Скачать анализ</a>
-                        <span class="download-analysis-placeholder" style="margin-left: 10px;">Анализ не готов</span>
+                        {# --- MODIFIED: Display Summary Download Link/Placeholder based on backend data --- #}
+                        {% set summarize_status = book.book_stage_statuses.summarize.status if book.book_stage_statuses and book.book_stage_statuses.summarize else 'pending' %}
+                        {% if summarize_status in ['completed', 'completed_empty'] %}
+                            <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию</a>
+                            <span class="download-summary-placeholder" style="display: none;"></span>
+                        {% elif summarize_status in ['error', 'completed_with_errors'] or summarize_status.startswith('error_') %}
+                             <a href="#" class="download-summary-link" style="display: none;"></a>
+                             <span class="download-summary-placeholder">Ошибка суммаризации: {{ summarize_status }}</span>
+                        {% else %}
+                            <a href="#" class="download-summary-link" style="display: none;"></a>
+                            <span class="download-summary-placeholder">Суммаризация не готова</span>
+                        {% endif %}
+
+                        {# --- MODIFIED: Display Analysis Download Link/Placeholder based on backend data --- #}
+                        {% set analysis_status = book.book_stage_statuses.analyze.status if book.book_stage_statuses and book.book_stage_statuses.analyze else 'pending' %}
+                        {% if analysis_status in ['completed', 'completed_empty'] %}
+                            <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" class="download-analysis-link" style="margin-left: 10px;">Скачать анализ</a>
+                            <span class="download-analysis-placeholder" style="display: none; margin-left: 10px;"></span>
+                        {% elif analysis_status in ['error', 'completed_with_errors'] or analysis_status.startswith('error_') %}
+                            <a href="#" class="download-analysis-link" style="display: none; margin-left: 10px;"></a>
+                             <span class="download-analysis-placeholder" style="margin-left: 10px;">Ошибка анализа: {{ analysis_status }}</span>
+                        {% else %}
+                             <a href="#" class="download-analysis-link" style="display: none; margin-left: 10px;"></a>
+                             <span class="download-analysis-placeholder" style="margin-left: 10px;">Анализ не готов</span>
+                        {% endif %}
+
                         {# Кнопка Удалить также всегда рендерится #}
                         <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
                     </div>
