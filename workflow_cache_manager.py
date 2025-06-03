@@ -98,4 +98,57 @@ def delete_book_workflow_cache(book_id):
         traceback.print_exc()
         return False
 
+# --- New function to save book-level stage result ---
+def save_book_stage_result(book_id, stage_name, content, file_extension='.txt'):
+    """
+    Saves the result of a book-level stage to a file cache.
+    """
+    print(f"[WorkflowCache] Attempting to save book-level cache for book {book_id}, stage {stage_name}")
+    stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
+    # For book-level stages, the filename can be a fixed name, e.g., 'result.txt'
+    filename = f'result{file_extension}'
+    file_path = os.path.join(stage_dir, filename)
+
+    try:
+        # Create directories if they don't exist
+        os.makedirs(stage_dir, exist_ok=True)
+
+        # Save content to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"[WorkflowCache] Book-level cache saved successfully: {file_path}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowCache] ERROR saving book-level cache for {file_path}: {e}")
+        traceback.print_exc()
+        return False
+
+# --- New function to load book-level stage result ---
+def load_book_stage_result(book_id, stage_name, file_extension='.txt'):
+    """
+    Loads the result of a book-level stage from a file cache.
+    """
+    stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
+    filename = f'result{file_extension}'
+    file_path = os.path.join(stage_dir, filename)
+    print(f"[WorkflowCache] Attempting to load book-level cache from: {file_path}")
+
+    if not os.path.exists(file_path):
+        print(f"[WorkflowCache] Book-level cache not found: {file_path}")
+        return None
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        print(f"[WorkflowCache] Book-level cache loaded successfully: {file_path} (Length: {len(content)} chars)")
+        return content
+    except Exception as e:
+        print(f"[WorkflowCache] ERROR loading book-level cache from {file_path}: {e}")
+        traceback.print_exc()
+        return None
+
+# TODO: Implement load_book_stage_result
+
 # TODO: Возможно, добавить функцию для удаления кэша всей книги

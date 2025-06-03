@@ -69,7 +69,7 @@ Summary in {target_language}:""",
     Provide your analysis and lists strictly in {target_language}.
     List only items that are likely to be unusual, unfamiliar, or potentially difficult for an *educated* general reader of {target_language}. Exclude common names, well-known places (like countries or major cities), and widely recognized organizations unless their usage in the text is unusual or requires specific context.
     For each listed item:
-    - Briefly explain *why* it might be a difficulty (e.g., "выдуманное имя", "потенциальный неологизм", "малоизвестная аббревиатура" in {target_language}).
+    - Briefly explain *why* it might be a difficulty (e.g., fictional name, potential neologism, obscure abbreviation in {target_language}).
     - **MUST** provide at least one suggested translation option into {target_language}.
     - If the difficulty is complex, provide multiple suggested translation options.
 

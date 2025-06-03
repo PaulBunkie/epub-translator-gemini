@@ -637,6 +637,35 @@ def get_per_section_stage_names_workflow():
         traceback.print_exc()
         return []
 
+# --- НОВАЯ ФУНКЦИЯ: Получить имя следующего посекционного этапа ---
+def get_next_per_section_stage_name_workflow(current_stage_name: str) -> str | None:
+    """
+    Возвращает имя следующего посекционного этапа после текущего, основываясь на порядке.
+    Возвращает None, если текущий этап последний посекционный или не найден.
+    """
+    db = get_workflow_db()
+    try:
+        current_order = get_stage_order_workflow(current_stage_name)
+        if current_order is None:
+            return None # Текущий этап не найден
+
+        # Ищем следующий этап с большим порядковым номером, который является посекционным
+        cursor = db.execute('''
+            SELECT stage_name FROM workflow_stages
+            WHERE stage_order > ? AND is_per_section = TRUE
+            ORDER BY stage_order ASC
+            LIMIT 1;
+        ''', (current_order,))
+        row = cursor.fetchone()
+
+        return row['stage_name'] if row else None
+
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА при получении следующего per-section этапа после '{current_stage_name}': {e}")
+        traceback.print_exc()
+        return None
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
 # TODO: Возможно, добавить функцию для сброса статусов 'processing' при старте приложения
 
 
@@ -732,5 +761,20 @@ def get_processed_sections_count_for_stage_workflow(book_id: str, stage_name: st
         traceback.print_exc()
         return 0
 # --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
+# --- Функции работы с этапами рабочего процесса ---
+
+def get_all_stages_ordered_workflow() -> List[Dict[str, Any]]:
+    """
+    Retrieves all workflow stages from the database, ordered by stage_order.
+    """
+    db = get_workflow_db()
+    try:
+        cursor = db.execute('SELECT stage_name, stage_order, display_name, is_per_section FROM workflow_stages ORDER BY stage_order')
+        return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"[WorkflowDB] ERROR retrieving all stages: {e}")
+        traceback.print_exc()
+        return []
 
 # --- END OF FILE workflow_db_manager.py ---

@@ -15,7 +15,7 @@ import threading
 # Flask и связанные утилиты
 from flask import (
     Flask, request, render_template, redirect, url_for,
-    jsonify, send_from_directory, Response, session, g, send_file, make_response
+    jsonify, send_from_directory, Response, session, g, send_file, make_response, current_app
 )
 from werkzeug.utils import secure_filename
 
@@ -1080,6 +1080,54 @@ def workflow_download_summary(book_id):
 
 # --- КОНЕЦ НОВОГО ЭНДPOЙНТА СКАЧИВАНИЯ ---
 
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ СКАЧИВАНИЯ АНАЛИЗА WORKFLOW ---
+@app.route('/workflow_download_analysis/<book_id>', methods=['GET'])
+def workflow_download_analysis(book_id):
+    print(f"Запрос на скачивание анализа для книги: {book_id}")
+
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if book_info is None:
+        print(f"  [DownloadAnalysis] Книга с ID {book_id} не найдена в Workflow DB.")
+        return "Book not found", 404
+
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    analysis_stage_status = book_stage_statuses.get('analyze', {}).get('status')
+
+    if analysis_stage_status not in ['completed', 'completed_with_errors']:
+         print(f"  [DownloadAnalysis] Этап анализа для книги {book_id} не завершен. Статус: {analysis_stage_status}")
+         return f"Analysis not complete (Status: {analysis_stage_status}).", 409
+
+    # --- НОВОЕ: Загружаем результат анализа книги целиком ---
+    analysis_result = None
+    try:
+        analysis_result = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
+        if analysis_result is None or not analysis_result.strip():
+            # Если результат пустой или только пробелы, возможно, анализ завершился как completed_empty
+            # Или файл не найден / пустой, но статус в БД completed/completed_with_errors
+            print(f"  [DownloadAnalysis] Результат анализа для книги {book_id} пуст или не найден в кеше.")
+            if analysis_stage_status == 'completed_empty':
+                 # Это ожидаемое состояние для completed_empty
+                 analysis_result = "Анализ не проводился, т.к. собранный текст суммаризации пуст." # Или другое сообщение
+            else:
+                 # Неожиданно пустой результат для completed/completed_with_errors
+                 print(f"  [DownloadAnalysis] ОШИБКА: Этап анализа книги {book_id} завершен со статусом {analysis_stage_status}, но результат в кеше пуст или отсутствует.")
+                 return "Analysis result is empty or missing in cache.", 500
+
+    except Exception as e:
+        print(f"  [DownloadAnalysis] ОШИБКА при загрузке результата анализа книги {book_id} из кеша: {e}")
+        traceback.print_exc()
+        return "Error loading analysis result from cache.", 500
+
+    # --- КОНЕЦ НОВОГО БЛОКА ---
+
+    # Имя файла для скачивания: [имя_оригинала_без_расширения]_analyzed.txt
+    base_name = os.path.splitext(book_info.get('filename', 'analysis_book'))[0]
+    out_fn = f"{base_name}_analyzed.txt"
+
+    # Возвращаем текст как файл
+    return Response(analysis_result, mimetype="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{out_fn}"})
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ АНАЛИЗА ---
+
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛУЧЕНИЯ СТАТУСА WORKFLOW КНИГИ ---
 @app.route('/workflow_book_status/<book_id>', methods=['GET'])
 def get_workflow_book_status(book_id):
@@ -1099,6 +1147,10 @@ def get_workflow_book_status(book_id):
     book_stage_statuses = book_info.get('book_stage_statuses', {})
     sections = book_info.get('sections', []) # Список секций с их stage_statuses
 
+    # --- ИСПРАВЛЕНИЕ: Рассчитываем общее количество секций, запрашивая из БД ---
+    total_sections = workflow_db_manager.get_section_count_for_book_workflow(book_id)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
     # Формируем ответ
     response_data = {
         "book_id": book_info.get('book_id'),
@@ -1106,7 +1158,7 @@ def get_workflow_book_status(book_id):
         "target_language": book_info.get('target_language'), # Add target_language
         "current_workflow_status": book_info.get('current_workflow_status'),
         "book_stage_statuses": book_stage_statuses,
-        "total_sections_count": book_info.get('total_sections_count', len(sections)), # Берем из book_info или считаем
+        "total_sections_count": total_sections, # <-- Убедитесь, что здесь используется total_sections
         "sections_status_summary": {} # Сводка статусов секций по этапам
     }
 
