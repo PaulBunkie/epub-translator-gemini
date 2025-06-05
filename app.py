@@ -63,6 +63,8 @@ app.config['SECRET_KEY'] = os.urandom(24) # Для сессий и flash-соо�
 # --- Инициализируем БД при старте приложения ---
 with app.app_context():
      init_db()
+     # Инициализируем новую БД для рабочего процесса
+     workflow_db_manager.init_workflow_db()
 
 # --- Создаем необходимые директории ---
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -1305,10 +1307,7 @@ if __name__ == '__main__':
     try:
         configure_api() # Проверка ключей API
         load_models_on_startup() # <-- ДОБАВЛЯЕМ ЭТОТ ВЫЗОВ
-        # --- ИЗМЕНЕНИЕ: Добавляем инициализацию workflow DB ---
-        with app.app_context():
-            workflow_db_manager.init_workflow_db()
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
     except ValueError as e:
         print(f"Ошибка конфигурации API: {e}")
