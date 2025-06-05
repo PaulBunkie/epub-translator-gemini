@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         bookItem.innerHTML = `
                             <div class="book-info">
                                 <strong>${result.filename || 'Unknown Filename'}</strong>
-                                <span class="language">(${result.target_language || 'russian'})</span>
+                                <span class="language">(${document.getElementById('target_language').value || 'unknown'})</span>
                                 <div class="book-status book-status-processing">
                                     Status: <span class="book-overall-status">processing</span>
                                     <span class="summarize-progress">
