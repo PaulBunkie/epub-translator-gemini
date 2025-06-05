@@ -206,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
                              // Проверяем, что это потенциально посекционный этап (есть сводка) и что он активен (processing/queued)
                              if (stageSummary && stageSummary.total !== undefined && (stageStatus === 'processing' || stageStatus === 'queued')) {
                                    // Sum up completed, skipped, and empty sections from the section summary
-                                   const completed = (stageSummary.completed || 0) + (stageSummary.skipped || 0) + (stageSummary.completed_empty || 0);
+                                   const completed = (stageSummary.completed || 0) + (stageSummary.skipped || 0) + (stageSummary.completed_empty || 0) + (stageSummary.processing || 0);
                                    const total = stageSummary.total || 0; // Use total from summary
 
                                    if (total > 0) {
@@ -262,52 +262,22 @@ document.addEventListener('DOMContentLoaded', () => {
                              }
                          }
 
-                        // Update summarization progress counts
+                        // --- MODIFIED: Logic for Summarization Progress Display ---
                         const summarizeProgressSpan = bookItem.querySelector('.summarize-progress');
-                        if (summarizeProgressSpan && summaryStageData && totalSections > 0) {
-                            const completedSections = (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0);
-                            
-                            // Use total_count from summaryStageData if available, otherwise use the overall totalSections
-                            const totalSectionsForStage = summaryStageData.total_count || totalSections;
-                            
+                        // Calculate completed sections count (sum of completed, skipped, empty)
+                        const completedSections = summaryStageData ? (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0) : 0;
+
+                        // Use total_count from summaryStageData if available, otherwise use the overall totalSections
+                        const totalSectionsForStage = summaryStageData ? summaryStageData.total_count || totalSections : totalSections;
+
+                        // Update summarization progress counts if the span exists and total sections > 0
+                        if (summarizeProgressSpan && totalSectionsForStage > 0) {
                             summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">${completedSections}</span> / <span class="total-count">${totalSectionsForStage}</span> sections`;
                             summarizeProgressSpan.style.display = ''; // Make sure it's visible
                         } else if (summarizeProgressSpan) {
                             // If totalSections is 0 or stage data missing, hide or update the progress display
                             summarizeProgressSpan.textContent = ''; // Or 'No sections'
-                        }
-
-                        // --- MODIFICATION: Show download link or placeholder based on summarize stage status ---
-                        const downloadLink = bookItem.querySelector('.download-summary-link');
-                        const downloadPlaceholder = bookItem.querySelector('.download-summary-placeholder');
-
-                        if (summaryStageData && summaryStageData.status === 'completed') {
-                            // Summarization is complete
-                            if (downloadLink) downloadLink.style.display = ''; // Show the link
-                            if (downloadPlaceholder) downloadPlaceholder.style.display = 'none'; // Hide placeholder
-                             if (downloadLink) downloadLink.href = `/workflow_download_summary/${bookId}`;
-
-                        } else if (summaryStageData && (summaryStageData.status === 'error' || summaryStageData.status.startsWith('error_'))) {
-                            // Summarization stage level error
-                             if (downloadLink) downloadLink.style.display = 'none'; // Hide link
-                            if (downloadPlaceholder) {
-                                downloadPlaceholder.style.display = '';
-                                downloadPlaceholder.textContent = `Ошибка суммаризации: ${summaryStageData.status}`; // Show error in placeholder
-                            }
-                        } else if (bookStatus && bookStatus.startsWith('error_')) {
-                             // Book level error (fallback if stage data missing)
-                             if (downloadLink) downloadLink.style.display = 'none'; // Hide link
-                            if (downloadPlaceholder) {
-                                downloadPlaceholder.style.display = '';
-                                downloadPlaceholder.textContent = `Ошибка книги: ${bookStatus}`; // Show error in placeholder
-                            }
-                        } else {
-                            // Processing, queued, pending, etc. - hide link, show placeholder
-                            if (downloadLink) downloadLink.style.display = 'none'; // Hide link
-                            if (downloadPlaceholder) {
-                                downloadPlaceholder.style.display = ''; // Show placeholder
-                                 downloadPlaceholder.textContent = 'Суммаризация не готова'; // Reset placeholder text
-                            }
+                            summarizeProgressSpan.style.display = 'none'; // Hide the element
                         }
 
                         // --- NEW: Logic for Analysis Status Display ---
@@ -419,17 +389,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // --- MODIFIED: Logic for Summarization Progress Display ---
             const summarizeProgressSpan = bookItem.querySelector('.summarize-progress');
-            if (summarizeProgressSpan && summaryStageData && totalSections > 0) {
-                const completedSections = (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0);
-                
-                // Use total_count from summaryStageData if available, otherwise use the overall totalSections
-                const totalSectionsForStage = summaryStageData.total_count || totalSections;
-                
+            // Calculate completed sections count (sum of completed, skipped, empty)
+            const completedSections = summaryStageData ? (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0) : 0;
+
+            // Use total_count from summaryStageData if available, otherwise use the overall totalSections
+            const totalSectionsForStage = summaryStageData ? summaryStageData.total_count || totalSections : totalSections;
+
+            // Update summarization progress counts if the span exists and total sections > 0
+            if (summarizeProgressSpan && totalSectionsForStage > 0) {
                 summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">${completedSections}</span> / <span class="total-count">${totalSectionsForStage}</span> sections`;
                 summarizeProgressSpan.style.display = ''; // Make sure it's visible
             } else if (summarizeProgressSpan) {
                 // If totalSections is 0 or stage data missing, hide or update the progress display
                 summarizeProgressSpan.textContent = ''; // Or 'No sections'
+                summarizeProgressSpan.style.display = 'none'; // Hide the element
             }
 
             // --- NEW: Logic for Analysis Status Display ---
