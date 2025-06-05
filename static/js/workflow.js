@@ -85,6 +85,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <span class="summarize-progress">
                                         Summarization: <span class="completed-count">0</span> / <span class="total-count">${result.total_sections_count || '?'}</span> sections
                                     </span>
+                                    <!-- Placeholder for Analysis status - will be updated by JS -->
+                                    <span class="analysis-progress">Analysis: pending</span>
                                 </div>
                             </div>
                             <div class="book-actions">
