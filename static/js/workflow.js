@@ -177,6 +177,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         activePollingIntervals.delete(bookId);
                         hideProgressOverlay();
                         console.log(`Polling stopped for book ${bookId}. Overall status: ${bookStatus}.`);
+                        
+                        // --- НОВОЕ: Убеждаемся, что элемент списка книги обновлен финальными данными ---
+                        updateBookListItem(bookId, statusData);
+                        // --- КОНЕЦ НОВОГО ---
 
                     } else {
                         console.log(`Book ${bookId} workflow status is '${bookStatus}'. Polling continues.`);
@@ -195,30 +199,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
                              let progressTextContent = `${stageDisplayName}: ${stageStatus}`; // Start with display name and status
 
-                             // Check if it's a per-section stage and is currently processing or queued
-                             const isPerSectionStage = currentStageDetails && currentStageDetails.is_per_section;
-                             const isStageActive = (stageStatus === 'processing' || stageStatus === 'queued');
+                             // --- ИЗМЕНЕНИЕ: Проверяем, есть ли сводка по секциям для текущего этапа ---
+                             // Если есть сводка и общее количество секций > 0, считаем этап посекционным для целей отображения.
+                             const stageSummary = statusData.sections_status_summary ? statusData.sections_status_summary[currentStageName] : null;
 
-                             if (isPerSectionStage && isStageActive) {
-                                  // Try to get section counts from sections_status_summary for the current per-section stage
-                                  const stageSummary = statusData.sections_status_summary ? statusData.sections_status_summary[currentStageName] : null;
+                             // Проверяем, что это потенциально посекционный этап (есть сводка) и что он активен (processing/queued)
+                             if (stageSummary && stageSummary.total !== undefined && (stageStatus === 'processing' || stageStatus === 'queued')) {
+                                   // Sum up completed, skipped, and empty sections from the section summary
+                                   const completed = (stageSummary.completed || 0) + (stageSummary.skipped || 0) + (stageSummary.completed_empty || 0);
+                                   const total = stageSummary.total || 0; // Use total from summary
 
-                                  if (stageSummary && stageSummary.total !== undefined) { // Check if summary data exists and total is defined
-                                       // Sum up completed, skipped, and empty sections
-                                       const completed = (stageSummary.completed || 0) + (stageSummary.skipped || 0) + (stageSummary.completed_empty || 0);
-                                       const total = stageSummary.total || 0; // Use total from summary
-
-                                       if (total > 0) {
-                                            // Display progress as completed / total for per-section stages with actual progress
-                                           progressTextContent += `: ${completed} / ${total} sections`; // Add counts
-                                       } else { // Per-section active stage, data available but total is 0
-                                            progressTextContent += `: 0 / ${total} sections`; // Explicitly show 0/0 or 0/something if total is 0
-                                       }
-                                  } else { // Per-section active stage, but no summary data
-                                       progressTextContent += `: не удалось получить данные о секциях`; // Use user's requested message
-                                  }
+                                   if (total > 0) {
+                                        // Display progress as completed / total for per-section stages with actual progress
+                                       progressTextContent += `: ${completed} / ${total} sections`; // Add counts
+                                   } else { // Per-section active stage, data available but total is 0
+                                        progressTextContent += `: 0 / ${total} sections`; // Explicitly show 0/0 or 0/something if total is 0
+                                   }
                              }
-                             // If not an active per-section stage, the initial `progressTextContent = `${stageDisplayName}: ${stageStatus}`;` is sufficient.
+                             // Если нет сводки по секциям или этап не активен, текст остается только статус.
                              
                              updateProgressText(progressTextContent);
                              // --- END MODIFIED ---
@@ -266,13 +264,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         // Update summarization progress counts
                         const summarizeProgressSpan = bookItem.querySelector('.summarize-progress');
-                        if (summarizeProgressSpan && totalSections > 0) {
-                            const completedCountSpan = summarizeProgressSpan.querySelector('.completed-count');
-                            const totalCountSpan = summarizeProgressSpan.querySelector('.total-count');
-                            if (completedCountSpan) completedCountSpan.textContent = completedSummary;
-                            if (totalCountSpan) totalCountSpan.textContent = totalSections;
-                            // Update summarization stage status text if needed (currently not displayed separately in HTML)
-                            // If you add a span for summarize status, update it here.
+                        if (summarizeProgressSpan && summaryStageData && totalSections > 0) {
+                            const completedSections = (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0);
+                            
+                            // Use total_count from summaryStageData if available, otherwise use the overall totalSections
+                            const totalSectionsForStage = summaryStageData.total_count || totalSections;
+                            
+                            summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">${completedSections}</span> / <span class="total-count">${totalSectionsForStage}</span> sections`;
+                            summarizeProgressSpan.style.display = ''; // Make sure it's visible
                         } else if (summarizeProgressSpan) {
                             // If totalSections is 0 or stage data missing, hide or update the progress display
                             summarizeProgressSpan.textContent = ''; // Or 'No sections'
@@ -420,18 +419,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // --- MODIFIED: Logic for Summarization Progress Display ---
             const summarizeProgressSpan = bookItem.querySelector('.summarize-progress');
-            if (summarizeProgressSpan) {
-                if (summaryStageData && totalSections > 0) {
-                     const completedSummary = (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0);
-                     summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">${completedSummary}</span> / <span class="total-count">${totalSections}</span> sections`;
-                     summarizeProgressSpan.style.display = ''; // Make sure it's visible
-                } else if (totalSections > 0) {
-                     // Show total sections even if summarization hasn't started
-                     summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">0</span> / <span class="total-count">${totalSections}</span> sections`;
-                     summarizeProgressSpan.style.display = '';
-                } else {
-                     summarizeProgressSpan.style.display = 'none'; // Hide if no sections or stage data
-                }
+            if (summarizeProgressSpan && summaryStageData && totalSections > 0) {
+                const completedSections = (summaryStageData.completed_count || 0) + (summaryStageData.skipped_count || 0) + (summaryStageData.completed_empty_count || 0);
+                
+                // Use total_count from summaryStageData if available, otherwise use the overall totalSections
+                const totalSectionsForStage = summaryStageData.total_count || totalSections;
+                
+                summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">${completedSections}</span> / <span class="total-count">${totalSectionsForStage}</span> sections`;
+                summarizeProgressSpan.style.display = ''; // Make sure it's visible
+            } else if (summarizeProgressSpan) {
+                // If totalSections is 0 or stage data missing, hide or update the progress display
+                summarizeProgressSpan.textContent = ''; // Or 'No sections'
             }
 
             // --- NEW: Logic for Analysis Status Display ---

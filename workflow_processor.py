@@ -370,12 +370,26 @@ def start_book_workflow(book_id: str):
                      book_workflow_error_message = f"Stage '{stage_name}' completed with errors." # TODO: Aggregate messages
                 continue # Move to the next stage in the loop
 
+            # --- НОВОЕ: Устанавливаем статус этапа книги на 'processing' перед началом обработки ---
+            # Только если текущий статус не 'processing' (может быть 'queued' или 'pending')
+            if current_stage_status not in ['processing']:
+                 with current_app.app_context():
+                     print(f"[WorkflowProcessor] Установка статуса этапа '{stage_name}' для книги {book_id} на 'processing'.")
+                     workflow_db_manager.update_book_stage_status_workflow(
+                         book_id,
+                         stage_name,
+                         'processing',
+                         error_message=None # Сбрасываем ошибку при старте
+                     )
+            # --- КОНЕЦ НОВОГО ---
+
             # Process the stage if it's pending or processing (or queued for per-section)
             stage_processing_successful = False # Flag to track if processing this stage was successful
 
             if is_per_section_stage:
                 # --- Process Per-Section Stage ---
                 print(f"[WorkflowProcessor] Запуск обработки посекционного этапа '{stage_name}' для книги {book_id}.")
+                
                 # TODO: Implement per-section stage processing logic (identify queued sections, process them in pool)
                 # For now, sequential processing of sections in 'pending' status for this stage
 
@@ -387,9 +401,11 @@ def start_book_workflow(book_id: str):
 
                      # If status is pending or queued, add to processing list
                      if section_stage_status in ['pending', 'queued']:
-                          # Mark as processing before adding to queue? Or handle in process_section function?
-                          # For now, just add to list to process
                           sections_to_process.append(section_id)
+
+                # --- LOGGING: Sections to process for this stage ---
+                print(f"[WorkflowProcessor] LOG: Этап '{stage_name}', Книга ID {book_id}. Секций для обработки: {len(sections_to_process)}. ID секций: {sections_to_process}")
+                # --- END LOGGING ---
 
                 if not sections_to_process:
                     print(f"[WorkflowProcessor] Нет секций в статусе 'pending' или 'queued' для этапа '{stage_name}' книги {book_id}. Пропускаем обработку секций.")
@@ -427,16 +443,29 @@ def start_book_workflow(book_id: str):
                          # TODO: Add other per-section stage processing functions here (e.g., Translate)
                          elif stage_name == 'translate':
                              # Call the placeholder function which updates DB status to 'completed'
+                             # --- LOGGING: Before calling process_section_translate ---
+                             print(f"[WorkflowProcessor] LOG: Вызов process_section_translate для секции {section_id_to_process}, этап '{stage_name}'.")
+                             # --- END LOGGING ---
                              section_success = process_section_translate(book_id, section_id_to_process)
+                             # --- LOGGING: After calling process_section_translate ---
+                             print(f"[WorkflowProcessor] LOG: process_section_translate для секции {section_id_to_process} завершен. Результат success: {section_success}.")
+                             # --- END LOGGING ---
                          else:
                                print(f"[WorkflowProcessor] ОШИБКА: Неизвестный посекционный этап: {stage_name}")
-                               # Mark this section/book as error?
                                section_success = False # Treat as failure
 
                     # After attempting to process all queued/pending sections for this stage,
                     # re-check the overall status of this stage for the book by counting section statuses.
                     with current_app.app_context():
                          sections_after_processing = workflow_db_manager.get_sections_for_book_workflow(book_id)
+
+                    # --- LOGGING: Section statuses after processing this stage ---
+                    print(f"[WorkflowProcessor] LOG: Статусы секций для этапа '{stage_name}' после обработки:")
+                    for section in sections_after_processing:
+                        stage_statuses = section.get('stage_statuses', {})
+                        section_stage_status = stage_statuses.get(stage_name, {}).get('status')
+                        print(f"  Секция ID {section['section_id']} (EPUB ID: {section['section_epub_id']}): Статус '{stage_name}' = '{section_stage_status}'")
+                    # --- END LOGGING ---
 
                     completed_sections_count = 0
                     error_sections_count = 0
@@ -452,62 +481,56 @@ def start_book_workflow(book_id: str):
                              error_sections_count += 1
 
                     # Determine the stage status for the book level
-                    stage_status = 'processing' # Default status
+                    stage_status_after_tasks = 'processing' # Default status is still processing tasks
                     stage_error_message = None
                     completion_count = completed_sections_count + error_sections_count
+
+                    # --- LOGGING: Stage status calculation result ---
+                    print(f"[WorkflowProcessor] LOG: Результаты подсчета статусов секций для этапа '{stage_name}':")
+                    print(f"  completed_sections_count: {completed_sections_count}")
+                    print(f"  error_sections_count: {error_sections_count}")
+                    print(f"  all_sections_count: {all_sections_count}")
+                    # --- END LOGGING ---
 
                     if all_sections_count > 0 and completion_count == all_sections_count:
                          # Все секции достигли конечного статуса (completed, cached, completed_empty, skipped, error)
                          if error_sections_count == 0:
-                             stage_status = 'completed'
-                             print(f"[WorkflowProcessor] Стадия '{stage_name}' для книги ID {book_id} завершена успешно (все секции завершены без ошибок).")
+                             stage_status_after_tasks = 'completed'
+                             print(f"[WorkflowProcessor] Все секции для стадии '{stage_name}' для книги ID {book_id} завершены успешно.")
                          else:
-                             stage_status = 'completed_with_errors' # Новый статус для стадии завершенной с ошибками секций
-                             stage_error_message = f'Stage completed with errors in {error_sections_count}/{all_sections_count} sections.'
-                             print(f"[WorkflowProcessor] Стадия '{stage_name}' для книги ID {book_id} завершена с ошибками в {error_sections_count} из {all_sections_count} секций. Статус стадии: {stage_status}.")
-                    # Если completion_count != all_sections_count, статус остается processing
+                             stage_status_after_tasks = 'completed_with_errors' # Новый статус для стадии завершенной с ошибками секций
+                             stage_error_message = f'Stage tasks completed with errors in {error_sections_count}/{all_sections_count} sections.'
+                             print(f"[WorkflowProcessor] Все секции для стадии '{stage_name}' для книги ID {book_id} завершены с ошибками.")
 
-                    # TODO: Implement actual stage transition logic here
-                    next_stage_name = workflow_db_manager.get_next_stage_name_workflow(stage_name)
-
-                    # Determine the final book workflow status
-                    final_book_workflow_status = 'processing' # Default remains processing if there's a next stage
-                    final_error_message = None
-
-                    if stage_status == 'completed':
-                        if next_stage_name:
-                            # Stage completed successfully, there is a next stage - overall status remains processing
-                             print(f"[WorkflowProcessor] Стадия '{stage_name}' завершена успешно. Есть следующий этап '{next_stage_name}'. Общий статус книги остается 'processing'.")
-                        else:
-                             # Last stage completed successfully
-                             final_book_workflow_status = 'completed'
-                             final_error_message = 'Workflow completed successfully.'
-                             print(f"[WorkflowProcessor] Последняя стадия '{stage_name}' завершена успешно. Общий статус книги: '{final_book_workflow_status}'.")
-                    elif stage_status == 'completed_with_errors': # Handle completed_with_errors status for the stage
-                         final_book_workflow_status = 'processing' # If there are errors in a stage, book is still processing overall until last stage
-                         final_error_message = f'Stage \'{stage_name}\' completed with errors. Book still processing.'
-                         print(f"[WorkflowProcessor] Стадия '{stage_name}' завершена с ошибками. Общий статус книги остается 'processing'.")
-                         book_workflow_error = True # Mark book workflow as having errors
-                    elif stage_status == 'error':
-                         # Stage completed with errors - overall book status becomes error
-                         final_book_workflow_status = 'error'
-                         final_error_message = f'Stage \'{stage_name}\' completed with errors.'
-                         print(f"[WorkflowProcessor] Стадия '{stage_name}' завершена с ошибками. Общий статус книги: '{final_book_workflow_status}'.")
-                         book_workflow_error = True # Mark book workflow as having errors
-                    else:
-                         # Unexpected stage status - overall book status becomes error
-                         final_book_workflow_status = 'error'
-                         final_error_message = f'Stage \'{stage_name}\' completed with unexpected status: {stage_status}'
-                         print(f"[WorkflowProcessor] Стадия '{stage_name}' завершена с неожиданным статусом '{stage_status}'. Общий статус книги: '{final_book_workflow_status}'.")
-                         book_workflow_error = True # Mark book workflow as having errors
+                    # --- LOGGING: Final stage status after task processing ---
+                    print(f"[WorkflowProcessor] LOG: Определен финальный статус этапа '{stage_name}' после обработки задач: '{stage_status_after_tasks}'.")
+                    # --- END LOGGING ---
 
                     # Update the book stage status in the DB
-                    with current_app.app_context(): # Ensure DB update is in app context
-                         workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, stage_status, error_message=stage_error_message)
-                    print(f"[WorkflowProcessor] Стадия '{stage_name}' для книги ID {book_id} завершена со статусом: {stage_status}")
-
-                    # For per-section stages, we don't necessarily transition to the *next* stage here
-                    # The overall book workflow loop handles stage transitions.
+                    try:
+                         with current_app.app_context():
+                              workflow_db_manager.update_book_stage_status_workflow(
+                                  book_id,
+                                  stage_name,
+                                  stage_status_after_tasks,
+                                  completed_count=completed_sections_count,
+                                  total_count=all_sections_count,
+                                  error_message=stage_error_message
+                              )
+                         # --- LOGGING: Success after updating book stage status ---
+                         print(f"[WorkflowProcessor] LOG: Успешно обновлен статус этапа книги '{stage_name}' до '{stage_status_after_tasks}'.")
+                         # --- END LOGGING ---
+                    except Exception as e:
+                         # --- LOGGING: Error updating book stage status ---
+                         print(f"[WorkflowProcessor] ОШИБКА при обновлении статуса этапа книги '{stage_name}' в БД: {e}")
+                         traceback.print_exc()
+                         # --- END LOGGING ---
+                         # If updating stage status fails, we should mark the overall workflow as error
+                         book_workflow_error = True
+                         book_workflow_error_message = f"Failed to update status for stage '{stage_name}': {e}"
+                         # We still let the loop continue to process other stages if any
+                         # The final status will be 'error' due to book_workflow_error = True
+                         pass # Let the exception handler in the outer try block handle this potentially
 
             else: # Stage is book-level (is_per_section_stage is False)
                 # --- Process Book-Level Stage ---
@@ -516,33 +539,42 @@ def start_book_workflow(book_id: str):
                 if current_stage_status in ['pending', 'queued']:
                     print(f"[WorkflowProcessor] Этап '{stage_name}' книги {book_id} в статусе '{current_stage_status}'. Запускаем обработку.")
                     # Determine which book-level processing function to call based on stage_name
-                    if stage_name == ANALYSIS_STAGE_NAME:
-                        stage_processing_successful = process_book_analysis(book_id)
-                    # TODO: Add other book-level stage processing functions here (e.g., Epub Creation)
-                    elif stage_name == 'epub_creation': # Placeholder for epub creation stage
-                        print(f"[WorkflowProcessor] Placeholder: Processing book {book_id} for epub creation stage")
-                        # Call process_book_epub_creation(book_id)
-                        stage_processing_successful = process_book_epub_creation(book_id)
-                    else:
-                        print(f"[WorkflowProcessor] ОШИБКА: Неизвестный книжный этап: {stage_name}")
-                        # Mark this book as error?
-                        stage_processing_successful = False # Treat as failure
-                        # Update the book stage status to error immediately for unknown stage
-                        with current_app.app_context():
-                             workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, 'error', error_message=f'Unknown book-level stage: {stage_name}')
-                             book_workflow_error = True
-                             book_workflow_error_message = f'Unknown book-level stage: {stage_name}'
-                             # No need to break the loop yet, let overall status update handle it.
+                    
+                    stage_status_after_tasks = 'error' # Default for book-level task result
+                    stage_error_message = 'Unknown error during book-level task.'
 
-                    # After the book-level processing function finishes,
-                    # the function itself is responsible for updating the book stage status (e.g., process_book_analysis does this).
-                    # We just need to check the resulting status to influence the overall book workflow status.
-                    with current_app.app_context():
-                        # Re-fetch the book stage status to get the result of the processing function
-                        # The function get_book_stage_statuses_workflow returns statuses for all stages for the book
-                        book_stage_statuses_after = workflow_db_manager.get_book_stage_statuses_workflow(book_id)
-                        book_stage_status_info_after = book_stage_statuses_after.get(stage_name, None)
-                        stage_status = book_stage_status_info_after.get('status', 'error') if book_stage_status_info_after else 'error'
+                    try:
+                        if stage_name == ANALYSIS_STAGE_NAME:
+                            # process_book_analysis теперь возвращает финальный статус этапа
+                            stage_status_after_tasks = process_book_analysis(book_id)
+                            # process_book_analysis теперь не обновляет статус книги на processing/final
+                            
+                        # TODO: Add other book-level stage processing functions here (e.g., Epub Creation)
+                        elif stage_name == 'epub_creation': 
+                            # process_book_epub_creation теперь возвращает финальный статус этапа
+                            stage_status_after_tasks = process_book_epub_creation(book_id)
+                            # process_book_epub_creation теперь не обновляет статус книги на processing/final
+
+                        else:
+                            print(f"[WorkflowProcessor] ОШИБКА: Неизвестный книжный этап: {stage_name}")
+                            stage_status_after_tasks = 'error' # Treat as failure
+                            stage_error_message = f'Unknown book-level stage: {stage_name}'
+                            book_workflow_error = True
+                            book_workflow_error_message = stage_error_message
+
+                    except Exception as e:
+                        # Catch unexpected exceptions during book-level task execution
+                        stage_status_after_tasks = 'error'
+                        stage_error_message = f"Exception during book-level stage '{stage_name}' processing: {e}"
+                        print(f"[WorkflowProcessor] ОШИБКА при обработке книжного этапа '{stage_name}': {e}")
+                        traceback.print_exc()
+                        book_workflow_error = True
+                        book_workflow_error_message = stage_error_message
+
+                    # After the book-level processing function returns,
+                    # we get its determined status (stage_status_after_tasks).
+                    # We DON'T immediately update the book stage status to this final status here.
+                    # The overall loop logic below handles stage transitions and status updates.
 
                 elif current_stage_status == 'processing':
                      print(f"[WorkflowProcessor] Этап '{stage_name}' книги {book_id} в статусе 'processing'. Пропускаем запуск, ожидаем завершения.")
@@ -551,184 +583,95 @@ def start_book_workflow(book_id: str):
                      # We should probably re-run it or mark it as error if it stays in processing for too long.
                      # For now, we'll just skip and rely on the next run to pick it up or error out.
                      # TODO: Implement logic to handle 'processing' status on startup/rerun.
-                     stage_status = 'processing' # Keep status as is for now
+                     stage_status_after_tasks = 'processing' # Keep status as is for now if it was already processing
+
                 else: # Stage was already completed, completed_with_errors, or error (handled at loop start)
                      # Stage status is already final, just ensure book_workflow_error is set if stage had errors
                      if current_stage_status in ['completed_with_errors', 'error']:
                           book_workflow_error = True
                           book_workflow_error_message = f"Stage '{stage_name}' already completed with errors." # TODO: Aggregate messages
-                     stage_status = current_stage_status # Keep existing status
+                     stage_status_after_tasks = current_stage_status # Keep existing final status
 
-                # Determine the final book workflow status after this book-level stage
-                next_stage_name = workflow_db_manager.get_next_stage_name_workflow(stage_name)
+            # --- Проверка, нужно ли прервать рабочий процесс из-за ошибки на этом этапе ---
+            # ИСПРАВЛЕНИЕ: НЕ прерываем цикл немедленно при final_stage_status == 'error'
+            # Вместо этого, просто отмечаем, что произошла ошибка в workflow
+            # Критические ошибки конфигурации уже обрабатываются в начале функции.
+            if stage_status_after_tasks == 'error':
+                print(f"[WorkflowProcessor] Этап '{stage_name}' завершился с ошибкой. Отмечаем ошибку в workflow.")
+                book_workflow_error = True
+                # Можно агрегировать сообщения об ошибках, но пока просто отмечаем наличие ошибки.
+                # book_workflow_error_message = f\"Error in stage '{stage_name}'.\"
+                # TODO: Агрегировать сообщения об ошибках из этапов в final book_workflow_error_message
 
-                final_book_workflow_status = 'processing' # Default remains processing
-                final_error_message = None
+            # Если этап завершен успешно (или с ошибками секций для посекционного), переходим к следующему
+            # Этот переход неявный в данном синхронном цикле, он просто переходит к следующей итерации.
+            # Логика прерывания при 'error' выше обеспечивает остановку.
 
-                if stage_status == 'completed':
-                    if next_stage_name:
-                        print(f"[WorkflowProcessor] Книжный этап '{stage_name}' завершен успешно. Есть следующий этап '{next_stage_name}'. Общий статус книги остается 'processing'.")
-                    else:
-                        final_book_workflow_status = 'completed'
-                        final_error_message = 'Workflow completed successfully.'
-                        print(f"[WorkflowProcessor] Последний книжный этап '{stage_name}' завершен успешно. Общий статус книги: '{final_book_workflow_status}'.")
-                elif stage_status == 'completed_empty': # Consider completed_empty also successful for workflow flow
-                    if next_stage_name:
-                        print(f"[WorkflowProcessor] Книжный этап '{stage_name}' завершен (пустой результат). Есть следующий этап '{next_stage_name}'. Общий статус книги остается 'processing'.")
-                    else:
-                        final_book_workflow_status = 'completed' # Or completed_empty overall? Let's stick to completed for now if workflow finished.
-                        final_error_message = 'Workflow completed successfully (with empty book-level stage result).'
-                        print(f"[WorkflowProcessor] Последний книжный этап '{stage_name}' завершен (пустой результат). Общий статус книги: '{final_book_workflow_status}'.")
-                    # completed_empty at book level doesn't necessarily mean overall workflow error
+        # --- Конец цикла по этапам ---
 
-                elif stage_status == 'completed_with_errors':
-                     final_book_workflow_status = 'processing' # If errors in a stage, book is still processing overall until last stage
-                     final_error_message = f'Stage \'{stage_name}\' completed with errors. Book still processing.'
-                     print(f"[WorkflowProcessor] Книжный этап '{stage_name}' завершен с ошибками. Общий статус книги остается 'processing'.")
-                     book_workflow_error = True # Mark book workflow as having errors
+        # --- Финальное обновление общего статуса книги ---
+        with current_app.app_context():
+            # Re-fetch book info to get the latest stage statuses
+            latest_book_info = workflow_db_manager.get_book_workflow(book_id)
+            if not latest_book_info:
+                 print(f"[WorkflowProcessor] Ошибка: Не удалось получить финальную информацию о книге {book_id} для определения статуса.")
+                 # Keep the current status (likely error from previous issues) or set to error if somehow not already
+                 if not book_workflow_error:
+                      workflow_db_manager.update_book_workflow_status(book_id, 'error', error_message='Failed to fetch final book info.')
+                 return False # Indicate failure to finalize status
 
-                elif stage_status == 'error' or stage_status.startswith('error_'):
-                    final_book_workflow_status = 'error'
-                    final_error_message = f'Stage \'{stage_name}\' failed with status \'{stage_status}\'.'
-                    print(f"[WorkflowProcessor] Книжный этап '{stage_name}' завершен с ошибкой '{stage_status}'. Общий статус книги: '{final_book_workflow_status}'.")
-                    book_workflow_error = True # Mark book workflow as having errors
-                # If stage_status is 'processing' or 'pending', overall status remains 'processing'
+            latest_book_stage_statuses = workflow_db_manager.get_book_stage_statuses_workflow(book_id)
+            final_book_status = 'completed' # Assume completed initially
+            final_error_message = None
+            has_errors = False
+            has_completed_with_errors = False
+            has_pending_or_processing = False # Should not happen if loop finished correctly in sync mode
 
-                # Update the overall book status if it changed from 'processing'
-                if final_book_workflow_status != 'processing' or book_workflow_error:
-                    # Only update if we are moving to a final status or marking an error
-                    # Ensure we don't overwrite a final error status with processing
-                    with current_app.app_context():
-                         current_overall_status = workflow_db_manager.get_book_workflow(book_id).get('current_workflow_status')
+            # Iterate through all stages to check their final statuses
+            for stage in stages:
+                 stage_name = stage['stage_name']
+                 stage_status_info = latest_book_stage_statuses.get(stage_name, {})
+                 stage_status = stage_status_info.get('status', 'pending')
+                 stage_error = stage_status_info.get('error_message')
 
-                    # Avoid updating if current status is already error and we are processing/completed with errors
-                    if current_overall_status != 'error' or (final_book_workflow_status == 'error'):
-                          final_status_to_set = final_book_workflow_status
-                          final_message_to_set = final_error_message
+                 if stage_status == 'error':
+                      has_errors = True
+                      # Aggregate error messages if needed, for now just mark that an error occurred
+                      if final_error_message is None:
+                           final_error_message = f"Stage '{stage_name}' failed: {stage_error or 'No specific error provided.'}"
+                      else:
+                           final_error_message += f"; Stage '{stage_name}' failed: {stage_error or 'No specific error provided.'}"
+                 elif stage_status == 'completed_with_errors':
+                      has_completed_with_errors = True
+                      if final_error_message is None:
+                           final_error_message = f"Stage '{stage_name}' completed with errors: {stage_error or 'No specific error provided.'}"
+                      else:
+                           final_error_message += f"; Stage '{stage_name}' completed with errors: {stage_error or 'No specific error provided.'}"
+                 elif stage_status in ['pending', 'queued', 'processing']:
+                      # This indicates an issue if the loop finished but a stage is not in a final state
+                      has_pending_or_processing = True
+                      has_errors = True # Treat as an error state for the workflow overall
+                      final_book_status = 'error'
+                      final_error_message = f"Workflow ended with stage '{stage_name}' still in status '{stage_status}'."
+                      break # No need to check further stages if one is stuck
+                 # Note: 'cached', 'completed', 'completed_empty', 'skipped' are considered successful for determining overall status here.
 
-                          # If we had a previous error in a different stage, aggregate the message
-                          if book_workflow_error and current_overall_status == 'processing' and stage_status != 'error':
-                               # This means a previous stage had errors, and this stage completed successfully or with its own errors.
-                               # Keep the book_workflow_error flag, but the message might be related to the current stage.
-                               # For simplicity now, just use the message from the current stage's error if any, or keep previous if none.
-                               pass # Keep the current logic for message, book_workflow_error flag is enough
-
-                          # If the current stage finished successfully but there were errors in previous stages, overall status should reflect errors.
-                          if stage_status == 'completed' and book_workflow_error:
-                              final_status_to_set = 'error'
-                              final_message_to_set = book_workflow_error_message # Use the error message aggregated from previous stages
-
-
-                          # Update the book status
-                          print(f"[WorkflowProcessor] Обновление общего статуса книги {book_id} на '{final_status_to_set}'.")
-                          with current_app.app_context():
-                               workflow_db_manager.update_book_workflow_status(book_id, final_status_to_set, error_message=final_message_to_set)
-
-                if stage_status in ['completed', 'completed_empty'] and next_stage_name:
-                     # Stage completed successfully (or empty), move to the next stage in the loop
-                     print(f"[WorkflowProcessor] Книжный этап '{stage_name}' завершен успешно (или пустой). Переходим к следующему этапу '{next_stage_name}'.")
-                     continue # Move to the next stage in the loop
-                elif stage_status in ['error', 'completed_with_errors']:
-                     # If a book-level stage has errors, mark the overall workflow as having errors and stop processing further stages for this book.
-                     print(f"[WorkflowProcessor] Книжный этап '{stage_name}' завершен с ошибками '{stage_status}'. Прекращаем рабочий процесс для книги {book_id}.")
-                     # Overall book status is already updated above if it was an error
-                     break # Exit the stage loop
-
-
-        # --- Final book status determination and update AFTER the stage loop ---
-        # This logic determines the final book status based on the outcome of all stages.
-        try:
-            with current_app.app_context():
-                # Re-fetch book info including stage statuses to get the latest state after all stages attempted
-                final_book_info = workflow_db_manager.get_book_workflow(book_id)
-                if not final_book_info:
-                     print(f"[WorkflowProcessor] ERROR: Book info not found for final status check after loop: {book_id}")
-                     # If book is gone, cannot set final status.
-                     return False # Exit workflow process on error
-
-                all_book_stage_statuses = final_book_info.get('book_stage_statuses', {})
-                # Get all defined stages to ensure we check all of them
-                stages_definitions = workflow_db_manager.get_all_stages_ordered_workflow() 
-
-            book_workflow_error_overall = False # Flag if any stage finished with error or completed with errors
-            all_defined_stages_in_final_state = True # Flag if *all* defined stages have reached a final state
-
-            defined_stage_names = [stage['stage_name'] for stage in stages_definitions]
-
-            # Check status of each defined stage
-            for stage_name in defined_stage_names:
-                stage_info = all_book_stage_statuses.get(stage_name, {})
-                status = stage_info.get('status')
-
-                # Check for errors in any stage
-                if status in ['error', 'completed_with_errors'] or (status and status.startswith('error_')):
-                    book_workflow_error_overall = True
-
-                # Check if this stage is NOT in a final state
-                # Final states should be: completed, cached, completed_empty, skipped, error, completed_with_errors
-                if status in ['pending', 'queued', 'processing'] or status is None:
-                     all_defined_stages_in_final_state = False
-
-            # --- Determine the final book status based on overall stage outcomes ---
-            final_status_to_set = 'processing' # Default status
-            final_error_message_to_set = None
-
-            if all_defined_stages_in_final_state:
-                 # All defined stages have reached a final state
-                 if book_workflow_error_overall:
-                      # All stages finished, but at least one had an error/completed with errors
-                      final_status_to_set = 'completed_with_errors'
-                      final_error_message_to_set = "Workflow completed, but some stages finished with errors."
-
-                 else:
-                      # All stages finished successfully
-                      final_status_to_set = 'completed'
-                      final_error_message_to_set = None # Success message (optional)
-
+            if has_pending_or_processing:
+                 final_book_status = 'error'
+            elif has_errors:
+                 final_book_status = 'error'
+            elif has_completed_with_errors:
+                 final_book_status = 'completed_with_errors'
             else:
-                 # Not all defined stages are in a final state after the loop. This is an error.
-                 final_status_to_set = 'error'
-                 final_error_message_to_set = "Workflow ended with stages still pending or processing unexpectedly."
+                 final_book_status = 'completed' # All stages completed successfully (including skipped, empty, cached)
 
-            # --- Update the final book status in the database ---
-            with current_app.app_context():
-                # Get the current overall book status one last time before updating
-                current_overall_status_before_final_update = workflow_db_manager.get_book_workflow(book_id).get('current_workflow_status')
+            print(f"[WorkflowProcessor] Финальное определение статуса для книги {book_id}. Has Errors: {has_errors}, Has Completed With Errors: {has_completed_with_errors}, Has Pending/Processing: {has_pending_or_processing}. Финальный статус: {final_book_status}.")
 
-                # Only update the status if the determined final status is different
-                # and we are not trying to downgrade a hard error status.
-                if final_status_to_set != current_overall_status_before_final_update and not (current_overall_status_before_final_update == 'error' and final_status_to_set != 'error'):
-                    print(f"[WorkflowProcessor] Финальное обновление общего статуса книги {book_id} на '{final_status_to_set}'. Message: '{final_error_message_to_set}'")
-                    workflow_db_manager.update_book_workflow_status(book_id, final_status_to_set, error_message=final_error_message_to_set)
-                else:
-                    print(f"[WorkflowProcessor] Final status determined as '{final_status_to_set}' for book {book_id}. No DB update needed or condition not met. Current status: '{current_overall_status_before_final_update}'.")
+            workflow_db_manager.update_book_workflow_status(book_id, final_book_status, error_message=final_error_message)
 
+        print(f"[WorkflowProcessor] Рабочий процесс start_book_workflow для книги ID: {book_id} завершен (основная функция). Финальный статус книги: {final_book_status}.")
 
-        except Exception as e:
-             # If an error occurs during this final status update logic itself
-             print(f"[WorkflowProcessor] Необработанная ОШИБКА при финальном обновлении статуса книги {book_id}: {e}")
-             traceback.print_exc()
-             # Attempt to set the overall status to 'error' as a fallback
-             try:
-                  with current_app.app_context():
-                       # Ensure book exists before attempting status update
-                       book_exists_check = workflow_db_manager.get_book_workflow(book_id)
-                       if book_exists_check:
-                            # Only update if not already a hard error
-                            if book_exists_check.get('current_workflow_status') != 'error':
-                                print(f"[WorkflowProcessor] Fallback: Setting overall book status to 'error' due to exception in final logic for {book_id}.")
-                                workflow_db_manager.update_book_workflow_status(book_id, 'error', error_message=f'Error during final status logic: {e}')
-                            else:
-                                print(f"[WorkflowProcessor] Fallback: Overall book status for {book_id} is already 'error'. No change needed.")
-                       else:
-                            print(f"[WorkflowProcessor] Fallback: Book {book_id} not found during error handling in final logic.")
-             except Exception as db_err:
-                  print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки после финальной логики для книги {book_id}: {db_err}")
-                  traceback.print_exc()
-
-        print(f"[WorkflowProcessor] Рабочий процесс start_book_workflow для книги ID: {book_id} завершен (основная функция). Финальный статус книги: {final_status_to_set if 'final_status_to_set' in locals() else 'Unknown (Variable Undefined)'}.")
-
-        return True # Или return False
+        return True # Or return False depending on final_book_status if needed elsewhere
 
     except Exception as e:
          print(f"[WorkflowProcessor] Необработанная ОШИБКА в start_book_workflow для книги {book_id}: {e}")

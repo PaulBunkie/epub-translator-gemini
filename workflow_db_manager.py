@@ -215,6 +215,10 @@ def get_book_workflow(book_id):
             # Используем новую функцию для получения количества обработанных секций (completed + skipped + empty)
             book_info['processed_sections_count_summarize'] = get_processed_sections_count_for_stage_workflow(book_id, 'summarize')
 
+            # --- НОВОЕ: Добавляем список секций с их статусами ---
+            book_info['sections'] = get_sections_for_book_workflow(book_id)
+            # --- КОНЕЦ НОВОГО ---
+
             return book_info
         return None
     except Exception as e:
@@ -548,7 +552,7 @@ def get_book_stage_statuses_workflow(book_id):
         return {}
 
 
-def update_book_stage_status_workflow(book_id, stage_name, status, model_name=None, error_message=None):
+def update_book_stage_status_workflow(book_id, stage_name, status, model_name=None, error_message=None, completed_count=None, total_count=None):
     """Обновляет статус определенного этапа на уровне книги в book_stage_statuses."""
     db = get_workflow_db()
     try:

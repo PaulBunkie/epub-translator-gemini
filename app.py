@@ -1154,6 +1154,11 @@ def get_workflow_book_status(book_id):
     book_stage_statuses = book_info.get('book_stage_statuses', {})
     sections = book_info.get('sections', []) # Список секций с их stage_statuses
 
+    # --- НОВОЕ: Получаем конфигурацию этапов для добавления is_per_section в ответ API ---
+    stages_config = workflow_db_manager.get_all_stages_ordered_workflow()
+    stages_config_map = {stage['stage_name']: stage for stage in stages_config}
+    # --- КОНЕЦ НОВОГО ---
+
     # --- ИСПРАВЛЕНИЕ: Рассчитываем общее количество секций, запрашивая из БД ---
     total_sections = workflow_db_manager.get_section_count_for_book_workflow(book_id)
     # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
@@ -1164,45 +1169,67 @@ def get_workflow_book_status(book_id):
         "filename": book_info.get('filename'),
         "target_language": book_info.get('target_language'), # Add target_language
         "current_workflow_status": book_info.get('current_workflow_status'),
-        "book_stage_statuses": book_stage_statuses,
+        # --- ИСПОЛЬЗУЕМ НОВЫЕ ДАННЫЕ С КОНФИГУРАЦИЕЙ НИЖЕ ---
+        "book_stage_statuses": {}, # Инициализируем пустым, заполним с is_per_section
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         "total_sections_count": total_sections, # <-- Убедитесь, что здесь используется total_sections
         "sections_status_summary": {} # Сводка статусов секций по этапам
     }
 
-    # --- Добавляем completed_count для этапа summarize в book_stage_statuses ---
-    if 'summarize' in response_data['book_stage_statuses']:
-        # Берем общее количество обработанных секций (completed + skipped + empty)
-        processed_sum_count = book_info.get('processed_sections_count_summarize', 0)
-        response_data['book_stage_statuses']['summarize']['completed_count'] = processed_sum_count
-    # --- Конец добавления completed_count ---
+    # --- НОВОЕ: Добавляем данные этапов книги и is_per_section в ответ ---
+    for stage_name, stage_data in book_stage_statuses.items():
+         response_data['book_stage_statuses'][stage_name] = stage_data # Копируем существующие данные
+         # Добавляем is_per_section из конфигурации, если найдено
+         config = stages_config_map.get(stage_name)
+         if config:
+              response_data['book_stage_statuses'][stage_name]['is_per_section'] = config['is_per_section']
+         else:
+              # Если этап найден в book_stage_statuses, но нет в stages_config
+              # Помечаем как False, чтобы не пытаться посчитать секции для неизвестных этапов.
+              response_data['book_stage_statuses'][stage_name]['is_per_section'] = False
+    # --- КОНЕЦ НОВОГО ---
 
     # Подсчитаем количество секций для каждого статуса на каждом этапе
-    stage_names = list(book_stage_statuses.keys()) # Получаем список этапов книги
-    # Также добавим этапы, которые есть у секций, но могут отсутствовать на уровне книги пока
-    for section in sections:
-         for stage_name in section.get('stage_statuses', {}).keys():
-              if stage_name not in stage_names: stage_names.append(stage_name)
+    # Берем все этапы из конфигурации + любые другие этапы, найденные в секциях.
+    # --- ИЗМЕНЕНИЕ: Формируем sections_status_summary только для ПОСЕКЦИОННЫХ этапов ---
+    sections_status_summary = {} # Инициализируем или очищаем этот словарь
 
-    for stage_name in stage_names:
-         response_data['sections_status_summary'][stage_name] = {
-             'total': len(sections),
-             'completed': 0,
-             'completed_empty': 0,
-             'processing': 0,
-             'queued': 0,
-             'error': 0,
-             'skipped': 0,
-             'pending': 0,
-             'cached': 0 # Для перевода
-         }
-         for section in sections:
-              section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
-              if section_stage_status in response_data['sections_status_summary'][stage_name]:
-                   response_data['sections_status_summary'][stage_name][section_stage_status] += 1
-              else:
-                   # Если встречен неизвестный статус
-                   print(f"  [WorkflowStatusAPI] Предупреждение: Неизвестный статус секции '{section.get('section_epub_id')}' для этапа '{stage_name}': '{section_stage_status}'")
-                   # Можно добавить в отдельную категорию или игнорировать
+    # Получаем конфигурацию этапов (уже должно быть получено выше)
+    # stages_config = workflow_db_manager.get_all_stages_ordered_workflow()
+    # stages_config_map = {stage['stage_name']: stage for stage in stages_config} # уже получено выше
+
+    # Итерируемся по сконфигурированным этапам и добавляем сводку только для посекционных
+    for stage_name, stage_config in stages_config_map.items():
+        if stage_config.get('is_per_section'):
+            # Инициализируем сводку для этого посекционного этапа
+            sections_status_summary[stage_name] = {
+                'total': len(sections), # Общее количество секций книги (корректно для посекционного этапа)
+                'completed': 0,
+                'completed_empty': 0,
+                'processing': 0,
+                'queued': 0,
+                'error': 0,
+                'skipped': 0,
+                'pending': 0,
+                'cached': 0, # Для этапа перевода
+                # TODO: Учесть custom error statuses, если есть
+            }
+            # Теперь проходим по всем секциям книги и считаем статусы для ТЕКУЩЕГО посекционного этапа
+            for section in sections:
+                section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
+                if section_stage_status in sections_status_summary[stage_name]:
+                    sections_status_summary[stage_name][section_stage_status] += 1
+                else:
+                    # Если встречен неизвестный статус у секции для этого этапа
+                    print(f"  [WorkflowStatusAPI] Предупреждение: Неизвестный статус секции '{section.get('section_epub_id')}' для посекционного этапа '{stage_name}': '{section_stage_status}'")
+                    # Пока игнорируем или можно добавить в 'error' или отдельную категорию
+
+
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+    # --- ИСПРАВЛЕНИЕ: Присваиваем локальную переменную sections_status_summary в response_data ---
+    response_data['sections_status_summary'] = sections_status_summary
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     # TODO: Включить в ответ детальные статусы каждой секции, если нужно для фронтенда
     # response_data['sections_details'] = sections # Осторожно: может быть большой объем данных!
