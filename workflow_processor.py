@@ -36,8 +36,8 @@ def clean_html(html_content):
 SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free'
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
-# TODO: Определить шаблон промпта для суммаризации
-# Пока используем простой шаблон
+# NEW CONSTANT: Instruction for models regarding proper nouns and gender
+MODEL_GENDER_INSTRUCTION_PROMPT = "For proper nouns, indicate the presumed gender in parentheses"
 
 # --- Constants for Analysis Stage ---
 ANALYSIS_MODEL = 'meta-llama/llama-4-maverick:free' # Можно использовать ту же модель или другую
@@ -110,10 +110,13 @@ def process_section_summarization(book_id: str, section_id: int):
         # --- КОНЕЦ НОВОГО БЛОКА ---
 
         # 4. Вызываем модель суммаризации с ретраями
-        target_language = book_info['target_language']
+        # target_language = book_info['target_language'] # Original line
+        # Use a hardcoded signal to tell the model to summarize in the original language
+        target_language_for_summarization = "ORIGINAL_LANGUAGE"
         operation_type = SUMMARIZATION_STAGE_NAME
         model_name = SUMMARIZATION_MODEL
-        prompt_ext = None # No additional prompt needed for basic summarization
+        # Use the new instruction prompt
+        prompt_ext = MODEL_GENDER_INSTRUCTION_PROMPT
 
         summarized_text = None
         status = 'error' # Default status in case of failure
@@ -124,7 +127,7 @@ def process_section_summarization(book_id: str, section_id: int):
             try:
                 summarized_text = translation_module.translate_text(
                     text_to_translate=section_content,
-                    target_language=target_language,
+                    target_language=target_language_for_summarization,
                     model_name=model_name,
                     operation_type=operation_type,
                     prompt_ext=prompt_ext
@@ -778,7 +781,8 @@ def process_book_analysis(book_id: str):
                      text_to_translate=collected_summary_text, # Pass the collected summary text
                      target_language=target_language,
                      model_name=model_name,
-                     prompt_ext=ANALYSIS_PROMPT_TEMPLATE, # Pass the template constant directly
+                     # Combine the existing analysis template with the new gender instruction
+                     prompt_ext=f"{ANALYSIS_PROMPT_TEMPLATE} {MODEL_GENDER_INSTRUCTION_PROMPT}", # Pass the combined instruction
                      operation_type=ANALYSIS_STAGE_NAME # Pass the operation type
                  )
                  print(f"[WorkflowProcessor] Результат translate_text: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
