@@ -2,7 +2,7 @@
 
 import workflow_db_manager
 import epub_parser
-import translation_module
+import workflow_translation_module as translation_module
 import os
 import traceback
 import workflow_cache_manager # TODO: Implement workflow_cache_manager DONE
