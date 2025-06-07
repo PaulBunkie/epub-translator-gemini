@@ -40,7 +40,7 @@ SUMMARIZATION_STAGE_NAME = 'summarize'
 MODEL_GENDER_INSTRUCTION_PROMPT = "For proper nouns, indicate the presumed gender in parentheses"
 
 # --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'meta-llama/llama-4-maverick:free' # Можно использовать ту же модель или другую
+ANALYSIS_MODEL = 'deepseek/deepseek-chat-v3-0324:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
 # --- Prompt Template for Analysis ---

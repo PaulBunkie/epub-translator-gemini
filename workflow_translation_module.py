@@ -43,6 +43,62 @@ class WorkflowTranslator:
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         # TODO: Добавить инициализацию Google API ключа
 
+    def _chunk_text(self, text: str, chunk_size_limit_chars: int) -> List[str]:
+        """
+        Разбивает текст на чанки по приблизительному количеству символов,
+        используя переданный chunk_size_limit_chars.
+        Этот метод является базовой реализацией, стараясь не разрывать слова.
+        """
+        if not text:
+            return []
+
+        # Используем переданный лимит символов напрямую
+        max_chunk_chars = chunk_size_limit_chars
+
+        chunks = []
+        current_pos = 0
+        text_len = len(text)
+
+        while current_pos < text_len:
+            end_pos = min(current_pos + max_chunk_chars, text_len)
+            chunk = text[current_pos:end_pos]
+
+            if end_pos < text_len and not text[end_pos].isspace() and text[end_pos-1].isalpha():
+                last_space = chunk.rfind(' ')
+                if last_space > 0 and (len(chunk) - last_space) < 50:
+                    chunk = chunk[:last_space]
+                    end_pos = current_pos + len(chunk)
+
+            chunks.append(chunk.strip())
+            current_pos = end_pos
+
+        return [c for c in chunks if c]
+
+    def _parse_markdown_table_to_glossary_dict(self, markdown_table_string: str) -> Dict[str, str]:
+        """
+        Парсит Markdown таблицу в словарь глоссария.
+        """
+        # Используем регулярное выражение для поиска строк таблицы
+        table_rows = re.findall(r'\|(.*?)\|', markdown_table_string)
+
+        # Инициализируем пустой словарь для глоссария
+        glossary_dict = {}
+
+        # Проходим по строкам таблицы, начиная со второй (первая - заголовки)
+        for row in table_rows[1:]:
+            # Разбиваем строку на ячейки
+            cells = [cell.strip() for cell in row.split('|')]
+
+            # Проверяем, что у нас есть как минимум две ячейки (термин и перевод)
+            if len(cells) >= 2:
+                term = cells[0]
+                translation = cells[1]
+
+                # Добавляем термин и перевод в словарь
+                glossary_dict[term] = translation
+
+        return glossary_dict
+
     def _build_messages_for_operation(
         self,
         operation_type: str,
@@ -165,12 +221,7 @@ Here is the text to analyze:
 
         # TODO: Учесть prompt_ext - куда его добавить? В старом модуле prompt_ext добавлялся как отдельная секция в _build_prompt.
         # Для summarize/analyze мы можем добавить его в user_content.
-        # Для translate prompt_ext будет частью structured user_content (как в старом _build_prompt).
-        # Нам нужно решить, как его использовать в новом структурированном промпте для translate.
-        if prompt_ext and operation_type in ['summarize', 'analyze']:
-             # Добавляем prompt_ext как дополнительную инструкцию в user_content для sum/analyze
-             messages[-1]['content'] += f"\n\nADDITIONAL INSTRUCTIONS:\n{prompt_ext}"
-        # Для translate, prompt_ext может быть обработан внутри логики формирования translate-промпта,
+        # Для translate prompt_ext может быть обработан внутри логики формирования translate-промпта,
         # возможно, объединив его с user_instruction из dict_data или добавив как отдельную секцию.
         # TODO: Определить, как использовать prompt_ext для операции translate.
 
@@ -334,19 +385,6 @@ Here is the text to analyze:
             print(f"[WorkflowTranslator] ОШИБКА: Неизвестный тип API для модели: '{model_name}'.")
             return None # Или специальная ошибка неизвестного API
 
-    # TODO: Реализовать метод для определения длины контекста модели, возможно, используя translation_module.get_context_length
-    def _get_context_length(self, model_name: str) -> int:
-        """Получает лимит токенов для модели."""
-        try:
-            # Попробуем использовать оригинальную функцию, если импортирован translation_module
-            limit = translation_module.get_context_length(model_name)
-            # print(f"[WorkflowTranslator] Используется реальный лимит контекста из translation_module: {limit} для модели {model_name}")
-            return limit
-        except (AttributeError, NameError):
-             # Если не удалось или модуль не импортирован/функция отсутствует, используем дефолтное значение
-             print("[WorkflowTranslator] WARNING: Не удалось вызвать translation_module.get_context_length. Использован дефолтный лимит.")
-             return 30000 # Дефолтное большое значение на всякий случай
-
     def translate_text(
         self,
         text_to_translate: str,
@@ -357,218 +395,85 @@ Here is the text to analyze:
         dict_data: dict | None = None
     ) -> str | None:
         """
-        Обрабатывает различные операции рабочего процесса (sum, analyze, translate)
-        для данного класса.
-        Проксирует запросы sum/analyze к старому модулю (пока нет, используем заглушку).
-        Для операции 'translate' реализует новую логику (чанкинг, JSON промпт, вызов API).
-
-        Args:
-            text_to_translate: Текст для обработки (секция).
-            target_language: Целевой язык.
-            model_name: Имя модели.
-            prompt_ext: Дополнительные инструкции для модели (используются старым модулем).
-            operation_type: Тип операции ('summarize', 'analyze', 'translate').
-            dict_data: Дополнительные данные для workflow (например, глоссарий), необязательный.
-
-        Returns:
-            Результат операции (текст) или None в случае ошибки.
+        Основной метод для обработки текста в зависимости от operation_type.
+        Использует _build_messages_for_operation для создания промпта
+        и _call_model_api для взаимодействия с моделью.
         """
-        print(f"[WorkflowTranslator] Вызов метода translate_text. Операция: '{operation_type}'")
+        CHUNK_SIZE_LIMIT_CHARS = 0 # Инициализируем переменную для определения лимита чанка
 
-        # dict_data теперь доступен здесь и может быть передан дальше
-        # Обработка summarize и analyze (сейчас используют заглушку _call_model_api)
-        if operation_type in ['summarize', 'analyze']:
-            print(f"[WorkflowTranslator] Обработка операции '{operation_type}'.")
-            # Шаг 1: Сформировать сообщения для API
+        # Определение лимита чанка в зависимости от типа операции.
+        # Поскольку _get_context_length УДАЛЕНА, для summarize/analyze используем фиксированный большой лимит.
+        if operation_type == 'translate':
+            CHUNK_SIZE_LIMIT_CHARS = 20000
+            print("[WorkflowTranslator] Использован фиксированный лимит для перевода.")
+        elif operation_type in ['summarize', 'analyze']:
+            # Внимание: здесь мы больше НЕ используем _get_context_length.
+            # Если для summarize/analyze требуется динамическое определение лимита из API,
+            # нужно будет перенести сюда весь блок get_context_length из translation_module.py
+            # вместе со вспомогательными функциями (_cached_models_list, get_models_list).
+            # Пока используем большой фиксированный лимит, чтобы избежать поломки.
+            CHUNK_SIZE_LIMIT_CHARS = 60000 # Достаточно большой лимит для большинства summarize/analyze запросов
+            print(f"[WorkflowTranslator] Для '{operation_type}' использован большой фиксированный лимит ({CHUNK_SIZE_LIMIT_CHARS} символов) вместо динамического.")
+        else:
+            CHUNK_SIZE_LIMIT_CHARS = 20000 # Дефолтное значение для неизвестных операций
+            print(f"[WorkflowTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
+
+        # Далее логика для summarize/analyze/translate.
+        # Для summarize и analyze мы сейчас не чанкуем текст здесь, а передаем его целиком в _build_messages_for_operation.
+        # CHUNK_SIZE_LIMIT_CHARS, определенный выше, будет использоваться только для "translate".
+
+        if operation_type == 'summarize' or operation_type == 'analyze':
             messages = self._build_messages_for_operation(
-                 operation_type=operation_type,
-                 text_to_process=text_to_translate,
-                 target_language=target_language,
-                 model_name=model_name, # Передаем model_name
-                 prompt_ext=prompt_ext,
-                 dict_data=dict_data # Передаем dict_data
-            )
-
-            # Шаг 2: Вызвать API с сформированными сообщениями (используя заглушку _call_model_api)
-            api_result = self._call_model_api(
+                operation_type,
+                text_to_translate, # Передаем полный текст
+                target_language, 
                 model_name=model_name,
-                messages=messages,
-                # Дополнительные параметры API, если нужны (temperature и т.д.)
+                prompt_ext=prompt_ext,
+                dict_data=dict_data
             )
-
-            # Шаг 3: Обработать результат API вызова
-            # TODO: Добавить реальную обработку ошибок API (None, EMPTY_RESPONSE_ERROR, CONTEXT_LIMIT_ERROR)
-            if api_result is not None and api_result != translation_module.EMPTY_RESPONSE_ERROR:
-                 print(f"[WorkflowTranslator] API вызов для '{operation_type}' успешен (заглушка).")
-                 return api_result
-            else:
-                 print(f"[WorkflowTranslator] API вызов для '{operation_type}' вернул ошибку или пустой результат (заглушка).")
-                 # В реальной реализации здесь будет логика ретраев и определения статуса ошибки
-                 return None # Или индикатор ошибки
+            return self._call_model_api(model_name, messages)
 
         elif operation_type == 'translate':
-            print("[WorkflowTranslator] Вызов новой логики перевода с глоссарием/чанками.")
-            # TODO: Реализовать здесь логику чанкинга, формирования JSON промпта и вызова API.
+            print(f"[WorkflowTranslator] Вызов операции 'translate' для текста длиной {len(text_to_translate)} символов.")
 
-            text_len = len(text_to_translate)
-            # Получаем лимит контекста для модели
-            # Используем заглушку _get_context_length пока не реализуем правильно
-            token_limit = self._get_context_length(model_name or "default-model") # Используем дефолт если model_name нет
-            # Оцениваем лимит символов, умножая лимит токенов на ~3-4 с запасом
-            # Это грубая оценка, идеальна токенизация. Но для начала сойдет.
-            CHUNK_SIZE_LIMIT_CHARS = int(token_limit * 3.5) # Умножаем на 3.5 для запаса
-
-            # Добавляем минимальное ограничение
-            MIN_CHUNK_SIZE = 1000
-            if CHUNK_SIZE_LIMIT_CHARS < MIN_CHUNK_SIZE:
-                 CHUNK_SIZE_LIMIT_CHARS = MIN_CHUNK_SIZE
-
-            print(f"[WorkflowTranslator] Проверка длины текста: {text_len} симв. Оценочный лимит чанка: {CHUNK_SIZE_LIMIT_CHARS} симв.")
-
-            # Пробуем перевести целиком, если текст достаточно короткий
-            # Добавляем небольшой буфер (10%), чтобы не разбивать слишком близко к лимиту
-            if text_len <= CHUNK_SIZE_LIMIT_CHARS * 1.1:
-                print("[WorkflowTranslator] Пробуем перевод целиком...")
-                try:
-                     # Формируем сообщения для всего текста как одного чанка
-                     messages = self._build_messages_for_operation(
-                          operation_type=operation_type,
-                          text_to_process=text_to_translate,
-                          target_language=target_language,
-                          model_name=model_name,
-                          prompt_ext=prompt_ext,
-                          dict_data=dict_data # Передаем dict_data
-                     )
-                     # Вызываем API для всего текста
-                     translated_text = self._call_model_api(
-                         model_name=model_name,
-                         messages=messages
-                     )
-                     # TODO: Обработка CONTEXT_LIMIT_ERROR от API вызова
-                     if translated_text != translation_module.CONTEXT_LIMIT_ERROR:
-                         print("[WorkflowTranslator] Перевод целиком успешен.")
-                         return translated_text
-                     else:
-                         print("[WorkflowTranslator] Перевод целиком не удался (лимит контекста), переключаемся на чанки.")
-                except Exception as e:
-                     print(f"[WorkflowTranslator] ОШИБКА при переводе целиком: {e}")
-                     traceback.print_exc()
-                     print("[WorkflowTranslator] Переключаемся на чанки после ошибки.")
-
-            # Разбиваем на чанки по параграфам/предложениям (логика как в старом модуле)
-            print(f"[WorkflowTranslator] Текст длинный ({text_len} симв.), разбиваем на чанки...")
-            paragraphs = text_to_translate.split('\n\n')
-            chunks = []
-            current_chunk = []
-            current_chunk_len = 0
-
-            for paragraph in paragraphs:
-                paragraph = paragraph.strip()
-                if not paragraph:
-                    continue
-
-                paragraph_len = len(paragraph)
-                # Если параграф сам по себе больше лимита, пытаемся разбить его на предложения
-                if paragraph_len > CHUNK_SIZE_LIMIT_CHARS:
-                    if current_chunk: # Добавляем текущий накопленный чанк перед обработкой длинного параграфа
-                        chunks.append('\n\n'.join(current_chunk).strip())
-                        current_chunk = []
-                        current_chunk_len = 0
-
-                    # Разбиваем длинный параграф на предложения
-                    sentences = re.split(r'(?<=[.!?])\s+', paragraph) # Разбиваем по концу предложения с пробелом
-                    temp_chunk = []
-                    temp_chunk_len = 0
-
-                    for sentence in sentences:
-                        sentence = sentence.strip()
-                        if not sentence: continue
-
-                        sentence_len = len(sentence)
-                        # Если добавление предложения превысит лимит
-                        if temp_chunk_len + sentence_len + (2 if temp_chunk else 0) > CHUNK_SIZE_LIMIT_CHARS:
-                            if temp_chunk:
-                                chunks.append('. '.join(temp_chunk).strip()) # Добавляем накопленный чанк предложений
-                            temp_chunk = [sentence] # Начинаем новый чанк с текущего предложения
-                            temp_chunk_len = sentence_len
-                        else:
-                            temp_chunk.append(sentence) # Добавляем предложение к текущему чанку
-                            temp_chunk_len += sentence_len + (2 if temp_chunk_len > 0 else 0) # Учитываем ". " между предложениями
-
-                    if temp_chunk: # Добавляем последний чанк предложений
-                        chunks.append('. '.join(temp_chunk).strip())
-
-                else: # Параграф меньше или равен лимиту чанка
-                    # Если добавление параграфа превысит лимит текущего чанка
-                    if current_chunk_len + paragraph_len + (4 if current_chunk else 0) > CHUNK_SIZE_LIMIT_CHARS:
-                        chunks.append('\n\n'.join(current_chunk).strip()) # Добавляем накопленный чанк параграфов
-                        current_chunk = [paragraph] # Начинаем новый чанк с текущего параграфа
-                        current_chunk_len = paragraph_len
-                    else:
-                        current_chunk.append(paragraph) # Добавляем параграф к текущему чанку
-                        current_chunk_len += paragraph_len + (4 if current_chunk_len > 0 else 0) # Учитываем "\n\n" между параграфами
-
-            if current_chunk: # Добавляем последний чанк параграфов
-                chunks.append('\n\n'.join(current_chunk).strip())
-
-            # Удаляем пустые чанки, которые могли появиться из-за strip() или пустых строк
-            chunks = [chunk for chunk in chunks if chunk]
-
+            translated_chunks = []
+            
+            # Чанкирование текста
+            # Передаем CHUNK_SIZE_LIMIT_CHARS, который уже был определен выше
+            chunks = self._chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+            
             if not chunks:
-                print("[WorkflowTranslator] Ошибка: Не удалось создать чанки!")
+                print("[WorkflowTranslator] Нет чанков для перевода.")
                 return None
 
-            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков.")
-            translated_chunks = []
-            last_successful_translation = "" # TODO: Использовать для previous_context если нужно
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков с лимитом {CHUNK_SIZE_LIMIT_CHARS} символов.")
 
-            for i, chunk in enumerate(chunks, 1):
-                print(f"[WorkflowTranslator] -- Обработка чанка {i}/{len(chunks)} ({len(chunk)} симв.)...")
-                # TODO: Реализовать логику ретраев для каждого чанка здесь
-
-                # Шаг 1: Сформировать сообщения для чанка
-                # Здесь dict_data будет передано, если оно было передано в translate_text
+            # Обработка каждого чанка
+            for i, chunk in enumerate(chunks):
+                print(f"[WorkflowTranslator] Перевод чанка {i+1}/{len(chunks)} (длина: {len(chunk)} симв).")
                 messages = self._build_messages_for_operation(
-                     operation_type=operation_type,
-                     text_to_process=chunk, # Обрабатываем чанк
-                     target_language=target_language,
-                     model_name=model_name,
-                     prompt_ext=prompt_ext, # Пока прокидываем, но нужно решить как использовать в translate
-                     dict_data=dict_data # Передаем dict_data с глоссарием/инструкциями
-                )
-
-                # Шаг 2: Вызвать API для чанка
-                chunk_result = self._call_model_api(
+                    operation_type,
+                    chunk, # Передаем сам чанк
+                    target_language,
                     model_name=model_name,
-                    messages=messages
+                    prompt_ext=prompt_ext, 
+                    dict_data=dict_data 
                 )
-
-                # Шаг 3: Обработать результат чанка
-                # TODO: Обработка ошибок: CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR, другие ошибки API
-                if chunk_result is not None and chunk_result != translation_module.CONTEXT_LIMIT_ERROR and chunk_result != translation_module.EMPTY_RESPONSE_ERROR:
-                    translated_chunks.append(chunk_result)
-                    # TODO: Обновить last_successful_translation для контекста следующего чанка (если нужно)
-                    # last_successful_translation = chunk_result
-                else:
-                    print(f"[WorkflowTranslator] Ошибка обработки чанка {i}: {chunk_result}. Пропускаем чанк или обрабатываем ошибку.")
-                    # TODO: Реализовать логику обработки ошибок чанка: пропустить, пометить как ошибку, прекратить процесс?
-                    # Пока просто пропускаем чанк, если API вернуло ошибку или None
-                    translated_chunks.append(f"[ERROR_PROCESSING_CHUNK_{i}]") # Помечаем ошибку
-
-            # Шаг 4: Собрать переведенные чанки обратно
-            if translated_chunks:
-                 # TODO: Определить, как лучше объединять чанки. Простое объединение '\n\n' может быть неидеальным.
-                 # Возможно, нужно сохранять структуру параграфов/предложений.
-                 final_translated_text = '\n\n'.join(translated_chunks)
-                 print("[WorkflowTranslator] Все чанки обработаны.")
-                 return final_translated_text
-            else:
-                 print("[WorkflowTranslator] ОШИБКА: Ни один чанк не был успешно обработан.")
-                 return None # Возвращаем None, если все чанки дали ошибку
-
+                
+                translated_chunk = self._call_model_api(model_name, messages)
+                
+                if translated_chunk is None:
+                    print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1}. Прерывание.")
+                    return None 
+                
+                translated_chunks.append(translated_chunk)
+            
+            full_translated_text = "".join(translated_chunks)
+            print(f"[WorkflowTranslator] Перевод завершен. Общая длина: {len(full_translated_text)} симв.")
+            return full_translated_text
         else:
-            print(f"[WorkflowTranslator] Предупреждение: Неизвестный тип операции рабочего процесса: {operation_type}")
-            return None
+            print(f"[WorkflowTranslator] Неизвестный тип операции: {operation_type}")
+            return None 
 
 # --- ПУБЛИЧНАЯ ФУНКЦИЯ, КОТОРАЯ ВЫЗЫВАЕТ МЕТОД КЛАССА ---
 def translate_text(
