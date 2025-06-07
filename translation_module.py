@@ -150,7 +150,7 @@ class BaseTranslator(ABC):
 
         # ИЗМЕНЕНИЕ: Определяем лимит чанка в зависимости от типа операции
         if operation_type == 'translate':
-            CHUNK_SIZE_LIMIT_CHARS = 20000
+            CHUNK_SIZE_LIMIT_CHARS = 40000
             limit_source_desc = "Фиксированный лимит для перевода"
         elif operation_type in ['summarize', 'analyze']:
             # Получаем лимит токенов для операций summarize/analyze
@@ -162,7 +162,7 @@ class BaseTranslator(ABC):
             limit_source_desc = f"Лимит по токенам модели ({token_limit} * 3)"
         else:
             # Дефолтное значение для неизвестных операций
-            CHUNK_SIZE_LIMIT_CHARS = 20000
+            CHUNK_SIZE_LIMIT_CHARS = 40000
             limit_source_desc = "Дефолтный лимит для неизвестной операции"
             print(f"[BaseTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
 
