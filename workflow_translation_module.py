@@ -126,7 +126,15 @@ class WorkflowTranslator:
         # TODO: Уточнить системные и пользовательские инструкции на основе operation_type и potential prompt_ext
         # Сейчас делаем простые инструкции для тестирования
         if operation_type == 'summarize':
-            system_content = system_instruction or "You are a summarization engine. Provide a concise summary."
+            system_content = system_instruction or f"""You are a summarization engine. Summarize the following text concisely and clearly in the original language. 
+Focus especially on:
+- Neologisms (newly coined words or expressions),
+- Words used in unusual or figurative meanings,
+- Specific slang or jargon,
+- Meaningful or symbolic names (speaking names).
+
+Whenever such words or expressions appear, briefly explain their meaning or context in parentheses immediately after the word or phrase inside the summary. 
+Keep the explanations short and concise, just enough to clarify the term without breaking the flow."""
             user_content = f"Summarize the following text in the original language:\n\n{text_to_process}"
             # Примечание: Суммаризация в оригинальном языке согласно workflow_processor.
 
@@ -153,7 +161,9 @@ Never output explanations or anything outside the table."""
 - Technologies, procedures, job titles
 - Neologisms and invented terms
 - Culturally specific words or expressions that may not translate directly
+- Include culturally loaded or invented terms that may function as common nouns but are crucial to the fictional world. These must be treated as glossary terms if they have stylistic, world-building, or semantic weight.
 
+Provide one consistent translation option into {target_language}. If the term is better kept untranslated (e.g. brand names, acronyms, some neologisms), repeat it in the original form and briefly explain in the Comment column why translation was avoided (e.g., “brand name”, “widely used as-is”, “proper noun”, “doesn’t translate well”).
 For each term found, add a row to the Markdown table with the following columns:
 
 **Term** — The original form exactly as it appears in the text.
