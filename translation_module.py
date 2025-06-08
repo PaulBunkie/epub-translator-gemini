@@ -23,6 +23,20 @@ _cached_models_list: Optional[List[Dict[str, Any]]] = None
 _model_list_last_update: Optional[float] = None # Опционально: для будущего кэширования по времени
 _MODEL_LIST_CACHE_TTL = 3600 # Время жизни кэша в секундах (1 час) - можно настроить
 
+# --- НОВАЯ ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЭВРИСТИКИ (ПЕРЕМЕЩЕНО СЮДА) ---
+def _ends_with_complete_sentence(text: str) -> bool:
+    """
+    Проверяет, заканчивается ли строка полным предложением (т.е. на знак препинания).
+    """
+    if not text:
+        return False
+    # Удаляем любые пробелы и небуквенные символы в конце, кроме знаков препинания,
+    # чтобы корректно обработать текст, заканчивающийся на ".", "!", "?"
+    cleaned_text = text.strip()
+    # Проверяем, заканчивается ли текст на '.', '!', '?' (возможно, с кавычками/скобками после)
+    return bool(re.search(r'[.!?]["\'\])}]*$', cleaned_text))
+# --- КОНЕЦ ПЕРЕМЕЩЕННОЙ ВСПОМОГАТЕЛЬНОЙ ФУНКЦИИ ---
+
 # --- Шаблоны промптов для различных операций ---
 PROMPT_TEMPLATES = {
     'translate': """You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:
@@ -100,13 +114,16 @@ class BaseTranslator(ABC):
         text: str,
         previous_context: str = "",
         prompt_ext: Optional[str] = None
-    ) -> str:
-        """Формирует строку промпта для модели на основе типа операции и входных данных."""
+    ) -> tuple[str, int]:
+        """Формирует строку промпта для модели на основе типа операции и входных данных.
+        Возвращает кортеж: (сформированный промпт, оценочная длина символов промпта без основного текста).
+        """
         template = PROMPT_TEMPLATES.get(operation_type)
         if not template:
             raise ValueError(f"Неизвестный тип операции: {operation_type}")
 
         # Форматируем дополнительные секции отдельно, чтобы не добавлять их, если они пустые
+        # И сразу получаем их длину для подсчета нетекстовой части
         prompt_ext_section = _format_prompt_section("ADDITIONAL INSTRUCTIONS (Apply if applicable, follow strictly for names and terms defined here)", prompt_ext)
         previous_context_section = _format_prompt_section("Previous Context (use for style and recent terminology reference)", previous_context)
 
@@ -117,20 +134,38 @@ class BaseTranslator(ABC):
         translator_notes_heading = 'Примечания переводчика' if target_language.lower() == 'russian' else 'Translator Notes'
 
         # Используем f-строку для форматирования шаблона
-        prompt = template.format(
+        # Временные плейсхолдеры, чтобы потом вычислить длину "не-текстовой" части
+        temp_prompt_for_overhead_calc = template.format(
+            target_language=target_language,
+            text="", # Замещаем текст пустым, чтобы получить длину остального промпта
+            prompt_ext_section=prompt_ext_section,
+            previous_context_section=previous_context_section,
+            russian_dialogue_rule=russian_dialogue_rule,
+            translator_notes_heading=translator_notes_heading,
+        )
+        
+        # Вычисляем общую длину символов не-текстовой части промпта.
+        # Учитываем, что .format() вставляет текст и его плейсхолдеры.
+        # Просто вычитаем длину placeholder "{text}" и добавляем длину реального текста.
+        # Более надежный способ: сформировать промпт с пустой строкой вместо {text}
+        
+        estimated_non_text_char_length = len(temp_prompt_for_overhead_calc.replace("{text}", "").strip()) # Удаляем {text} и лишние пробелы
+
+        # Формируем окончательный промпт с реальным текстом
+        final_prompt = template.format(
             target_language=target_language,
             text=text,
             prompt_ext_section=prompt_ext_section,
             previous_context_section=previous_context_section,
             russian_dialogue_rule=russian_dialogue_rule,
-            translator_notes_heading=translator_notes_heading, # Передаем рассчитанное значение
-            # Добавляем сюда другие переменные, если они понадобятся для других шаблонов
-            # например, summary_length=summary_length для суммаризации
+            translator_notes_heading=translator_notes_heading,
         )
 
         # Удаляем возможные двойные пустые строки, если секции были пустыми
-        # return "\n".join(line for line in prompt.split('\n') if line.strip() or line == '') # Более строгий вариант
-        return prompt.replace("\n\n\n", "\n\n").strip() # Простой вариант очистки пустых строк
+        final_prompt = final_prompt.replace("\n\n\n", "\n\n").strip()
+
+        # Возвращаем сам промпт и оценочную длину нетекстовой части
+        return final_prompt, estimated_non_text_char_length
 
     @abstractmethod
     def translate_chunk(self, model_name: str, text: str, target_language: str = "russian",
@@ -427,7 +462,7 @@ class GoogleTranslator(BaseTranslator):
                        previous_context: str = "", prompt_ext: Optional[str] = None,
                        operation_type: str = 'translate') -> Optional[str]:
         """Переводит чанк текста с использованием Google API с обработкой ошибок, лимитов и ретраями для пустых ответов."""
-        prompt = self._build_prompt(operation_type, target_language, text, previous_context, prompt_ext)
+        prompt, _ = self._build_prompt(operation_type, target_language, text, previous_context, prompt_ext)
         max_retries = 3 # Всего 3 попытки (1 начальная + 2 ретрая) для пустых ответов и ошибок API
         retry_delay_seconds = 5 # Задержка между попытками
 
@@ -574,13 +609,15 @@ class OpenRouterTranslator(BaseTranslator):
             # "X-Title": os.getenv("YOUR_APP_NAME", "EPUB Translator"), # Optional: Replace with your app name
         }
 
-        prompt = self._build_prompt(
+        # ИЗМЕНЕНИЕ: Теперь _build_prompt возвращает prompt и non_text_char_length
+        prompt, estimated_non_text_char_length = self._build_prompt(
             operation_type=operation_type,
             target_language=target_language,
             text=text,
             previous_context=previous_context,
             prompt_ext=prompt_ext
         )
+        total_prompt_char_length = len(prompt) # Общая длина сформированного промпта в символах
 
         # --- НОВОЕ ИЗМЕНЕНИЕ: Динамический расчет max_output_tokens ---
         model_total_context_limit = get_context_length(model_name)
@@ -642,32 +679,53 @@ class OpenRouterTranslator(BaseTranslator):
                          # --- Добавляем логирование информации об использовании токенов ---
                          if 'usage' in response_json:
                              usage = response_json['usage']
-                             prompt_t = usage.get('prompt_tokens', 'N/A')
-                             completion_t = usage.get('completion_tokens', 'N/A')
+                             prompt_t = usage.get('prompt_tokens', 0) # Теперь это точное количество токенов, которые мы отправили
+                             completion_t = usage.get('completion_tokens', 0)
                              total_t = usage.get('total_tokens', 'N/A')
                              print(f"[OpenRouterTranslator] Использование токенов: Вход={prompt_t}, Выход={completion_t}, Всего={total_t}")
                          # --- Конец логирования токенов ---
 
                          # --- НОВАЯ ЭВРИСТИКА: Проверка на потенциальное обрезание ---
                          if operation_type == 'translate' and finish_reason == 'stop':
-                             # Грубая оценка: 1 символ ~ 0.3 токена. 
-                             # Если вывод сильно меньше ожидаемого, это может быть обрезание.
-                             # Ожидаем, что текст перевода не будет сильно короче оригинала.
-                             input_char_len = len(text) # Длина оригинального текста чанка
+                             input_char_len = len(text) # Длина оригинального текста чанка (для логов и оценки)
                              output_content = ""
                              if 'message' in choice and 'content' in choice['message']:
                                  output_content = choice['message']['content'].strip()
                              elif 'text' in choice:
                                  output_content = choice['text'].strip()
-
-                             output_char_len = len(output_content)
                              
-                             # Коэффициент, например, 0.90: если вывод меньше 90% от входа.
-                             # Для русского языка перевод часто может быть длиннее, поэтому 0.90 - это консервативно
-                             if output_char_len < input_char_len * 0.90: 
+                             is_truncated = False
+                             if not _ends_with_complete_sentence(output_content):
+                                 is_truncated = True
                                  print(f"[OpenRouterTranslator] Предупреждение: Потенциальное обрезание обнаружено. "
-                                       f"finish_reason: '{finish_reason}', длина входа: {input_char_len} симв., длина вывода: {output_char_len} симв. "
-                                       f"(Меньше 90% от оригинала). Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                                       f"finish_reason: '{finish_reason}', вывод заканчивается неполным предложением. "
+                                       f"Длина входа (симв): {input_char_len}, длина вывода (симв): {len(output_content)}. " # Логируем для информации
+                                       f"Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                             # Добавляем новую токен-ориентированную проверку длины
+                             elif 'usage' in response_json and prompt_t > 0: # Убеждаемся, что prompt_t есть и не 0
+                                 # Оцениваем количество токенов исходного текста на основе токенов всего промпта и соотношения символов
+                                 estimated_source_text_tokens = 0
+                                 if total_prompt_char_length > 0:
+                                     # ИСПРАВЛЕНИЕ: Вычисляем оценочную длину символов только для текста в промпте
+                                     # Если estimated_non_text_char_length больше total_prompt_char_length, то текст вообще не влез.
+                                     # Или если total_prompt_char_length == estimated_non_text_char_length, то текст пустой.
+                                     # Если total_prompt_char_length - estimated_non_text_char_length <= 0, то текст либо отсутствует, либо
+                                     # его длина настолько мала, что не является значимой частью промпта.
+                                     
+                                     # Более надежная оценка: доля символов текста в общем промпте
+                                     char_ratio_of_text_in_prompt = input_char_len / total_prompt_char_length
+                                     estimated_source_text_tokens = int(prompt_t * char_ratio_of_text_in_prompt)
+                                 else: # Если общий промпт пуст (крайне маловероятно), то текст = prompt_t
+                                     estimated_source_text_tokens = prompt_t
+
+                                 # Если количество выходных токенов значительно меньше оцененных токенов исходного текста
+                                 if completion_t < estimated_source_text_tokens * 0.80: # ИЗМЕНЕНИЕ: Сравниваем с estimated_source_text_tokens
+                                     is_truncated = True
+                                     print(f"[OpenRouterTranslator] Предупреждение: Потенциальное обрезание обнаружено. "
+                                           f"finish_reason: '{finish_reason}', выходные токены ({completion_t}) значительно меньше оцененных токенов исходного текста ({estimated_source_text_tokens}) (<80%). "
+                                           f"Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                             
+                             if is_truncated:
                                  return TRUNCATED_RESPONSE_ERROR # Возвращаем новую ошибку
                          # --- КОНЕЦ НОВОЙ ЭВРИСТИКИ ---
 
