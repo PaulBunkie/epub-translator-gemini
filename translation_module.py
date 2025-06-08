@@ -425,7 +425,7 @@ class OpenRouterTranslator(BaseTranslator):
         data = {
             "model": model_name,
             "prompt": prompt,
-            "max_tokens": 16000, # Увеличенный лимит для эксперимента
+            "max_tokens": 32000, # Увеличенный лимит для эксперимента
         }
 
         # --- Retry logic for 429 errors ---
