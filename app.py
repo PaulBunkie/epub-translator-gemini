@@ -884,10 +884,13 @@ def workflow_upload_file():
              # Пока используем простой поток для демонстрации
              import threading
              # --- ИЗМЕНЕНИЕ: Запускаем поток с контекстом приложения ---
-             def run_workflow_in_context(app, book_id):
-                 with app.app_context():
-                     workflow_processor.start_book_workflow(book_id)
-             threading.Thread(target=run_workflow_in_context, args=(app, book_id,)).start()
+             def run_workflow_in_context(book_id):
+                 with app.app_context(): # 'app' is the global Flask app instance
+                     current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
+                     # Теперь start_book_workflow принимает app_instance и start_from_stage.
+                     # Для новой загрузки start_from_stage всегда None.
+                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), None)
+             threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
              # --- КОНЕЦ ИЗМЕНЕНИЯ ---
              print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
 
@@ -1298,6 +1301,24 @@ def workflow_delete_book_request(book_id):
     return jsonify({'success': True, 'book_id': book_id}), 200
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА УДАЛЕНИЯ ---
+
+@app.route('/workflow_start_existing_book/<book_id>', methods=['POST'])
+def workflow_start_existing_book(book_id):
+    current_app.logger.info(f"Запрос на запуск рабочего процесса для существующей книги: {book_id}")
+    try:
+        # Получаем start_from_stage из JSON тела запроса
+        # Если не указан, будет None
+        start_from_stage = request.json.get('start_from_stage')
+        current_app.logger.info(f"Получен start_from_stage: {start_from_stage} для книги {book_id}")
+
+        # Запускаем рабочий процесс в отдельном потоке, передавая экземпляр app
+        # и новый параметр start_from_stage
+        executor.submit(workflow_processor.start_book_workflow, book_id, current_app._get_current_object(), start_from_stage)
+        
+        return jsonify({'status': 'success', 'message': 'Workflow started in background'}), 200
+    except Exception as e:
+        current_app.logger.error(f"Ошибка при запуске рабочего процесса для книги {book_id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # --- Запуск приложения ---
 if __name__ == '__main__':

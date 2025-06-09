@@ -562,4 +562,58 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Event listener for Start Workflow buttons
+    document.querySelectorAll('.start-workflow-button').forEach(button => {
+        button.addEventListener('click', function() {
+            const bookId = this.dataset.bookId;
+            // TODO: Для начала жестко зададим этап 'analyze'.
+            // В будущем здесь может быть выпадающий список или модальное окно для выбора этапа.
+            const startFromStage = 'analyze'; // <--- ЖЕСТКО ЗАДАЕМ 'analyze'
+
+            startWorkflowForExistingBook(bookId, startFromStage);
+        });
+    });
+
+    // Function to start workflow for an existing book
+    function startWorkflowForExistingBook(bookId, startFromStage = null) {
+        const overlay = document.getElementById('progressOverlay');
+        const progressText = document.getElementById('progressText');
+
+        overlay.style.display = 'flex';
+        progressText.textContent = `Starting workflow for book ${bookId}...`;
+
+        console.log(`Starting workflow for book ID: ${bookId}, starting from stage: ${startFromStage}`);
+
+        fetch(`/workflow_start_existing_book/${bookId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json' // <--- ВАЖНО: Указываем, что отправляем JSON
+            },
+            body: JSON.stringify({ start_from_stage: startFromStage }) // <--- Отправляем JSON-тело
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(errorData => {
+                    throw new Error(errorData.message || 'Network response was not ok.');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateProgressText('Workflow started. Please wait for updates...');
+                // Start polling for status updates
+                startPolling(bookId);
+            } else {
+                updateProgressText(`Error starting workflow: ${data.message || 'Unknown error'}`);
+                setTimeout(hideProgressOverlay, 3000);
+            }
+        })
+        .catch(error => {
+            console.error('Error starting workflow:', error);
+            updateProgressText(`Network error starting workflow: ${error}`);
+            setTimeout(hideProgressOverlay, 3000);
+        });
+    }
+
 }); 

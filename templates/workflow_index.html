@@ -211,6 +211,9 @@
                              <span class="download-analysis-placeholder" style="margin-left: 10px;">Анализ не готов</span>
                         {% endif %}
 
+                        {# NEW: Start Workflow button for existing books #}
+                        <button class="start-workflow-button" data-book-id="{{ book.book_id }}" style="margin-left: 10px;">Start Workflow</button>
+
                         {# Кнопка Удалить также всегда рендерится #}
                         <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
                     </div>
