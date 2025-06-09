@@ -41,7 +41,46 @@ class WorkflowTranslator:
     def __init__(self):
          # Инициализация API ключа OpenRouter
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        if not self.openrouter_api_key:
+            print("Предупреждение: Переменная окружения OPENROUTER_API_KEY не установлена.")
         # TODO: Добавить инициализацию Google API ключа
+
+    def get_system_instruction(self, operation_type: str, target_language: str) -> str:
+        """
+        Provides system-level instructions for the model based on the operation type.
+        """
+        if operation_type == 'translate':
+            # Instruct the model to act as a professional translator.
+            return (f"You are a professional book translator. Translate the given text into {target_language}. "
+                    "Maintain the original tone, style, and formatting. "
+                    "Pay close attention to proper nouns, names, and technical terms, and ensure their consistent translation based on any provided glossary or context. "
+                    "When adapting content, ensure the translation resonates culturally with the target audience without losing the original meaning or intent.")
+        elif operation_type == 'summarize':
+            # Instruct the model to act as a summarization engine in the original language.
+            return ("You are a summarization engine. Summarize the following text concisely and clearly in the original language. "
+                    "Focus especially on:\n"
+                    "- Neologisms (newly coined words or expressions),\n"
+                    "- Words used in unusual or specific contexts within the book,\n"
+                    "- Names of characters, locations, organizations, and unique objects, indicating presumed gender in parentheses for proper nouns.\n"
+                    "- Key plot points, themes, and significant events that are crucial for understanding the narrative's flow and context.")
+        elif operation_type == 'analyze':
+            # Instruct the model to act as a literary analyst for glossary and adaptation guidelines.
+            return (f"You are a literary analyst. Your task is to analyze the provided text (which is a summary of a book) "
+                    f"and extract a comprehensive glossary of key terms, proper nouns, and their precise {target_language} translations. "
+                    "Additionally, you must provide clear, concise adaptation guidelines for a human translator. "
+                    "Ensure consistency and accuracy in both outputs. Indicate the presumed gender in parentheses for all proper nouns."
+                    "\n\nFormat your response STRICTLY as follows, using the exact markers:\n\n"
+                    "---START_GLOSSARY_TABLE---\n"
+                    "| Original Term | Translation/Explanation |\n"
+                    "|---|---|\n"
+                    "| Example Name (gender) | Example Translation/Explanation |\n"
+                    "---END_GLOSSARY_TABLE---\n\n"
+                    "---START_ADAPTATION_GUIDELINES---\n"
+                    "1. Guideline One: ...\n"
+                    "2. Guideline Two: ...\n"
+                    "---END_ADAPTATION_GUIDELINES---")
+        else:
+            return "" # Default empty system instruction for unknown operation types
 
     def _chunk_text(self, text: str, chunk_size_limit_chars: int) -> List[str]:
         """
@@ -108,136 +147,36 @@ class WorkflowTranslator:
         prompt_ext: Optional[str] = None,
         dict_data: dict | None = None
     ) -> List[Dict[str, Any]]:
-        """
-        Формирует список сообщений для API на основе типа операции и входных данных.
-        Использует dict_data для получения глоссария и инструкций для translate.
-        """
         messages = []
+        system_instruction = self.get_system_instruction(operation_type, target_language)
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
 
-        # Извлекаем данные из dict_data для операции translate, если они есть
-        glossary = dict_data.get('glossary') if dict_data else None
-        system_instruction = dict_data.get('system_instruction') if dict_data else None
-        user_instruction = dict_data.get('user_instruction') if dict_data else None
+        user_content: str = "" # Initialize user_content to an empty string
 
-        # Базовые системные инструкции
-        base_system_instruction = system_instruction or "You are a helpful assistant."
-        system_content = base_system_instruction
-
-        # TODO: Уточнить системные и пользовательские инструкции на основе operation_type и potential prompt_ext
-        # Сейчас делаем простые инструкции для тестирования
-        if operation_type == 'summarize':
-            system_content = system_instruction or f"""You are a summarization engine. Summarize the following text concisely and clearly in the original language. 
-Focus especially on:
-- Neologisms (newly coined words or expressions),
-- Words used in unusual or figurative meanings,
-- Specific slang or jargon,
-- Meaningful or symbolic names (speaking names).
-
-Whenever such words or expressions appear, briefly explain their meaning or context in parentheses immediately after the word or phrase inside the summary. 
-Keep the explanations short and concise, just enough to clarify the term without breaking the flow."""
+        if operation_type == 'translate':
+            if dict_data and 'glossary_data' in dict_data and dict_data['glossary_data']:
+                glossary_table = self._convert_glossary_to_markdown_table(dict_data['glossary_data'])
+                user_content = f"Translate the following text into {target_language}. Use the provided glossary for consistency:\n\n{glossary_table}\n\nText to translate:\n{text_to_process}"
+            else:
+                user_content = f"Translate the following text into {target_language}:\n{text_to_process}"
+        elif operation_type == 'summarize':
             user_content = f"Summarize the following text in the original language:\n\n{text_to_process}"
-            # Примечание: Суммаризация в оригинальном языке согласно workflow_processor.
-
         elif operation_type == 'analyze':
-            # Системный промпт для анализа
-            system_content = """You are an expert literary terminology analyst working with professional translators. Your job is to extract all key terms from fiction or narrative non-fiction that require consistent translation across chapters.
-
-Be strict and conservative:
-- Only extract terms that are clearly and unambiguously mentioned in the text.
-- Never assume, invent or guess meanings, genders, or translations.
-- Prioritize clarity, grammatical precision, and usefulness for automated and human translation.
-
-Your output must always be a clean, valid Markdown table using the following columns:
-
-Term | Type | Gender | Translation | Comment
-
-Never output explanations or anything outside the table."""
-            # Пользовательский промпт для анализа, с подстановкой target_language и text_to_process
-            user_content = f"""Analyze the following text excerpt to extract terms that require consistent translation into {target_language}. These include, but are not limited to:
-
-- Personal names (first names, surnames, nicknames)
-- Abbreviations or acronyms
-- Institutions, organizations, companies, groups
-- Technologies, procedures, job titles
-- Neologisms and invented terms
-- Culturally specific words or expressions that may not translate directly
-- Include culturally loaded or invented terms that may function as common nouns but are crucial to the fictional world. These must be treated as glossary terms if they have stylistic, world-building, or semantic weight.
-
-Provide one consistent translation option into {target_language}. If the term is better kept untranslated (e.g. brand names, acronyms, some neologisms), repeat it in the original form and briefly explain in the Comment column why translation was avoided (e.g., “brand name”, “widely used as-is”, “proper noun”, “doesn’t translate well”).
-For each term found, add a row to the Markdown table with the following columns:
-
-**Term** — The original form exactly as it appears in the text.
-**Type** — One of: Character, Organization, Abbreviation, Job Title, Technology, Neologism, Cultural Term, Other.
-**Gender** — For characters: 'm', 'f', or '—' if not clear. For nouns: grammatical gender in target language, or '—' if not applicable.
-**Translation** — A single suggested translation into {target_language}.
-**Comment** — A short explanation for context or difficulty. If the term's gender is known, mention why (e.g., "Referred to as 'he'"). If it's an abbreviation, note whether it's explained or needs expansion. If it's ambiguous or culturally loaded, explain that.
-
-Do not include common words or phrases that don't require glossary treatment.
-Avoid adding common country or city names unless there is a translation ambiguity or special context.
-Do not guess meanings or add speculative terms. Use only direct evidence from the text.
-Prefer fewer high-quality entries over too many weak or generic ones.
-
-Here is the text to analyze:
-
-{text_to_process}"""
-
-        elif operation_type == 'translate':
-             print("[WorkflowTranslator] Формирование сообщений для translate.")
-             # TODO: Реализовать логику формирования структурированного промпта с глоссарием и инструкциями.
-             # Это будет сделано позже.
-             # Для translate, messages будет в формате, нужном для конкретного API (OpenRouter/Gemini)
-             # Пример для OpenRouter/OpenAI Chat Completions API:
-
-             system_content = dict_data.get('system_instruction') if dict_data else None
-             user_instruction = dict_data.get('user_instruction') if dict_data else None
-             glossary = dict_data.get('glossary') if dict_data else None
-
-             # Base system instruction - can be overridden by dict_data
-             base_system_instruction = system_content or "You are a professional literary translator."
-
-             messages.append({"role": "system", "content": base_system_instruction})
-
-             user_content_parts = []
-             if user_instruction: user_content_parts.append(user_instruction)
-
-             # Добавляем глоссарий, если он предоставлен в dict_data
-             if glossary:
-                 user_content_parts.append("# GLOSSARY (must be followed exactly):")
-                 # TODO: Форматировать глоссарий более строго? JSON? Пока простой текст.
-                 # Пример форматирования глоссария как в примере OpenRouter:
-                 # {"role": "user", "content": "Translate the following text. Use this glossary: [term: translation]"}
-                 # Пока оставим простой текстовый формат
-                 glossary_text = "\n".join([f"{k} → {v}" for k, v in glossary.items()])
-                 user_content_parts.append(glossary_text)
-
-             # TODO: Учесть prompt_ext для translate. Возможно, добавить его в user_content_parts.
-             # if prompt_ext: user_content_parts.append(f"ADDITIONAL INSTRUCTIONS:\n{prompt_ext}")
-             # или добавить его в системные инструкции? Решить как лучше интегрировать.
-
-             user_content_parts.append("# TEXT TO TRANSLATE:")
-             user_content_parts.append(text_to_process) # text_to_process здесь - это чанк
-
-             user_content = "\n\n".join(user_content_parts)
-             messages.append({"role": "user", "content": user_content})
-
-             # TODO: Для некоторых моделей может потребоваться добавить роль assistant с примером ответа?
-
+            # For 'analyze' operation, the text_to_process is the collected summary
+            # and prompt_ext is used as the primary instruction.
+            # user_content should combine prompt_ext with the collected summary.
+            user_content = f"{prompt_ext}\n\nAnalyze the following text:\n{text_to_process}"
+            # Ensure the structure of the output is strictly followed, as previously discussed.
+            user_content += f"\n\n---START_GLOSSARY_TABLE---\n(Your markdown glossary table here)\n---END_GLOSSARY_TABLE---"
+            user_content += f"\n\n---START_ADAPTATION_GUIDELINES---\n(Your adaptation guidelines here)\n---END_ADAPTATION_GUIDELINES---"
         else:
-            # Дефолтный случай или неизвестная операция
-            user_content = text_to_process # Просто отправляем исходный текст как user content
+            raise ValueError(f"Unknown operation type: {operation_type}")
 
-        messages.append({"role": "system", "content": system_content})
+        if prompt_ext and operation_type != 'analyze': # prompt_ext is integrated differently for 'analyze'
+            user_content = f"{prompt_ext}\n\n{user_content}"
+
         messages.append({"role": "user", "content": user_content})
-
-        # TODO: Учесть prompt_ext - куда его добавить? В старом модуле prompt_ext добавлялся как отдельная секция в _build_prompt.
-        # Для summarize/analyze мы можем добавить его в user_content.
-        # Для translate prompt_ext может быть обработан внутри логики формирования translate-промпта,
-        # возможно, объединив его с user_instruction из dict_data или добавив как отдельную секцию.
-        # TODO: Определить, как использовать prompt_ext для операции translate.
-
-
-        print(f"[WorkflowTranslator] Сформирован промпт для '{operation_type}' (первые 200 симв):\n---\nSystem: {messages[0]['content'][:200]}...\nUser: {messages[-1]['content'][:200]}...\n---")
-
         return messages
 
     def _call_model_api(
@@ -519,3 +458,110 @@ def translate_text(
 # TODO: get_context_length может понадобиться для логики чанкинга.
 # Либо скопировать его сюда, либо вызывать из оригинального translation_module
 # (если он публичный или мы его импортировали как translation_module_original)
+
+PROMPT_TEMPLATES = {
+    'translate': """You are a professional literary translator translating a book for a {target_language}-speaking audience. Your goal is to provide a high-quality, natural-sounding translation into {target_language}, adhering to the following principles:
+- Perform a literary translation, preserving the author's original style, tone, and nuances.
+- Maintain consistency in terminology, character names, and gender portrayal *within this entire response*.
+- Avoid softening strong language unless culturally necessary.
+- Translate common abbreviations (like 'e.g.', 'i.e.', 'CIA') according to their established {target_language} equivalents.
+- Keep uncommon or fictional abbreviations/acronyms (e.g., KPS) in their original form.
+- For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.
+- Keep all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) unchanged.
+{russian_dialogue_rule}
+- If clarification is needed for a {target_language} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
+  - **Format:** Insert a sequential footnote marker directly after the word/phrase.
+    - **Preferred format:** Use superscript numbers (like ¹,²,³).
+    - **Alternative format (if superscript is not possible):** Use numbers in square brackets (like [1], [2], [3]).
+  - **Content:** At the very end of the translated section, add a separator ('---') and a heading('{translator_notes_heading}'). List all notes sequentially by their marker (e.g., '¹ Explanation.' or '[1] Explanation.').
+  - Use footnotes sparingly.
+{prompt_ext_section}
+{translation_guidelines_section}
+{previous_context_section}
+Text to Process:
+{text}
+
+Result:""",
+
+    # --- Шаблон для суммаризации (пересказа) ---
+    'summarize': """Your task is to act as a highly effective summarization engine.
+You will be given a text and a target language.
+Your GOAL is to provide a concise and accurate summary of the provided text in the specified target language.
+Your output MUST be ONLY the summary. Do not include any introductory or concluding remarks outside the summary itself.
+{prompt_ext_section}
+
+Target Language: {target_language}
+
+Text to Summarize:
+{text}
+
+Summary in {target_language}:""",
+
+    # --- Шаблон для анализа трудностей перевода ---
+    'analyze': """You are an expert literary terminology analyst and cross-cultural adaptation specialist working with professional translators.
+Your task is to thoroughly analyze the provided text, identify its cultural context, key stylistic features, and crucial terms.
+
+Your output MUST be structured into exactly two main sections, separated by a unique marker.
+
+---START_GLOSSARY_TABLE---
+
+**SECTION 1: GLOSSARY TABLE**
+This section must contain a clean, valid Markdown table with specific terms and their translations.
+- Only extract terms that are clearly and unambiguously mentioned in the text and require consistent translation.
+- Never assume, invent or guess meanings, genders, or translations.
+- Prioritize clarity, grammatical precision, and usefulness for automated and human translation.
+
+Your table MUST use the following columns: `Term | Type | Gender | Translation | Comment`
+- **Term**: The original form exactly as it appears in the text.
+- **Type**: One of: `Character`, `Organization`, `Abbreviation`, `Job Title`, `Technology`, `Neologism`, `Cultural Term`, `Other`.
+- **Gender**: For characters: `m`, `f`, or `—` if not clear. For nouns: grammatical gender in target language (e.g., `м`, `ж`, `ср` for Russian), or `—` if not applicable.
+- **Translation**: A single suggested translation into {target_language}.
+- **Comment**: A short explanation for context or difficulty. If the term's gender is known, mention why (e.g., "Referred to as 'he'"). If it's an abbreviation, note whether it's explained or needs expansion. If it's ambiguous or culturally loaded, explain that.
+
+Do not include common words or phrases that don't require glossary treatment.
+Avoid adding common country or city names unless there is a translation ambiguity or special context.
+Do not guess meanings or add speculative terms. Use only direct evidence from the text.
+Prefer fewer high-quality entries over too many weak or generic ones.
+
+---END_GLOSSARY_TABLE---
+---START_ADAPTATION_GUIDELINES---
+
+**SECTION 2: ADAPTATION GUIDELINES**
+This section must contain practical recommendations for a professional translator adapting this book for a {target_language}-speaking audience.
+- Highlight aspects requiring special attention and explain *why* they are important.
+- Focus on analysis and recommendations, NOT on translating or summarizing the text itself.
+- Be concrete and actionable.
+
+Structure your recommendations using the following sub-headings, with bullet points or short paragraphs under each:
+
+### Style and Presentation
+- Tone (e.g., ironic, dramatic, scientific).
+- Rhythm and pace (e.g., fast, measured, disjointed).
+- Overall narrative style and author's voice.
+- Formatting peculiarities if stylistically relevant.
+
+### Lexicon and Linguistic Peculiarities
+- Specific vocabulary, dialectisms, slang, jargon (e.g., military, scientific, subcultural).
+- Neologisms, invented words, unique compound words (if not already in glossary).
+- Archaic or outdated vocabulary.
+- Word usage peculiarities, idioms, figures of speech difficult for direct translation.
+
+### Cultural Context and Allusions
+- Historical, cultural, mythological, literary, or biblical allusions and parallels.
+- Unique traditions, customs, social norms unfamiliar to the target audience.
+- Geographical or social realities requiring explanation or adaptation.
+
+### Technologies and Concepts
+- Descriptions of specific or fictional technologies, devices.
+- Unique philosophical, scientific, or speculative concepts.
+
+---END_ADAPTATION_GUIDELINES---
+
+{prompt_ext_section}
+
+Text to Analyze:
+{text}
+
+Final Answer:
+"""
+}
