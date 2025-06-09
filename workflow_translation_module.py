@@ -46,7 +46,7 @@ Result:""",
 
     'summarize': f"""You are a professional summarization engine.
 
-Your goal is to produce a clear and concise summary of the provided text in {{target_language}}, capturing the essential points and tone.
+Your goal is to produce a clear and concise summary of the provided text in its original language, capturing the essential points and tone.
 
 Focus especially on:
 - Unique names (characters, locations, organizations)
@@ -58,12 +58,10 @@ Do not include introduction, meta-comments, or conclusions outside the summary i
 
 {{prompt_ext_section}}
 
-Target Language: {{target_language}}
-
 Text to Summarize:
 {{text}}
 
-Summary in {{target_language}}:""",
+Summary:""",
 
     'analyze': f"""You are a literary analyst and terminology specialist assisting professional translators.
 
@@ -83,10 +81,13 @@ Format as a valid Markdown table:
 
 Definitions:
 - **Term**: As written in the source text.
-- **Type**: Choose from: Character, Organization, Abbreviation, Neologism, Cultural Term, Technology, Job Title, Other.
+- **Type**: Define the type of the term (Character, Title, Location, Organization, Abbreviation, Neologism, Cultural Term, Technology, etc.).
 - **Gender**:
-  - For people: use `m`, `f`, or `—` (if unclear).
-  - For nouns: indicate grammatical gender in {{target_language}}, or `—` if not applicable.
+  For character names in languages with grammatical gender and no natural support for non-binary constructions (e.g., Russian):
+  If a character's gender is not explicitly stated, you must assign a binary gender (m or f) for grammatical purposes. Follow these steps:
+    First, look for clear contextual indicators: perceived gender of names, titles, pronoun use, relational roles (e.g., "brother," "mother"), or descriptive traits.
+    If no reliable indicators exist, default to masculine (m) to preserve grammatical consistency and avoid disrupting the flow of the target language.
+  Do not use "—" (unspecified) unless the character is explicitly presented as non-gendered, such as an AI, animal, or abstract entity. This rule applies only to fictional characters or people — not to objects, organizations, or abstract nouns.
 - **Translation**: Precise term in {{target_language}}, or `[keep original]` if it should remain unchanged.
 - **Comment**: Use only when clarification is needed (e.g. ambiguity, invented term, pun, or stylistic choice).
 
@@ -154,7 +155,7 @@ class WorkflowTranslator:
         elif operation_type == 'summarize':
             return (
                 "You are a high-precision summarization engine. Your task is to produce a clear, concise summary "
-                "of the given text in the specified target language. "
+                "of the given text in its original language. "
                 "Focus on preserving essential information, including:\n"
                 "- Neologisms and coined terms\n"
                 "- Character names, locations, and organizations\n"
@@ -167,7 +168,7 @@ class WorkflowTranslator:
                 f"You are a literary analyst and terminology specialist. Your task is to analyze the provided text "
                 f"and produce two outputs:\n"
                 "- A glossary table with key terms and their translations into {target_language}\n"
-                "- An overview of stylistic and cultural adaptation considerations for professional translators\n"
+                "- An overview of stylistic and cultural adaptation considerations for professional translators in {target_language}\n"
                 "Maintain precision, avoid speculation, and base all output strictly on the source text.\n\n"
                 "Your response must include exactly two sections using the following markers:\n"
                 "---START_GLOSSARY_TABLE---\n"
@@ -277,11 +278,12 @@ class WorkflowTranslator:
             user_content = PROMPT_TEMPLATES['translate'].format(**formatted_vars)
             
         elif operation_type == 'summarize':
+            # ИЗМЕНЕНО: Используем общий шаблон PROMPT_TEMPLATES['summarize'] и форматируем его
             user_content = PROMPT_TEMPLATES['summarize'].format(**formatted_vars)
             
         elif operation_type == 'analyze':
             user_content = PROMPT_TEMPLATES['analyze'].format(**formatted_vars)
-
+            
         else:
             raise ValueError(f"Unknown operation type: {operation_type}")
 

@@ -111,13 +111,11 @@ def process_section_summarization(book_id: str, section_id: int):
         # --- КОНЕЦ НОВОГО БЛОКА ---
 
         # 4. Вызываем модель суммаризации с ретраями
-        # target_language = book_info['target_language'] # Original line
         # Use a hardcoded signal to tell the model to summarize in the original language
         target_language_for_summarization = "ORIGINAL_LANGUAGE"
         operation_type = SUMMARIZATION_STAGE_NAME
         model_name = SUMMARIZATION_MODEL
-        # Use the new instruction prompt
-        prompt_ext = MODEL_GENDER_INSTRUCTION_PROMPT
+        prompt_ext = None # ИЗМЕНЕНО: MODEL_GENDER_INSTRUCTION_PROMPT больше не используется здесь.
 
         summarized_text = None
         status = 'error' # Default status in case of failure
