@@ -90,7 +90,7 @@ Definitions:
 - **Translation**: Precise term in {{target_language}}, or `[keep original]` if it should remain unchanged.
 - **Comment**: Use only when clarification is needed (e.g. ambiguity, invented term, pun, or stylistic choice).
 
-Include only terms that are contextually important or potentially ambiguous.
+- **You MUST include all named characters from the text.** Also, include all named locations and organizations. Additionally, include other terms that are contextually important or potentially ambiguous.
 
 Do not include:
 - Generic words or everyday vocabulary
@@ -281,7 +281,7 @@ class WorkflowTranslator:
             
         elif operation_type == 'analyze':
             user_content = PROMPT_TEMPLATES['analyze'].format(**formatted_vars)
-            
+
         else:
             raise ValueError(f"Unknown operation type: {operation_type}")
 
