@@ -118,8 +118,8 @@
                     {% endfor %}
                     </optgroup>
                     
-                    <!-- Free OpenRouter Models -->
-                    <optgroup label="Free OpenRouter Models">
+                    <!-- OpenRouter Models -->
+                    <optgroup label="{{ 'All OpenRouter Models' if is_admin_mode else 'Free OpenRouter Models' }}">
                     {% for model_obj in available_models %}
                         {% if not (model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/')) %}
                         <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>

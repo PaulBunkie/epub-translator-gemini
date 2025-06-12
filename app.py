@@ -234,13 +234,24 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
 @app.route('/', methods=['GET'])
 def index():
     """ Отображает главную страницу со списком книг. """
+    # --- НОВОЕ: Проверка и установка режима администратора ---
+    admin_param = request.args.get('admin')
+    if admin_param == 'true':
+        session['admin_mode'] = True
+        print("Включен режим администратора (показ всех моделей).")
+    elif admin_param == 'false':
+        session.pop('admin_mode', None)
+        print("Выключен режим администратора.")
+    # --- КОНЕЦ НОВОГО ---
+
     print("Загрузка главной страницы...")
     default_language = session.get('target_language', 'russian')
     selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     
-    # Получаем список моделей
-    available_models = get_models_list()
+    # Получаем список моделей, учитывая режим администратора
+    is_admin_mode = session.get('admin_mode', False)
+    available_models = get_models_list(show_all_models=is_admin_mode)
     if not available_models:
         available_models = [
             {
@@ -268,7 +279,7 @@ def index():
         print(f"  Найдено книг в БД: {len(uploaded_books)}")
     except Exception as e: print(f"ОШИБКА при получении списка книг: {e}"); traceback.print_exc()
 
-    resp = make_response(render_template('index.html', uploaded_books=uploaded_books, default_language=default_language, selected_model=selected_model, available_models=available_models))
+    resp = make_response(render_template('index.html', uploaded_books=uploaded_books, default_language=default_language, selected_model=selected_model, available_models=available_models, is_admin_mode=is_admin_mode))
     # --- ИЗМЕНЕНИЕ: Добавляем 'unsafe-inline' в script-src ---
     csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
     resp.headers['Content-Security-Policy'] = csp_policy
@@ -397,11 +408,13 @@ def view_book(book_id):
 
 
     print(f"  Параметры для отображения: lang='{target_language}', model='{selected_model}'.\n")
-    available_models = get_models_list()
+    # Получаем список моделей, учитывая режим администратора
+    is_admin_mode = session.get('admin_mode', False)
+    available_models = get_models_list(show_all_models=is_admin_mode)
     if not available_models: available_models = list(set([selected_model, 'meta-llama/llama-4-maverick:free'])); print("  WARN: Не удалось получить список моделей.\n")
     prompt_ext_text = book_info.get('prompt_ext', '')
 
-    resp = make_response(render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation))
+    resp = make_response(render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation, is_admin_mode=is_admin_mode))
     # --- ИЗМЕНЕНИЕ: Добавляем 'unsafe-inline' в script-src ---
     csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
     resp.headers['Content-Security-Policy'] = csp_policy
@@ -661,7 +674,10 @@ def download_full(book_id):
 
 @app.route('/api/models', methods=['GET'])
 def api_get_models():
-    models = get_models_list()
+    # --- НОВОЕ: API тоже должно поддерживать режим администратора ---
+    is_admin = request.args.get('all', 'false').lower() == 'true'
+    models = get_models_list(show_all_models=is_admin)
+    # --- КОНЕЦ НОВОГО ---
     if models is not None: return jsonify(models)
     else: return jsonify({"error": "Could not retrieve models"}), 500
 

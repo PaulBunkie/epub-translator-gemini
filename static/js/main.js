@@ -577,7 +577,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log("Модель, которая должна быть выбрана (из сессии):", initialSelectedModel);
 
         try {
-            const response = await fetchWithTimeout('/api/models');
+            // --- ИЗМЕНЕНИЕ: Добавляем параметр `all=true` к запросу в админском режиме ---
+            const apiUrl = `/api/models${isAdminMode ? '?all=true' : ''}`;
+            console.log(`Запрос списка моделей по URL: ${apiUrl}`);
+            const response = await fetchWithTimeout(apiUrl);
+            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
             if (!response.ok) {
                 // ... обработка ошибки ...
                 console.error("Не удалось загрузить список моделей:", response.status);

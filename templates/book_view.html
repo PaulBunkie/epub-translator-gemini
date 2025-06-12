@@ -151,8 +151,8 @@
                         {% endfor %}
                         </optgroup>
                         
-                        <!-- Free OpenRouter Models -->
-                        <optgroup label="Free OpenRouter Models">
+                        <!-- OpenRouter Models -->
+                        <optgroup label="{{ 'All OpenRouter Models' if is_admin_mode else 'Free OpenRouter Models' }}">
                         {% for model_obj in available_models %}
                             {% if isinstance(model_obj, dict) %}
                                 {% if not (model_obj['name'].startswith('gemini-') or model_obj['name'].startswith('models/')) %}
@@ -264,6 +264,7 @@
         const currentBookId = "{{ book_id | default('None') | escape }}";
         const initialTargetLanguage = "{{ target_language | default('russian') | escape }}";
         const initialSelectedModel = "{{ selected_model | default('meta-llama/llama-4-maverick:free') | escape }}";
+        const isAdminMode = {{ is_admin_mode | tojson }};
     </script>
 
     <script> // Скрипт сохранения prompt_ext

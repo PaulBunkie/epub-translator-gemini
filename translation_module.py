@@ -18,8 +18,8 @@ EMPTY_RESPONSE_ERROR = "__EMPTY_RESPONSE_AFTER_RETRIES__"
 TRUNCATED_RESPONSE_ERROR = "__TRUNCATED_RESPONSE_DETECTED__"
 # --- Конец новой константы ---
 
-# Переменная для кэширования списка моделей
-_cached_models_list: Optional[List[Dict[str, Any]]] = None
+# Переменная для кэширования списка моделей. Теперь это словарь.
+_cached_models: Dict[str, Optional[List[Dict[str, Any]]]] = {"free": None, "all": None}
 _model_list_last_update: Optional[float] = None # Опционально: для будущего кэширования по времени
 _MODEL_LIST_CACHE_TTL = 3600 # Время жизни кэша в секундах (1 час) - можно настроить
 
@@ -844,25 +844,52 @@ def translate_text(text_to_translate: str, target_language: str = "russian",
     # Передаем target_language и prompt_ext как обычно
     return translator.translate_text(text_to_translate, target_language, model_name, prompt_ext, operation_type)
 
-def get_models_list() -> List[Dict[str, Any]]:
+def get_models_list(show_all_models: bool = False) -> List[Dict[str, Any]]:
     """
     Возвращает отсортированный список моделей с кэшированием.
+    Принимает флаг `show_all_models` для отключения фильтрации бесплатных моделей.
     Кэш обновляется при первом вызове или по истечении TTL.
     """
-    global _cached_models_list, _model_list_last_update
+    global _cached_models, _model_list_last_update
 
     current_time = time.time()
+    cache_key = "all" if show_all_models else "free"
 
     # Проверяем, есть ли кэш и не истек ли его срок
-    if _cached_models_list is not None and _model_list_last_update is not None and (current_time - _model_list_last_update) < _MODEL_LIST_CACHE_TTL:
-        print("[get_models_list] Возвращаем кэшированный список моделей.")
-        return _cached_models_list
+    if _cached_models.get(cache_key) is not None and _model_list_last_update is not None and (current_time - _model_list_last_update) < _MODEL_LIST_CACHE_TTL:
+        print(f"[get_models_list] Возвращаем кэшированный список моделей (режим: {cache_key}).")
+        return _cached_models[cache_key]
 
-    print("[get_models_list] Кэш списка моделей отсутствует или устарел. Получаем с API...")
+    # Если один кэш есть, а другой нет, не делаем полный запрос заново, если TTL не истек
+    # Вместо этого, если возможно, сгенерируем один список из другого
+    if _model_list_last_update is not None and (current_time - _model_list_last_update) < _MODEL_LIST_CACHE_TTL:
+        # Если нужен список бесплатных, а есть полный - фильтруем из полного
+        if cache_key == "free" and _cached_models.get("all") is not None:
+            print("[get_models_list] Генерируем 'free' список из кэшированного 'all'.")
+            all_models = _cached_models["all"]
+            google_models = [m for m in all_models if m.get('source') == 'google']
+            
+            openrouter_free_models = []
+            for model in all_models:
+                if model.get('source') == 'openrouter':
+                    pricing = model.get('pricing', {})
+                    prompt_cost = float(pricing.get('prompt', 1))
+                    completion_cost = float(pricing.get('completion', 1))
+                    if prompt_cost == 0.0 and completion_cost == 0.0:
+                        openrouter_free_models.append(model)
+
+            filtered_list = google_models + sorted(openrouter_free_models, key=lambda x: x.get('display_name', '').lower())
+            _cached_models['free'] = filtered_list
+            return filtered_list
+            
+        # Если нужен полный, а есть только бесплатный, то придется делать запрос заново.
+        # Эта ветка покрывается общей логикой ниже.
+
+    print(f"[get_models_list] Кэш списка моделей (режим: {cache_key}) отсутствует или устарел. Получаем с API...")
     google_models = []
-    openrouter_zero_cost_models = []
-
-    # Получаем модели от Google
+    openrouter_all_models_from_api = []
+    
+    # Получаем модели от Google (они всегда одинаковы)
     try:
         google_translator = GoogleTranslator()
         google_models = google_translator.get_available_models()
@@ -870,47 +897,50 @@ def get_models_list() -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"Ошибка при получении списка моделей Google: {e}")
 
-    # Получаем модели от OpenRouter
+    # Получаем ВСЕ модели от OpenRouter
     try:
         openrouter_translator = OpenRouterTranslator()
-        all_openrouter_models = openrouter_translator.get_available_models()
-
-        # Фильтруем только модели с нулевой стоимостью
-        for model in all_openrouter_models:
-            pricing = model.get('pricing')
-            if pricing and 'prompt' in pricing and 'completion' in pricing:
-                try:
-                    prompt_cost = float(pricing['prompt'])
-                    completion_cost = float(pricing['completion'])
-                    if prompt_cost == 0.0 and completion_cost == 0.0:
-                        openrouter_zero_cost_models.append(model)
-                except (ValueError, TypeError) as e:
-                    print(f"Ошибка парсинга стоимости для модели {model.get('name', model['id'])}: {e}")
-                    continue
-
-        print(f"Получено {len(openrouter_zero_cost_models)} моделей с нулевой стоимостью из {len(all_openrouter_models)} от OpenRouter API")
+        openrouter_all_models_from_api = openrouter_translator.get_available_models()
+        print(f"Получено {len(openrouter_all_models_from_api)} всего моделей от OpenRouter API")
     except Exception as e:
         print(f"Ошибка при получении списка моделей OpenRouter: {e}")
 
-    # Объединяем списки: сначала Google, потом модели OpenRouter с нулевой стоимостью
-    # Добавим проверку на случай, если оба списка пусты
-    combined_list = google_models + sorted(openrouter_zero_cost_models, key=lambda x: x.get('display_name', '').lower())
-
-    if not combined_list:
-        print("[get_models_list] Предупреждение: Не удалось получить список моделей от API.")
-        # Можно вернуть пустой список или поднять исключение, в зависимости от желаемого поведения
-        # Для начала вернем пустой список, чтобы приложение не падало при старте, если API недоступны
-        _cached_models_list = []
-        _model_list_last_update = current_time # Кэшируем пустой список, чтобы не спамить API
-        return []
-
-
-    # Кэшируем полученный список
-    _cached_models_list = combined_list
+    # --- Создаем полный список ("all") ---
+    # Создаем set с "базовыми" именами моделей от Google для быстрой проверки.
+    google_base_model_names = {model['name'].split('/')[-1] for model in google_models if isinstance(model, dict) and 'name' in model}
+    
+    unique_openrouter_models = []
+    for model in openrouter_all_models_from_api:
+        model_name = model.get('name', '')
+        base_name = model_name.split('/')[-1]
+        if base_name not in google_base_model_names:
+            unique_openrouter_models.append(model)
+            
+    # Собираем и кэшируем полный список
+    combined_list_all = google_models + sorted(unique_openrouter_models, key=lambda x: x.get('display_name', '').lower())
+    _cached_models['all'] = combined_list_all
+    
+    # --- Теперь создаем отфильтрованный список ("free") из полного ---
+    openrouter_free_models = []
+    for model in unique_openrouter_models: # Используем уже отфильтрованный от дублей Google список
+        pricing = model.get('pricing', {})
+        try:
+            prompt_cost = float(pricing.get('prompt', 1))
+            completion_cost = float(pricing.get('completion', 1))
+            if prompt_cost == 0.0 and completion_cost == 0.0:
+                openrouter_free_models.append(model)
+        except (ValueError, TypeError):
+             continue # Игнорируем модели с некорректным прайсингом
+             
+    combined_list_free = google_models + sorted(openrouter_free_models, key=lambda x: x.get('display_name', '').lower())
+    _cached_models['free'] = combined_list_free
+    
+    # Обновляем время кэширования
     _model_list_last_update = current_time
-
-    print("[get_models_list] Список моделей успешно получен и закэширован.")
-    return _cached_models_list
+    print("[get_models_list] Списки моделей (all и free) успешно получены и закэшированы.")
+    
+    # Возвращаем запрошенный список
+    return _cached_models[cache_key]
 
 # Функция для принудительной загрузки списка моделей при старте (опционально)
 def load_models_on_startup():
@@ -931,13 +961,15 @@ def get_context_length(model_name: str) -> int:
     Возвращает дефолтное значение (например, 8000 токенов), если модель не найдена
     или лимит недоступен.
     """
-    # Используем закэшированный список напрямую
-    models = _cached_models_list
+    # Сначала проверяем самый полный кэш ("all"), затем "free".
+    models = _cached_models.get("all")
+    if models is None:
+        models = _cached_models.get("free")
 
     # Если кэш еще не загружен или пуст, принудительно загружаем
     if models is None or not models:
          # print("[get_context_length] Предупреждение: Кэш моделей не загружен или пуст. Принудительно загружаем.") # Убираем print
-         models = get_models_list()
+         models = get_models_list() # Вызовет с show_all_models=False по умолчанию
 
          if not models:
              print(f"[get_context_length] Ошибка: Не удалось загрузить список моделей для '{model_name}'. Используем дефолт токенов.")
@@ -967,7 +999,10 @@ def get_model_output_token_limit(model_name: str) -> int:
     Возвращает дефолтное значение (например, 2048 токенов), если модель не найдена
     или лимит недоступен.
     """
-    models = _cached_models_list
+    # Сначала проверяем самый полный кэш ("all"), затем "free".
+    models = _cached_models.get("all")
+    if models is None:
+        models = _cached_models.get("free")
 
     if models is None or not models:
         print(f"[get_model_output_token_limit] Предупреждение: Кэш моделей не загружен или пуст. Принудительно загружаем.")
