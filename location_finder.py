@@ -349,8 +349,8 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
     return results
 
 PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE = [
-    "Putin", "Trump", "Zelensky", "Xi Jinping",
-    "Kim Jong Un", "Macron", "Merz", "Starmer"
+    "Putin", "Trump", "Zelensky" #, "Xi Jinping",
+    #"Kim Jong Un", "Macron", "Merz", "Starmer"
 ]
 
 def update_locations_for_predefined_persons():
