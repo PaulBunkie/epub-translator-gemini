@@ -185,248 +185,40 @@ class BaseTranslator(ABC):
         MIN_CHUNK_SIZE = 1000 # Минимум 1000 символов, можно настроить
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        actual_model_name = model_name if model_name else "meta-llama/llama-4-maverick:free"
-        
-        # Получаем полный контекстный лимит модели (input + output)
-        model_total_context_limit = get_context_length(actual_model_name)
-        
-        # Получаем максимально заявленный лимит вывода
-        model_declared_output_limit = get_model_output_token_limit(actual_model_name)
+        if not model_name:
+            # Если модель не указана, используем дефолтную и определяем ее источник
+            model_name = "meta-llama/llama-4-maverick:free"
 
-        # Для translate, мы не хотим запрашивать слишком много вывода в одном чанке,
-        # чтобы оставить место для ВХОДА. Устанавливаем разумный хардкап для выходных токенов.
-        # Этот хардкап должен быть меньше или равен заявленному output_token_limit модели.
-        HARD_CAP_OUTPUT_TOKENS_TRANSLATE = 128000 # Макс. 128K токенов для одного перевода чанка
+        # Получаем ПОЛНЫЙ список моделей, чтобы найти источник по имени.
+        # Фильтрация по бесплатным моделям происходит только на уровне UI.
+        # Бэкенд должен уметь работать с любой валидной моделью.
+        available_models = get_models_list(show_all_models=True)
+        selected_model_info = None
+        for model_info in available_models:
+            # Проверяем, что это словарь и что у него есть ключ 'name' и 'source'
+            if isinstance(model_info, dict) and model_info.get('name') == model_name and 'source' in model_info:
+                selected_model_info = model_info
+                break
 
-        # Оценим размер промпта в токенах, который не является непосредственно текстом для перевода.
-        # Включает системный промпт, previous_context и prompt_ext.
-        # Это "накладные расходы" промпта, которые занимают место во входном контексте.
-        
-        # --- ИСПРАВЛЕНИЕ: Более точная оценка накладных расходов промпта ---
-        # Оценим базовый промпт без текста и previous_context/prompt_ext
-        # Пример: System prompt tokens (из шаблона) + instructions
-        # ОЧЕНЬ грубая оценка для *структуры* промпта (без content): ~500 токенов
-        base_prompt_structure_tokens = 500
-        if target_language.lower() == 'russian':
-            base_prompt_structure_tokens += 10 # За правило русского диалога
-        
-        # Оценка prompt_ext токенов
-        prompt_ext_tokens = int(len(prompt_ext) / 3) if prompt_ext else 0
-        
-        # Оценка previous_context токенов (для целей расчета CHUNK_SIZE_LIMIT_CHARS, берем пессимистичный случай)
-        # Если actual_requested_output_tokens берется из общего лимита, то previous_context должен быть максимально учтен
-        estimated_previous_context_tokens = 500 # Оценка: ~100 слов * 5 символов/слово = 500 символов, /3 ~ 166 токенов, округлим до 500 для запаса
-        # Максимально возможные токены, которые могут быть заняты фиксированными частями промпта + максимальным previous_context
-        # Эта оценка нужна для расчета CHUNK_SIZE_LIMIT_CHARS, чтобы гарантировать, что *даже самый маленький чанк*
-        # (включая свой previous_context и prompt_ext) оставит место для вывода.
-        estimated_max_input_overhead_for_chunk = base_prompt_structure_tokens + \
-                                                 prompt_ext_tokens + \
-                                                 estimated_previous_context_tokens
-        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+        if not selected_model_info:
+            print(f"ОШИБКА: Не найдена информация об источнике для модели '{model_name}'. Невозможно перевести.")
+            return None # Или выбросить ошибку, или использовать дефолтный переводчик
 
-        # Рассчитываем, сколько токенов осталось для ВХОДНОГО ТЕКСТА чанка.
-        # Это то количество токенов, которое сам 'text' может занимать, чтобы
-        # (text_tokens + estimated_max_input_overhead_for_chunk + SOME_OUTPUT_TOKENS) <= model_total_context_limit
-        # Вместо того чтобы вычитать actual_requested_output_tokens (который теперь рассчитывается в translate_chunk),
-        # мы вычтем "резерв" для вывода, чтобы получить лимит на входной текст.
-        # Для CHUNK_SIZE_LIMIT_CHARS, мы хотим, чтобы чанк был достаточно мал, чтобы оставить место
-        # для output_tokens. Зарезервируем минимально необходимый output_token_limit.
-        MIN_RESERVE_OUTPUT_TOKENS = 4096 # Минимальный резерв для вывода, если модель может дать больше
-        
-        # Рассчитываем, сколько токенов осталось для ВХОДНОГО ТЕКСТА чанка,
-        # чтобы влезли: (текст чанка + overhead_prompt + МИНИМАЛЬНЫЙ резерв для вывода) <= total_context
-        remaining_tokens_for_input_text_chunk = model_total_context_limit - estimated_max_input_overhead_for_chunk - MIN_RESERVE_OUTPUT_TOKENS
-
-        # Конвертируем токены в символы, используя приблизительный коэффициент 3 символа/токен
-        # Убедимся, что лимит не отрицательный и не слишком маленький
-        CHUNK_SIZE_LIMIT_CHARS = max(MIN_CHUNK_SIZE, int(remaining_tokens_for_input_text_chunk * 3))
-        
-        limit_source_desc = (f"Лимит по токенам модели (Общий: {model_total_context_limit}, "
-                             f"Резерв вывода: {MIN_RESERVE_OUTPUT_TOKENS}, Промпт: ~{estimated_max_input_overhead_for_chunk})")
-
-        # Для summarize и analyze, мы можем использовать более высокий output_token_limit
-        # так как их выход обычно короче, и мы можем отдать под него больше от общего контекста.
-        # Текущая логика для них остается использовать input_token_limit * 3.
-        if operation_type in ['summarize', 'analyze']:
-            # Для этих операций, CHUNK_SIZE_LIMIT_CHARS может быть просто модель_total_context_limit - overhead
-            # поскольку мы ожидаем более короткий вывод. Но пока оставим как есть.
-            CHUNK_SIZE_LIMIT_CHARS = int(model_total_context_limit * 3) # Для sum/analyze берем просто общий лимит контекста
-            limit_source_desc = f"Лимит по токенам модели (Общий: {model_total_context_limit} * 3)"
-            # ИЛИ если мы хотим более точно:
-            # calculated_output_limit_for_sum_analyze = model_total_context_limit - (base_prompt_structure_tokens + prompt_ext_tokens)
-            # CHUNK_SIZE_LIMIT_CHARS = max(MIN_CHUNK_SIZE, int((model_total_context_limit - (base_prompt_structure_tokens + prompt_ext_tokens + some_small_output_reserve)) * 3))
-
-        # Добавляем минимальное ограничение, чтобы избежать деления на ноль или слишком маленьких чанков
-        # MIN_CHUNK_SIZE уже определено в начале функции
-        if CHUNK_SIZE_LIMIT_CHARS < MIN_CHUNK_SIZE:
-             CHUNK_SIZE_LIMIT_CHARS = MIN_CHUNK_SIZE
-             limit_source_desc += " (увеличен до минимума)"
-             print(f"[BaseTranslator] Лимит чанка ({operation_type}) был меньше минимального. Установлен: {CHUNK_SIZE_LIMIT_CHARS}.") # ИСПРАВЛЕНА ОПЕЧАТКА
-        
-        # Защита от отрицательного или слишком маленького лимита чанка (может произойти, если estimated_max_input_overhead_for_chunk слишком велик)
-        if CHUNK_SIZE_LIMIT_CHARS <= 0:
-            print(f"[BaseTranslator] Предупреждение: Рассчитанный CHUNK_SIZE_LIMIT_CHARS <= 0. Устанавливается дефолтный: {MIN_CHUNK_SIZE}.")
-            CHUNK_SIZE_LIMIT_CHARS = MIN_CHUNK_SIZE
-            limit_source_desc += " (установлен дефолтный из-за отрицательного расчета)"
-
-
-        # Обновляем сообщение в логе, чтобы отразить, как был установлен лимит
-        print(f"[BaseTranslator] Проверка длины текста: {text_len} симв. Лимит чанка ({limit_source_desc}): {CHUNK_SIZE_LIMIT_CHARS} симв.")
-        print(f"[BaseTranslator] Ожидаемый макс. токены ввода для текста: {remaining_tokens_for_input_text_chunk} (для перевода)")
-
-        # Теперь используем CHUNK_SIZE_LIMIT_CHARS в оставшейся логике функции
-        # Учитываем, что CHUNK_SIZE_LIMIT_CHARS может быть очень большим, если оставшихся токенов много
-        # Мы все равно хотим разбить на чанки, если полный текст очень большой.
-        # Используем CHUNK_SIZE_LIMIT_CHARS для определения, нужен ли вообще чанкинг
-        # Если text_len все еще слишком велик для рассчитанного CHUNK_SIZE_LIMIT_CHARS,
-        # то логика чанкинга ниже сработает.
-        
-        # Если operation_type - translate, используем рассчитанный actual_requested_output_tokens
-        # для переопределения лимита вывода в translate_chunk.
-        # Условие text_len <= CHUNK_SIZE_LIMIT_CHARS * 1.1 определяет, пробуем ли мы переводить целиком.
-        if text_len <= CHUNK_SIZE_LIMIT_CHARS * 1.1: 
-            if operation_type == 'translate':
-                print("[BaseTranslator] Пробуем перевод целиком (operation_type=translate)...")
-                # ИСПРАВЛЕНИЕ: previous_context для первого вызова должен быть пустой строкой
-                result = self.translate_chunk(model_name, text_to_translate, target_language, 
-                                              previous_context="", prompt_ext=prompt_ext, operation_type=operation_type) 
-                
-                # --- ИСПРАВЛЕНИЕ: Корректная обработка TRUNCATED_RESPONSE_ERROR и других ошибок ---
-                if result == TRUNCATED_RESPONSE_ERROR:
-                    print("[BaseTranslator] Перевод целиком вернул TRUNCATED_RESPONSE_ERROR. Переключаемся на чанки.")
-                    # Продолжаем выполнение функции, чтобы перейти к логике чанкинга
-                elif result == CONTEXT_LIMIT_ERROR:
-                    print("[BaseTranslator] Перевод целиком не удался (лимит контекста), переключаемся на чанки.")
-                    # Продолжаем выполнение функции, чтобы перейти к логике чанкинга
-                elif result is None:
-                    print("[BaseTranslator] Перевод целиком вернул None (ошибка API). Прерываем перевод.")
-                    return None # Окончательная ошибка, завершаем
-                else: # Если result - это успешно полученный текст (не ошибка), возвращаем его
-                    return result
-                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-            else: # Для summarize/analyze и других операций
-                print(f"[BaseTranslator] Пробуем перевод целиком (operation_type={operation_type})...")
-                result = self.translate_chunk(model_name, text_to_translate, target_language, 
-                                              previous_context="", prompt_ext=prompt_ext, operation_type=operation_type)
-                if result != CONTEXT_LIMIT_ERROR:
-                    return result
-                print(f"[BaseTranslator] Операция целиком не удалась (лимит контекста) для {operation_type}, переключаемся на чанки.")
-        else: # Если текст слишком длинный для рассчитанного CHUNK_SIZE_LIMIT_CHARS, сразу переходим к чанкингу
-            print(f"[BaseTranslator] Текст слишком длинный ({text_len} симв.) для перевода целиком (лимит: {CHUNK_SIZE_LIMIT_CHARS}), сразу переходим к чанкингу.")
-
-        # Разбиваем на параграфы
-        print(f"[BaseTranslator] Текст длинный ({text_len} симв.), разбиваем на чанки. Лимит чанка по символам: {CHUNK_SIZE_LIMIT_CHARS}...")
-        paragraphs = text_to_translate.split('\n\n')
-        chunks = []
-        current_chunk = []
-        current_chunk_len = 0
-
-        for paragraph in paragraphs:
-            paragraph = paragraph.strip()
-            if not paragraph:
-                continue
-
-            paragraph_len = len(paragraph)
-            # Внимание: здесь мы используем CHUNK_SIZE_LIMIT_CHARS для разделения исходного текста.
-            # Важно, чтобы этот лимит оставлял место для промпта + output.
-            # Если большой параграф все равно не помещается, то модель будет возвращать ошибку контекста.
-            if paragraph_len > CHUNK_SIZE_LIMIT_CHARS:
-                if current_chunk:
-                    chunks.append('\n\n'.join(current_chunk))
-                    current_chunk = []
-                    current_chunk_len = 0
-
-                sentences = paragraph.split('. ')
-                temp_chunk = []
-                temp_chunk_len = 0
-
-                for sentence in sentences:
-                    sentence = sentence.strip()
-                    # Добавим точку, если ее нет, для более корректного split/join
-                    if sentence and not (sentence.endswith('.') or sentence.endswith('?') or sentence.endswith('!')):
-                        sentence += '.'
-                    
-                    sentence_len = len(sentence)
-
-                    if temp_chunk_len + sentence_len > CHUNK_SIZE_LIMIT_CHARS:
-                        if temp_chunk:
-                            chunks.append(' '.join(temp_chunk).strip()) # Удаляем лишнюю точку, она уже в sentence, strip() уберет лишние пробелы
-                        temp_chunk = [sentence]
-                        temp_chunk_len = sentence_len
-                    else:
-                        temp_chunk.append(sentence)
-                        temp_chunk_len += sentence_len + (2 if sentence else 0)  # +2 для '. ' между предложениями, если есть предложение
-
-                if temp_chunk:
-                    chunks.append(' '.join(temp_chunk).strip()) # Удаляем лишнюю точку, она уже в sentence
-            else:
-                if current_chunk_len + paragraph_len > CHUNK_SIZE_LIMIT_CHARS:
-                    chunks.append('\n\n'.join(current_chunk))
-                    current_chunk = [paragraph]
-                    current_chunk_len = paragraph_len
-                else:
-                    current_chunk.append(paragraph)
-                    current_chunk_len += paragraph_len + 4  # +4 для '\n\n'
-
-        if current_chunk:
-            chunks.append('\n\n'.join(current_chunk))
-
-        if not chunks:
-            print("[BaseTranslator] Ошибка: Не удалось создать чанки!")
+        source = selected_model_info['source']
+        # Теперь у нас есть источник, создаем нужный переводчик
+        if source == "google":
+            translator = GoogleTranslator()
+        elif source == "openrouter":
+            translator = OpenRouterTranslator()
+        else:
+            # Этого не должно произойти, если get_models_list корректно добавляет source
+            print(f"ОШИБКА: Неизвестный источник '{source}' для модели '{model_name}'.")
             return None
 
-        print(f"[BaseTranslator] Текст разбит на {len(chunks)} чанков.")
-        translated_chunks = []
-        last_successful_translation = ""
-
-        # --- НОВАЯ ЛОГИКА: Ретраи на уровне чанков ---
-        max_chunk_retries = 2 # Максимальное количество повторных попыток на чанк (всего 1 + 2 ретрая = 3 попытки)
-        # --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-
-        for i, chunk in enumerate(chunks, 1):
-            chunk_translated_successfully = False
-            chunk_retry_attempt = 0
-            chunk_result = None
-
-            while not chunk_translated_successfully and chunk_retry_attempt <= max_chunk_retries:
-                print(f"[BaseTranslator] -- Перевод чанка {i}/{len(chunks)} ({len(chunk)} симв.). Попытка {chunk_retry_attempt + 1}/{max_chunk_retries + 1}...")
-                context_fragment = " ".join(last_successful_translation.split()[-100:]) if last_successful_translation else ""
-                
-                chunk_result = self.translate_chunk(model_name, chunk, target_language, 
-                                                    previous_context=context_fragment, prompt_ext=prompt_ext, 
-                                                    operation_type=operation_type)
-
-                if chunk_result == TRUNCATED_RESPONSE_ERROR:
-                    print(f"[BaseTranslator] -- Чанк {i} вернул TRUNCATED_RESPONSE_ERROR. Повторная попытка...")
-                    chunk_retry_attempt += 1
-                    time.sleep(2) # Небольшая задержка перед повторной попыткой
-                    continue # Повторяем внутренний цикл
-                elif chunk_result == EMPTY_RESPONSE_ERROR:
-                    print(f"[BaseTranslator] -- Чанк {i} вернул EMPTY_RESPONSE_ERROR после ретраев. Прерываем перевод.\n")
-                    return EMPTY_RESPONSE_ERROR
-                elif chunk_result is None:
-                    print(f"[BaseTranslator] -- Чанк {i} вернул None. Прерываем перевод.\n")
-                    return None
-                elif chunk_result == CONTEXT_LIMIT_ERROR:
-                    print(f"[BaseTranslator] -- Чанк {i} превысил лимит контекста. Возвращаем ошибку.")
-                    return CONTEXT_LIMIT_ERROR
-                else:
-                    chunk_translated_successfully = True # Чанк успешно переведен
-
-            if not chunk_translated_successfully:
-                print(f"[BaseTranslator] -- Чанк {i} не удалось перевести после {max_chunk_retries + 1} попыток. Прерываем перевод.\n")
-                return None # Или можно вернуть TRUNCATED_RESPONSE_ERROR, если хотим явно указать на причину
-
-            # Если чанк успешно переведен, добавляем его к общему результату
-            translated_chunks.append(chunk_result)
-            last_successful_translation = chunk_result
-
-            print(f"[BaseTranslator] Задержка {1} сек после чанка {i}/{len(chunks)}.")
-            time.sleep(1) # Длительность задержки в секундах (можно настроить)
-        # --- КОНЕЦ НОВОЙ ЛОГИКИ: Ретраи на уровне чанков ---
-
-        print("[BaseTranslator] Сборка переведенных чанков...")
-        return "\n\n".join(translated_chunks)
+        # Вызываем метод translate_text у выбранного экземпляра переводчика
+        # Передаем model_name, так как это часто нужно самому API
+        # Передаем target_language и prompt_ext как обычно
+        return translator.translate_text(text_to_translate, target_language, model_name, prompt_ext, operation_type)
 
     @abstractmethod
     def get_available_models(self) -> List[Dict[str, Any]]:
