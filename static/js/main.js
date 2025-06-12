@@ -613,23 +613,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            // --- ИЗМЕНЕНИЕ: Если модель из сессии не найдена, выбираем первую ---
-            // (Или можно выбрать 'gemini-1.5-flash', если он есть, как fallback)
-            if (!modelToSelectFound && modelSelect.options.length > 0) {
-                 // Попробуем найти 'gemini-1.5-flash' как запасной вариант
+            // Если модель из сессии не найдена, выбираем дефолтную (если она есть в списке)
+            if (modelSelect && !modelToSelectFound && modelSelect.options.length > 0) {
+                 // Попробуем найти 'meta-llama/llama-4-maverick:free' как запасной вариант
                  let fallbackDefaultFound = false;
                  for(let i=0; i < modelSelect.options.length; i++){
-                     if(modelSelect.options[i].value === "models/gemini-1.5-flash"){
+                     if(modelSelect.options[i].value === "meta-llama/llama-4-maverick:free"){
                          modelSelect.options[i].selected = true;
                          fallbackDefaultFound = true;
-                         console.warn(`Модель из сессии (${initialSelectedModel}) не найдена в списке. Выбрана дефолтная 'gemini-1.5-flash'.`);
+                         console.warn(`Модель из сессии (${initialSelectedModel}) не найдена в списке. Выбрана дефолтная 'meta-llama/llama-4-maverick:free'.`);
                          break;
                      }
                  }
-                 // Если и дефолтной нет, выбираем первую
-                 if(!fallbackDefaultFound){
+                 // Если даже дефолтной нет, выбираем просто первую в списке
+                 if (!fallbackDefaultFound) {
                     modelSelect.options[0].selected = true;
-                    console.warn(`Модель из сессии (${initialSelectedModel}) и дефолтная 'gemini-1.5-flash' не найдены. Выбрана первая модель: ${modelSelect.options[0].value}`);
+                    console.warn(`Модель из сессии (${initialSelectedModel}) и дефолтная 'meta-llama/llama-4-maverick:free' не найдены. Выбрана первая модель: ${modelSelect.options[0].value}`);
                  }
             }
              modelSelect.disabled = false;

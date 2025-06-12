@@ -185,7 +185,7 @@ class BaseTranslator(ABC):
         MIN_CHUNK_SIZE = 1000 # Минимум 1000 символов, можно настроить
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
-        actual_model_name = model_name if model_name else "gemini-1.5-flash"
+        actual_model_name = model_name if model_name else "meta-llama/llama-4-maverick:free"
         
         # Получаем полный контекстный лимит модели (input + output)
         model_total_context_limit = get_context_length(actual_model_name)
@@ -811,7 +811,7 @@ def translate_text(text_to_translate: str, target_language: str = "russian",
 
     if not model_name:
         # Если модель не указана, используем дефолтную и определяем ее источник
-        model_name = "gemini-1.5-flash"
+        model_name = "meta-llama/llama-4-maverick:free"
 
     # Получаем полный список моделей, чтобы найти источник по имени
     # ВНИМАНИЕ: Этот вызов может быть медленным, если API отвечают долго.

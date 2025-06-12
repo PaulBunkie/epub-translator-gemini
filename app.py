@@ -81,17 +81,23 @@ except ValueError as e:
 executor = ThreadPoolExecutor(max_workers=int(os.getenv("MAX_TRANSLATION_WORKERS", 3)))
 active_tasks = {} # Хранилище статусов активных задач {task_id: {"status": ..., "book_id": ..., "section_id": ...}}
 
-# --- ИЗМЕНЕНИЕ: Передаем executor в alice_handler ---
-alice_handler.initialize_alice_handler(executor)
+# --- ИЗМЕНЕНИЕ: Передаем executor и имя модели в alice_handler ---
+SMART_ALICE_MODEL_NAME = os.getenv("SMART_ALICE_MODEL", "meta-llama/llama-4-maverick:free")
+alice_handler.initialize_alice_handler(executor, smart_alice_model=SMART_ALICE_MODEL_NAME)
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 # --- ИЗМЕНЕНИЕ: Настройка и запуск APScheduler ---
 scheduler = BackgroundScheduler(daemon=True)
+
+# Модель для перевода новостей, настраиваемая через переменные окружения
+NEWS_MODEL_NAME = os.getenv("NEWS_TRANSLATION_MODEL", "meta-llama/llama-4-maverick:free")
+
 # Добавляем задачу обновления кеша новостей, выполняться каждый час
 scheduler.add_job(
     alice_handler.update_translated_news_cache,
     'interval',
     hours=1,
+    args=[NEWS_MODEL_NAME],   # Передаем имя модели в задачу
     id='bbc_news_updater_job', # Даем ID для управления
     replace_existing=True     # Заменять задачу, если она уже есть с таким ID
 )
@@ -231,7 +237,7 @@ def index():
     """ Отображает главную страницу со списком книг. """
     print("Загрузка главной страницы...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'meta-llama/llama-4-scout:free')
+    selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     
     # Получаем список моделей
@@ -239,9 +245,9 @@ def index():
     if not available_models:
         available_models = [
             {
-                'name': 'gemini-1.5-flash',
-                'display_name': 'Google Gemini 1.5 Flash',
-                'description': 'Default Google Gemini model'
+                'name': 'meta-llama/llama-4-maverick:free',
+                'display_name': 'Meta Llama 4 Maverick (Free)',
+                'description': 'Default Meta Llama model'
             }
         ]
         print("  WARN: Не удалось получить список моделей от API.")
@@ -318,7 +324,7 @@ def upload_file():
         translated_toc_titles = {}
         if toc_titles_for_translation:
              print(f"Перевод {len(toc_titles_for_translation)} заголовков TOC...")
-             toc_model = session.get('model_name', 'gemini-1.5-flash')
+             toc_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
              titles_text = "\n|||---\n".join(toc_titles_for_translation)
              # Здесь мы не передаем operation_type, потому что это всегда просто перевод названий TOC
              translated_titles_text = translate_text(titles_text, target_language, toc_model, prompt_ext=None)
@@ -379,8 +385,8 @@ def view_book(book_id):
     book_db_language = book_info.get('target_language')
     target_language = book_db_language or request.args.get('lang') or session.get('target_language', 'russian')
 
-    # --- ИЗМЕНЕНИЕ: Меняем модель по умолчанию на 'meta-llama/llama-4-scout:free' ---
-    selected_model = session.get('model_name', 'meta-llama/llama-4-scout:free')
+    # --- ИЗМЕНЕНИЕ: Меняем модель по умолчанию на 'meta-llama/llama-4-maverick:free' ---
+    selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     selected_operation = session.get('operation_type', 'translate')
@@ -393,7 +399,7 @@ def view_book(book_id):
 
     print(f"  Параметры для отображения: lang='{target_language}', model='{selected_model}'.\n")
     available_models = get_models_list()
-    if not available_models: available_models = list(set([selected_model, 'gemini-1.5-flash'])); print("  WARN: Не удалось получить список моделей.\n")
+    if not available_models: available_models = list(set([selected_model, 'meta-llama/llama-4-maverick:free'])); print("  WARN: Не удалось получить список моделей.\n")
     prompt_ext_text = book_info.get('prompt_ext', '')
 
     resp = make_response(render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation))
@@ -433,7 +439,7 @@ def translate_section_request(book_id, section_id):
         data = request.get_json();
         if not data: raise ValueError("Missing JSON")
         target_language = data.get('target_language', session.get('target_language', 'russian'))
-        model_name = data.get('model_name', session.get('model_name', 'gemini-1.5-flash'))
+        model_name = data.get('model_name', session.get('model_name', 'meta-llama/llama-4-maverick:free'))
         operation_type = data.get('operation_type', 'translate') # Get operation type from JSON, default to 'translate'
         print(f"  [DEBUG] 3.1. Параметры получены: lang={target_language}, model={model_name}, operation={operation_type}")
     except Exception as e:
@@ -484,7 +490,7 @@ def translate_all_request(book_id):
         data = request.get_json();
         if not data: raise ValueError("Missing JSON")
         target_language = data.get('target_language', session.get('target_language', 'russian'))
-        model_name = data.get('model_name', session.get('model_name', 'gemini-1.5-flash'))
+        model_name = data.get('model_name', session.get('model_name', 'meta-llama/llama-4-maverick:free'))
         operation_type = data.get('operation_type', 'translate') # Get operation type from JSON, default to 'translate'
     except Exception as e: print(f"  Ошибка получения параметров: {e}"); return jsonify({"error": f"Invalid JSON payload: {e}"}), 400
     session['target_language'] = target_language; session['model_name'] = model_name

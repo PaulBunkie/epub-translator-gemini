@@ -31,11 +31,15 @@ news_cache_lock = threading.Lock()
 pending_gemini_results = {}
 results_lock = threading.Lock()
 background_executor = None
+SMART_ALICE_MODEL = "meta-llama/llama-4-maverick:free" # Модель по умолчанию
 
-def initialize_alice_handler(executor_instance):
-    global background_executor
+def initialize_alice_handler(executor_instance, smart_alice_model: str = None):
+    global background_executor, SMART_ALICE_MODEL
     if executor_instance: background_executor = executor_instance; print("[Alice Handler] Инициализирован с executor.")
     else: print("[Alice Handler ERROR] Executor instance is None!")
+    if smart_alice_model:
+        SMART_ALICE_MODEL = smart_alice_model
+    print(f"[Alice Handler] Установлена модель для Smart Alice: {SMART_ALICE_MODEL}")
 
 # --- Вспомогательная функция для получения новостей BBC ---
 def _get_bbc_news_from_api():
@@ -53,16 +57,16 @@ def _get_bbc_news_from_api():
     return titles
 
 # --- Функция для ОБНОВЛЕНИЯ кеша новостей (вызывается лениво из /alice) ---
-def update_translated_news_cache():
-    global translated_news_cache, news_cache_lock; print("[Alice Handler/News Update] Запуск обновления..."); english_titles = _get_bbc_news_from_api()
+def update_translated_news_cache(model_for_news: str = "meta-llama/llama-4-maverick:free"):
+    global translated_news_cache, news_cache_lock; print(f"[Alice Handler/News Update] Запуск обновления новостей с моделью '{model_for_news}'..."); english_titles = _get_bbc_news_from_api()
     if not english_titles: print("[Alice Handler/News Update] Не удалось получить заголовки."); return False
-    new_translated_titles = []; target_language = "russian"; model_name = "gemini-1.5-flash"; alice_prompt_ext = "Do not use footnotes..."
+    new_translated_titles = []; target_language = "russian"; alice_prompt_ext = "Do not use footnotes..."
     try:
         if translate_text is None: raise ImportError("translate_text missing")
         print(f"[Alice Handler/News Update] Переводим до {min(len(english_titles), 7)} заголовков...")
         titles_processed = 0
         for i, title in enumerate(english_titles[:7]):
-            translated_title_raw = translate_text(title, target_language, model_name, prompt_ext=alice_prompt_ext); titles_processed += 1
+            translated_title_raw = translate_text(title, target_language, model_for_news, prompt_ext=alice_prompt_ext); titles_processed += 1
             if translated_title_raw and translated_title_raw != CONTEXT_LIMIT_ERROR:
                 cleaned_title = re.sub(r'\[\d+\]|¹|²|³|⁴|⁵|⁶|⁷|⁸|⁹', '', translated_title_raw); cleaned_title = re.sub(r'\n+---\n.*', '', cleaned_title, flags=re.DOTALL).strip()
                 if cleaned_title: new_translated_titles.append(cleaned_title)
@@ -75,14 +79,18 @@ def update_translated_news_cache():
 
 # --- Фоновая функция для /alice/smart ---
 def run_gemini_query_background(session_id, user_query):
-    global pending_gemini_results, results_lock
+    global pending_gemini_results, results_lock, SMART_ALICE_MODEL
     log_prefix = f"[Alice Handler/BG Gemini {session_id}]"; print(f"{log_prefix} Запуск: '{user_query[:50]}...'")
     result_payload = {"status": "error", "error": "BG error"}; start_time = time.time()
     try:
-        model_name = "gemini-2.5-flash-preview-04-17"; print(f"{log_prefix} Иниц. {model_name}...")
+        model_name = SMART_ALICE_MODEL; print(f"{log_prefix} Иниц. {model_name}...")
         try: model = genai.GenerativeModel(model_name); print(f"{log_prefix} Модель готова.")
         except Exception as model_e: print(f"{log_prefix} ОШИБКА иниц. модели: {model_e}"); raise model_e
-        prompt = f"""Ты — ассистент Алиса. Ответь кратко. Макс 950 символов. Без Markdown.\n\nВопрос: {user_query}\n\nОтвет:"""
+        prompt = f"""Ты — ассистент Алиса. Ответь кратко. Макс 950 символов. Без Markdown.
+
+Вопрос: {user_query}
+
+Ответ:"""
         print(f"{log_prefix} Запрос к Gemini..."); response = model.generate_content(prompt); response_time = time.time(); print(f"{log_prefix} Ответ получен за {response_time - start_time:.2f} сек.")
         gemini_text = None
         try: gemini_text = response.text

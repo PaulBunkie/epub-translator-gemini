@@ -164,7 +164,7 @@
                         {% endfor %}
                         </optgroup>
                     {% else %}
-                        <option value="{{ selected_model | default('gemini-1.5-flash') }}" selected>{{ selected_model | default('gemini-1.5-flash') }}</option>
+                        <option value="{{ selected_model | default('meta-llama/llama-4-maverick:free') }}" selected>{{ selected_model | default('meta-llama/llama-4-maverick:free') }}</option>
                         <option disabled>Ошибка загрузки моделей</option>
                     {% endif %}
                 </select>
@@ -263,7 +263,7 @@
         // Передача данных из Flask в JS
         const currentBookId = "{{ book_id | default('None') | escape }}";
         const initialTargetLanguage = "{{ target_language | default('russian') | escape }}";
-        const initialSelectedModel = "{{ selected_model | default('gemini-1.5-flash') | escape }}";
+        const initialSelectedModel = "{{ selected_model | default('meta-llama/llama-4-maverick:free') | escape }}";
     </script>
 
     <script> // Скрипт сохранения prompt_ext
