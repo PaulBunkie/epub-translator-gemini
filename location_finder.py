@@ -11,7 +11,7 @@ from db_manager import get_cached_location, save_cached_location
 
 NEWS_API_KEY = "2126e6e18adb478fb9ade262cb1102af"
 NEWS_API_URL = 'https://newsapi.org/v2/everything'
-GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "meta-llama/llama-4-maverick:free")
+GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "gemini-2.5-flash-preview-05-20")
 REQUEST_TIMEOUT_SECONDS = 20
 NEWS_FETCH_DAYS_AGO = 3
 LOCATION_CACHE_TTL_SECONDS = 3600
