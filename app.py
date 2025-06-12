@@ -81,9 +81,8 @@ except ValueError as e:
 executor = ThreadPoolExecutor(max_workers=int(os.getenv("MAX_TRANSLATION_WORKERS", 3)))
 active_tasks = {} # Хранилище статусов активных задач {task_id: {"status": ..., "book_id": ..., "section_id": ...}}
 
-# --- ИЗМЕНЕНИЕ: Передаем executor и имя модели в alice_handler ---
-SMART_ALICE_MODEL_NAME = os.getenv("SMART_ALICE_MODEL", "meta-llama/llama-4-maverick:free")
-alice_handler.initialize_alice_handler(executor, smart_alice_model=SMART_ALICE_MODEL_NAME)
+# --- ИЗМЕНЕНИЕ: Передаем executor в alice_handler ---
+alice_handler.initialize_alice_handler(executor)
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 # --- ИЗМЕНЕНИЕ: Настройка и запуск APScheduler ---

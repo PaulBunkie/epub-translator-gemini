@@ -31,15 +31,11 @@ news_cache_lock = threading.Lock()
 pending_gemini_results = {}
 results_lock = threading.Lock()
 background_executor = None
-SMART_ALICE_MODEL = "meta-llama/llama-4-maverick:free" # Модель по умолчанию
 
-def initialize_alice_handler(executor_instance, smart_alice_model: str = None):
-    global background_executor, SMART_ALICE_MODEL
+def initialize_alice_handler(executor_instance):
+    global background_executor
     if executor_instance: background_executor = executor_instance; print("[Alice Handler] Инициализирован с executor.")
     else: print("[Alice Handler ERROR] Executor instance is None!")
-    if smart_alice_model:
-        SMART_ALICE_MODEL = smart_alice_model
-    print(f"[Alice Handler] Установлена модель для Smart Alice: {SMART_ALICE_MODEL}")
 
 # --- Вспомогательная функция для получения новостей BBC ---
 def _get_bbc_news_from_api():
@@ -79,11 +75,11 @@ def update_translated_news_cache(model_for_news: str = "meta-llama/llama-4-maver
 
 # --- Фоновая функция для /alice/smart ---
 def run_gemini_query_background(session_id, user_query):
-    global pending_gemini_results, results_lock, SMART_ALICE_MODEL
+    global pending_gemini_results, results_lock
     log_prefix = f"[Alice Handler/BG Gemini {session_id}]"; print(f"{log_prefix} Запуск: '{user_query[:50]}...'")
     result_payload = {"status": "error", "error": "BG error"}; start_time = time.time()
     try:
-        model_name = SMART_ALICE_MODEL; print(f"{log_prefix} Иниц. {model_name}...")
+        model_name = "gemini-2.5-flash-preview-05-20"; print(f"{log_prefix} Иниц. {model_name}...")
         try: model = genai.GenerativeModel(model_name); print(f"{log_prefix} Модель готова.")
         except Exception as model_e: print(f"{log_prefix} ОШИБКА иниц. модели: {model_e}"); raise model_e
         prompt = f"""Ты — ассистент Алиса. Ответь кратко. Макс 950 символов. Без Markdown.
