@@ -53,7 +53,7 @@ def _get_bbc_news_from_api():
     return titles
 
 # --- Функция для ОБНОВЛЕНИЯ кеша новостей (вызывается лениво из /alice) ---
-def update_translated_news_cache(model_for_news: str = "meta-llama/llama-4-maverick:free"):
+def update_translated_news_cache(model_for_news: str = "meta-llama/llama-4-scout:free"):
     global translated_news_cache, news_cache_lock; print(f"[Alice Handler/News Update] Запуск обновления новостей с моделью '{model_for_news}'..."); english_titles = _get_bbc_news_from_api()
     if not english_titles: print("[Alice Handler/News Update] Не удалось получить заголовки."); return False
     new_translated_titles = []; target_language = "russian"; alice_prompt_ext = "Do not use footnotes..."

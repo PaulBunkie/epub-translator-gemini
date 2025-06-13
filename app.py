@@ -717,9 +717,21 @@ def get_bbc_news():
     return news_titles
 
 # --- Маршрут для Алисы (упрощенный) ---
-@app.route('/alice', methods=['POST'])
+@app.route('/alice', methods=['GET', 'POST'])
+@app.route('/alice/', methods=['GET', 'POST'])  # Добавляем вариант со слешем
 def alice_webhook():
     """ Обрабатывает запросы от Яндекс.Алисы, вызывая alice_handler. """
+    if request.method == 'GET':
+        return jsonify({
+            "status": "ok",
+            "service": "alice-webhook",
+            "version": "1.0",
+            "endpoints": {
+                "/alice": "POST - основной вебхук для Алисы",
+                "/alice/smart": "POST - умный вебхук с Gemini"
+            }
+        })
+    
     request_data = request.json
     response_payload = alice_handler.handle_alice_request(request_data)
     return jsonify(response_payload)
@@ -727,6 +739,7 @@ def alice_webhook():
 
 # --- НОВЫЙ МАРШРУТ для "умной" Алисы ---
 @app.route('/alice/smart', methods=['POST'])
+@app.route('/alice/smart/', methods=['POST'])  # Добавляем вариант со слешем
 def alice_smart_webhook():
     """ Обрабатывает запросы к Gemini через Алису. """
     request_data = request.json
