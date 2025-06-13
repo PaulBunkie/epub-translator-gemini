@@ -433,20 +433,21 @@ class OpenRouterTranslator(BaseTranslator):
         model_total_context_limit = get_context_length(model_name)
         model_declared_output_limit = get_model_output_token_limit(model_name)
         
-        # Оценим длину промпта в токенах (грубо 3 символа на токен).
-        # Это входные токены, которые OpenRouter называет "text input" в своей ошибке.
-        input_prompt_tokens = len(prompt) // 3 
+        # Если max_completion_tokens не указан, используем половину размера контекста
+        if not model_declared_output_limit:
+            model_declared_output_limit = model_total_context_limit // 2
+            print(f"[OpenRouterTranslator] max_completion_tokens не указан, используем половину контекста: {model_declared_output_limit}")
+        
+        # Оценим длину промпта в токенах (грубо 3 символа на токен)
+        input_prompt_tokens = len(prompt) // 3
         
         # Максимально допустимое количество токенов для вывода
         # = Общий лимит контекста - токены входного промпта - небольшой буфер
         calculated_max_output_tokens = model_total_context_limit - input_prompt_tokens - 100 # Буфер 100 токенов
         
-        # Окончательный лимит вывода: минимум из заявленного моделью, рассчитанного и нашего хардкапа.
-        # OpenRouter часто явно указывает max_completion_tokens, но важно не превысить общий контекст.
-        final_output_token_limit = max(
-            256, # Минимальный лимит, чтобы не запрашивать слишком мало
-            min(model_declared_output_limit, calculated_max_output_tokens)
-        )
+        # Окончательный лимит вывода: минимум из заявленного моделью и рассчитанного
+        final_output_token_limit = min(model_declared_output_limit, calculated_max_output_tokens)
+        
         print(f"[OpenRouterTranslator] Рассчитанный output_token_limit для API: {final_output_token_limit} (Общий контекст: {model_total_context_limit}, Входной промпт: ~{input_prompt_tokens} токенов)")
         # --- КОНЕЦ НОВОГО ИЗМЕНЕНИЯ ---
 
