@@ -196,7 +196,8 @@ class GoogleTranslator(BaseTranslator):
                         'display_name': f"Google {model.name}",
                         'input_token_limit': model.input_token_limit,
                         'output_token_limit': model.output_token_limit,
-                        'source': 'google'
+                        'source': 'google',
+                        'is_free': True  # Все модели Google бесплатные
                     })
             return models
         except Exception as e:
@@ -301,10 +302,10 @@ class OpenRouterTranslator(BaseTranslator):
                 processed_models.append({
                     'name': model['id'],
                     'display_name': model.get('name', model['id']),
-                    'context_length': model.get('context_length'),
-                    'max_completion_tokens': model.get('top_provider', {}).get('max_completion_tokens'),
+                    'input_token_limit': model.get('context_length'),  # Переименовываем context_length в input_token_limit
+                    'output_token_limit': model.get('top_provider', {}).get('max_completion_tokens'),  # Переименовываем max_completion_tokens в output_token_limit
                     'pricing': pricing,
-                    'is_free': is_free, # Добавляем флаг
+                    'is_free': is_free,
                     'source': 'openrouter'
                 })
             return processed_models
@@ -758,60 +759,26 @@ def load_models_on_startup():
 
 
 def get_context_length(model_name: str) -> int:
-    """
-    Получает длину контекста для указанной модели из кэшированного списка.
-    Возвращает 0, если модель не найдена.
-    """
-    # --- ИЗМЕНЕНИЕ: Искать нужно во ВСЕХ моделях ---
+    """Получает максимальный размер контекста для модели."""
     all_models = get_models_list(show_all_models=True)
-    if not all_models:
-        # Попытка загрузить, если кэш пуст
-        load_models_on_startup()
-        all_models = get_models_list(show_all_models=True)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
     model_info = next((m for m in all_models if m.get('name') == model_name), None)
-
     if model_info:
-        # --- ИЗМЕНЕНИЕ: OpenRouter использует 'context_length', Google - 'input_token_limit' ---
-        if 'context_length' in model_info:
-            return model_info['context_length']
-        elif 'input_token_limit' in model_info:
+        # Теперь используем только input_token_limit
+        if 'input_token_limit' in model_info:
             return model_info['input_token_limit']
-        else:
-            print(f"Предупреждение: Для модели '{model_name}' не найдены ключи 'context_length' или 'input_token_limit'. Возвращено 0.")
-            return 0
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-    else:
-        print(f"Предупреждение: Не найдена информация о модели '{model_name}' для определения длины контекста. Возвращено 0.")
-        return 0
+        print(f"Предупреждение: Для модели '{model_name}' не найден ключ 'input_token_limit'. Возвращено 0.")
+    return 0
 
 def get_model_output_token_limit(model_name: str) -> int:
-    """
-    Получает лимит выходных токенов для указанной модели из кэшированного списка.
-    Возвращает 0, если модель не найдена или лимит не указан.
-    """
-    # --- ИЗМЕНЕНИЕ: Искать нужно во ВСЕХ моделях ---
+    """Получает максимальный размер ответа для модели."""
     all_models = get_models_list(show_all_models=True)
-    if not all_models:
-        load_models_on_startup()
-        all_models = get_models_list(show_all_models=True)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
     model_info = next((m for m in all_models if m.get('name') == model_name), None)
-
     if model_info:
-        # OpenRouter использует "max_completion_tokens", Google - "output_token_limit"
-        output_limit = model_info.get('max_completion_tokens') or model_info.get('output_token_limit')
+        # Теперь используем только output_token_limit
+        output_limit = model_info.get('output_token_limit')
         if output_limit:
-            return int(output_limit)
-        else:
-            # Если специфического лимита нет, можно вернуть общий лимит контекста как запасной вариант
-            # или 0, чтобы показать, что он не определен.
-            print(f"Предупреждение: Для модели '{model_name}' не найдены ключи 'max_completion_tokens' или 'output_token_limit'. Возвращено 0.")
-            return 0
-    else:
-        print(f"Предупреждение: Не найдена информация о модели '{model_name}' для определения лимита выходных токенов. Возвращено 0.")
-        return 0
+            return output_limit
+        print(f"Предупреждение: Для модели '{model_name}' не найден ключ 'output_token_limit'. Возвращено 0.")
+    return 0
 
 # --- END OF FILE translation_module.py ---
