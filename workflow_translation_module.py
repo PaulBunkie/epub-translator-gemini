@@ -25,6 +25,9 @@ PROMPT_TEMPLATES = {
 - Leave fictional or uncommon abbreviations (e.g., invented acronyms or alien names) unchanged.
 - For neologisms, coined expressions, or wordplay, select a well-adapted and stylistically appropriate equivalent in {{target_language}} and use it consistently.
 - Keep all Markdown formatting elements untouched: headings, bold, italic, inline code, bullet points, links, etc.
+- Preserve exact Markdown heading levels. Do not change #/##/### levels or convert plain text into headings.
+- Keep *italic* and **bold** Markdown formatting inline, exactly as in the original. Do not introduce line breaks instead of or around italicized text.
+- Do not add any titles, headers, or metadata (e.g., "### Literary translation", "Translation:", etc.) that are not present in the source text. Start directly with the translation.
 
 {{russian_dialogue_rule}}
 
