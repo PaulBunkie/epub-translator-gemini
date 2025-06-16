@@ -46,11 +46,11 @@ PROMPT_TEMPLATES = {
 - Translate common abbreviations (like 'e.g.', 'i.e.', 'CIA') according to their established {target_language} equivalents.
 - Keep uncommon or fictional abbreviations/acronyms (e.g., KPS) in their original form.
 - For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.
-- Keep all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) unchanged.
-- Preserve exact Markdown heading levels. Do not change #/##/### levels or convert plain text into headings.
-- Keep *italic* and **bold** Markdown formatting inline, exactly as in the original. Do not introduce line breaks instead of or around italicized text.
-- Do not add any titles, headers, or metadata (e.g., "### Literary translation", "Translation:", etc.) that are not present in the source text. Start directly with the translation.
-- Preserve paragraph structure. Do not introduce line breaks within a paragraph unless they are present in the original text.
+- Preserve all Markdown syntax (headings, bold, italic, code, links) as in the original. 
+- For headings: retain the same level of heading (#, ##, ###), but adapt the capitalization to match {target_language} norms.
+- For dialogue: use proper punctuation and formatting rules of {target_language} (e.g., em dashes, line breaks, no quotation marks unless required).
+- Do not interpret lists, headings, or emphasis markers as dialogue cues or vice versa.
+- Do not isolate italicized or bold words onto separate lines unless the original does.
 {russian_dialogue_rule}
 - If clarification is needed for a {target_language} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
   - **Format:** Insert a sequential footnote marker directly after the word/phrase.
@@ -145,6 +145,7 @@ class BaseTranslator(ABC):
         previous_context_section = _format_prompt_section("Previous Context (use for style and recent terminology reference)", previous_context)
 
         # --- Рассчитываем значение для правила русского диалога ---
+        # Исправлено в системном промпте, возможно стоит вообще убрать
         russian_dialogue_rule = ' - When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.' if target_language.lower() == 'russian' else ''
 
         # --- Рассчитываем значение для заголовка примечаний переводчика ---
