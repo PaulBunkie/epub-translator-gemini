@@ -55,8 +55,8 @@ PROMPT_TEMPLATES = {
   - **Format:** Insert a sequential footnote marker directly after the word/phrase.
     - **Preferred format:** Use superscript numbers (like ¹,²,³).
     - **Alternative format (if superscript is not possible):** Use numbers in square brackets (like [1], [2], [3]).
-  - **Content:** At the very end of the translated section, add a separator ('---') and a heading('{translator_notes_heading}'). List all notes sequentially by their marker (e.g., '¹ Explanation.' or '[1] Explanation.').
-  - Use footnotes sparingly.
+    - **Content:** At the very end of the translated section, add a separator ('---') and a heading('{translator_notes_heading}'). List all notes sequentially by their marker (e.g., '¹ Explanation.' or '[1] Explanation.').
+    - Use footnotes sparingly.
 {prompt_ext_section}
 {previous_context_section}
 Text to Process:
@@ -498,8 +498,10 @@ class OpenRouterTranslator(BaseTranslator):
         for attempt in range(max_retries):
             try:
                 print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries})...")
-                # ИЗМЕНЕНИЕ: Отправляем запрос на /chat/completions с форматом messages
-                response = requests.post(f"{self.OPENROUTER_API_URL}/chat/completions", headers=headers, data=json.dumps(data))
+                json_str = json.dumps(data, ensure_ascii=False)
+                # Проверяем, что JSON валидный
+                json.loads(json_str)
+                response = requests.post(f"{self.OPENROUTER_API_URL}/chat/completions", headers=headers, data=json_str)
                 print(f"[OpenRouterTranslator] Получен ответ: Статус {response.status_code}")
 
                 # --- Проверка заголовков лимитов (опционально) ---
@@ -631,6 +633,38 @@ class OpenRouterTranslator(BaseTranslator):
 
         print("[OpenRouterTranslator] Не удалось получить успешный ответ после всех попыток.")
         return None # Return None if all retries fail
+
+    def _clean_text_for_api(self, text: str) -> str:
+        """
+        Очищает текст от проблемных символов и форматирования, которые могут испортить JSON.
+        """
+        if not text:
+            return ""
+        
+        # Заменяем управляющие символы
+        text = text.replace('\x00', '')  # Null byte
+        text = text.replace('\x1a', '')  # EOF
+        text = text.replace('\x1b', '')  # Escape
+        
+        # Заменяем проблемные кавычки
+        text = text.replace('"', '"').replace('"', '"')  # Умные кавычки на обычные
+        text = text.replace(''', "'").replace(''', "'")  # Умные апострофы на обычные
+        
+        # Заменяем переносы строк на \n
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Удаляем BOM и другие невидимые символы
+        text = text.encode('utf-8', 'ignore').decode('utf-8')
+        
+        return text
+
+    def _build_prompt(self, operation_type: str, target_language: str, text: str, ...):
+        # Очищаем текст перед использованием
+        cleaned_text = self._clean_text_for_api(text)
+        formatted_vars = {
+            'text': cleaned_text,
+            ...
+        }
 
 def configure_api() -> None:
     """

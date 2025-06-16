@@ -235,6 +235,30 @@ class WorkflowTranslator:
 
         return [c for c in chunks if c]
 
+    def _clean_text_for_api(self, text: str) -> str:
+        """
+        Очищает текст от проблемных символов и форматирования, которые могут испортить JSON.
+        """
+        if not text:
+            return ""
+        
+        # Заменяем управляющие символы
+        text = text.replace('\x00', '')  # Null byte
+        text = text.replace('\x1a', '')  # EOF
+        text = text.replace('\x1b', '')  # Escape
+        
+        # Заменяем проблемные кавычки
+        text = text.replace('"', '"').replace('"', '"')  # Умные кавычки на обычные
+        text = text.replace(''', "'").replace(''', "'")  # Умные апострофы на обычные
+        
+        # Заменяем переносы строк на \n
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        
+        # Удаляем BOM и другие невидимые символы
+        text = text.encode('utf-8', 'ignore').decode('utf-8')
+        
+        return text
+
     def _build_messages_for_operation(
         self,
         operation_type: str,
@@ -252,10 +276,13 @@ class WorkflowTranslator:
 
         user_content: str = "" # Initialize user_content to an empty string
 
+        # Очищаем текст перед использованием
+        cleaned_text = self._clean_text_for_api(text_to_process)
+
         # Prepare dynamic parts for the templates based on operation type
         formatted_vars = {
             'target_language': target_language,
-            'text': text_to_process,
+            'text': cleaned_text,
             'prompt_ext_section': f"Additional instructions: {prompt_ext}" if prompt_ext else "",
         }
 
@@ -347,7 +374,14 @@ class WorkflowTranslator:
             for attempt in range(max_retries):
                 try:
                     print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries}). URL: {url}")
-                    response = requests.post(url, headers=headers, data=json.dumps(data))
+                    try:
+                        json_str = json.dumps(data, ensure_ascii=False)
+                        # Проверяем, что JSON валидный
+                        json.loads(json_str)
+                        response = requests.post(url, headers=headers, data=json_str)
+                    except Exception as e:
+                        print(f"[OpenRouterTranslator] Ошибка при формировании запроса: {e}")
+                        return None
                     print(f"[OpenRouterTranslator] Получен ответ от OpenRouter: Статус {response.status_code}")
 
                     # --- Проверка заголовков лимитов (опционально) ---
