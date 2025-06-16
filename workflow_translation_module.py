@@ -396,7 +396,14 @@ class WorkflowTranslator:
 
                     # --- Обработка успешного ответа ---
                     if response.status_code == 200:
-                        response_json = response.json()
+                        try:
+                            response_json = response.json()
+                        except Exception as e_json:
+                            print(f"[OpenRouterTranslator] ОШИБКА: Не удалось распарсить JSON-ответ от OpenRouter: {e_json}")
+                            # Логируем часть тела ответа для диагностики
+                            resp_text = response.text if hasattr(response, 'text') else str(response.content)
+                            print(f"[OpenRouterTranslator] Тело ответа (первые 500 символов): {resp_text[:500]}")
+                            return None
                         # Проверка наличия 'choices' и 'message'
                         if response_json and 'choices' in response_json and response_json['choices']:
                              # Извлекаем контент из первого сообщения
@@ -506,8 +513,15 @@ class WorkflowTranslator:
         # Определение лимита чанка в зависимости от типа операции.
         # Поскольку _get_context_length УДАЛЕНА, для summarize/analyze используем фиксированный большой лимит.
         if operation_type == 'translate':
-            CHUNK_SIZE_LIMIT_CHARS = 20000
-            print("[WorkflowTranslator] Использован фиксированный лимит для перевода.")
+            # Новый динамический расчет лимита чанка для перевода
+            from translation_module import get_context_length
+            context_token_limit = get_context_length(model_name) if model_name else 2048
+            context_chars_limit = context_token_limit * 3
+            # Оставляем буфер для промпта и ответа (4000 символов)
+            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
+            if CHUNK_SIZE_LIMIT_CHARS <= 0:
+                CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
+            print(f"[WorkflowTranslator] Динамический лимит чанка для перевода: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         elif operation_type in ['summarize', 'analyze']:
             # Внимание: здесь мы больше НЕ используем _get_context_length.
             # Если для summarize/analyze требуется динамическое определение лимита из API,
@@ -539,18 +553,13 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Вызов операции 'translate' для текста длиной {len(text_to_translate)} символов.")
 
             translated_chunks = []
-            
-            # Чанкирование текста
-            # Передаем CHUNK_SIZE_LIMIT_CHARS, который уже был определен выше
             chunks = self._chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
-            
             if not chunks:
                 print("[WorkflowTranslator] Нет чанков для перевода.")
                 return None
 
             print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков с лимитом {CHUNK_SIZE_LIMIT_CHARS} символов.")
 
-            # Обработка каждого чанка
             for i, chunk in enumerate(chunks):
                 print(f"[WorkflowTranslator] Перевод чанка {i+1}/{len(chunks)} (длина: {len(chunk)} симв).")
                 messages = self._build_messages_for_operation(
@@ -561,15 +570,26 @@ class WorkflowTranslator:
                     prompt_ext=prompt_ext, 
                     dict_data=dict_data 
                 )
-                
-                translated_chunk = self._call_model_api(model_name, messages)
-                
-                if translated_chunk is None:
-                    print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1}. Прерывание.")
-                    return None 
-                
+
+                max_chunk_retries = 2
+                attempt = 0
+                translated_chunk = None
+                while attempt <= max_chunk_retries:
+                    translated_chunk = self._call_model_api(model_name, messages)
+                    if translated_chunk is None:
+                        print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1} (попытка {attempt+1}). Прерывание.")
+                        return None
+                    # --- Эвристика: если перевод пустой или подозрительно короткий ---
+                    if not translated_chunk.strip() or len(translated_chunk.strip()) < max(10, len(chunk.strip()) * 0.8):
+                        print(f"[WorkflowTranslator] Предупреждение: перевод чанка {i+1} подозрительно короткий или пустой (длина: {len(translated_chunk.strip())}, исходный: {len(chunk.strip())}). Попытка {attempt+1}/{max_chunk_retries+1}.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: перевод чанка {i+1} остался пустым после {max_chunk_retries+1} попыток. Возвращаем EMPTY_RESPONSE_ERROR.")
+                            return EMPTY_RESPONSE_ERROR
+                        time.sleep(2) # небольшая задержка между попытками
+                        continue
+                    break
                 translated_chunks.append(translated_chunk)
-            
             full_translated_text = "".join(translated_chunks)
             print(f"[WorkflowTranslator] Перевод завершен. Общая длина: {len(full_translated_text)} симв.")
             return full_translated_text

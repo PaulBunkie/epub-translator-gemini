@@ -41,7 +41,7 @@ SUMMARIZATION_STAGE_NAME = 'summarize'
 MODEL_GENDER_INSTRUCTION_PROMPT = "For proper nouns, indicate the presumed gender in parentheses"
 
 # --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'deepseek/deepseek-r1-0528:free' # Можно использовать ту же модель или другую
+ANALYSIS_MODEL = 'meta-llama/llama-4-maverick:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
 # --- Prompt Template for Analysis ---
@@ -53,6 +53,9 @@ ANALYSIS_PROMPT_TEMPLATE = "Your response will be used in the translation instru
 # --- Workflow Configuration ---
 DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after retries) as completed_empty instead of error
 MAX_RETRIES = 2 # Number of additional retries for model calls
+
+# --- Хардкодим модель для перевода, как для summarize/analyze ---
+TRANSLATION_MODEL = 'meta-llama/llama-4-maverick:free' #'deepseek/deepseek-r1-0528:free'
 
 def process_section_summarization(book_id: str, section_id: int):
     """
@@ -234,6 +237,14 @@ def process_section_summarization(book_id: str, section_id: int):
 
         print(f"[WorkflowProcessor] Суммаризация для секции ID {section_id} книги {book_id} завершена со статусом: {status}.")
 
+        # --- ВМЕСТО копирования статуса из одной секции ---
+        recalculate_book_stage_status(book_id, 'summarize')
+        update_overall_workflow_book_status(book_id)
+        # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
+        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
+        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса секции {section_id} этапа {SUMMARIZATION_STAGE_NAME}")
+
         return status in ['completed', 'completed_empty'] # Возвращаем True, если успешно завершено (включая пустые)
 
     except Exception as e:
@@ -246,6 +257,9 @@ def process_section_summarization(book_id: str, section_id: int):
         except Exception as db_err:
              print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки для секции {section_id}: {db_err}")
              traceback.print_exc()
+
+        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
+        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса секции {section_id} этапа {SUMMARIZATION_STAGE_NAME}")
 
         return False
 
@@ -302,436 +316,124 @@ def transition_section_to_next_stage(book_id: str, section_id: int, current_stag
         # Пока просто логируем
         return False
 
+# --- Новая функция для пересчета статуса книги в workflow ---
+def update_overall_workflow_book_status(book_id):
+    """
+    Пересчитывает и обновляет общий статус книги в workflow на основе статусов этапов и секций.
+    """
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if not book_info:
+        return False
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    stages_ordered = workflow_db_manager.get_all_stages_ordered_workflow()
+    final_status = 'completed'
+    has_processing = False
+    has_error = False
+    all_pending = True
+    for stage in stages_ordered:
+        stage_name = stage['stage_name']
+        status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+        if status in ['processing', 'queued']:
+            has_processing = True
+        if status not in ['pending']:
+            all_pending = False
+        if status in ['completed_with_errors', 'error'] or (isinstance(status, str) and status.startswith('error')):
+            has_error = True
+        if status not in ['completed', 'completed_empty', 'skipped', 'completed_with_errors']:
+            final_status = None # Не все этапы завершены
+    if has_processing:
+        final_status = 'processing'
+    elif all_pending:
+        final_status = 'uploaded'
+    elif final_status is None:
+        final_status = 'processing' # На всякий случай, если что-то не учли
+    elif has_error:
+        final_status = 'completed_with_errors'
+    else:
+        final_status = 'completed'
+    workflow_db_manager.update_book_workflow_status(book_id, final_status)
+    print(f"[WorkflowProcessor] update_overall_workflow_book_status: book_id={book_id}, current_workflow_status={final_status}")
+    log_all_workflow_statuses(book_id, context_msg="После update_overall_workflow_book_status")
+    return True
+
 # TODO: Добавить функцию start_book_workflow для запуска процесса для всей книги DONE
 def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Optional[str] = None):
     """
-    Запускает многоэтапный рабочий процесс для указанной книги.
-    Начинает с этапа суммаризации для всех секций или с указанного этапа.
+    Запускает полный рабочий процесс для книги, начиная с указанного этапа (или с самого начала).
+    После завершения каждого этапа автоматически переходит к следующему.
     """
-    print(f"[WorkflowProcessor] Запуск рабочего процесса для книги ID: {book_id}, старт с этапа: {start_from_stage or 'начала'}")
-
-    # Инициализируем флаг успеха рабочего процесса
-    workflow_successful = False
-
-    # Весь рабочий процесс должен выполняться внутри контекста приложения
-    with app_instance.app_context():
-        try:
-            book_info = workflow_db_manager.get_book_workflow(book_id)
-            if not book_info:
-                print(f"[WorkflowProcessor] Ошибка запуска: Книга с ID {book_id} не найдена.")
-                return False # Возвращаем False, так как книги нет
-
-            current_overall_status = book_info.get('current_workflow_status', 'idle')
-
-            # NEW LOGIC for allowing restart from a specific stage or when already completed
-            if start_from_stage:
-                print(f"[WorkflowProcessor] Обнаружен запрос на запуск с этапа '{start_from_stage}'. Принудительный запуск рабочего процесса.")
-                # Force set book overall status to processing if it was idle, completed, or errored,
-                # to indicate that a specific stage is being re-run.
-                if current_overall_status in ['idle', 'completed', 'completed_with_errors', 'error']:
-                    workflow_db_manager.update_book_workflow_status(book_id, 'processing')
-                # If it's already processing, we just proceed as it's a forced restart.
-            else:
-                # Original logic: If no specific stage is requested, and book is processing or completed, abort.
-                if current_overall_status in ['processing', 'completed']:
-                    print(f"[WorkflowProcessor] Рабочий процесс для книги ID {book_id} уже в статусе '{current_overall_status}'. Запуск отменен.")
-                    return False # Возвращаем False, так как запуск отменен
-                # If it's idle or errored without start_from_stage, set to processing and proceed.
-                workflow_db_manager.update_book_workflow_status(book_id, 'processing')
-
-
-            # Получаем все секции для книги
+    print(f"[WorkflowProcessor] Запуск рабочего процесса для книги ID: {book_id}, старт с этапа: {start_from_stage}")
+    stages = workflow_db_manager.get_all_stages_ordered_workflow()
+    print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]}")
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if not book_info:
+        print(f"[WorkflowProcessor] Книга {book_id} не найдена в Workflow DB. Прерывание.")
+        return False
+    # Определяем с какого этапа начинать
+    start_index = 0
+    if start_from_stage:
+        for i, stage in enumerate(stages):
+            if stage['stage_name'] == start_from_stage:
+                start_index = i
+                break
+    # Последовательно обрабатываем этапы
+    for stage in stages[start_index:]:
+        stage_name = stage['stage_name']
+        is_per_section_stage = stage.get('is_per_section', False)
+        print(f"[WorkflowProcessor] Обработка этапа '{stage_name}' (per-section: {is_per_section_stage}) для книги ID {book_id}.")
+        # Проверяем статус этапа
+        book_stage_statuses = book_info.get('book_stage_statuses', {})
+        current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+        print(f"[WorkflowProcessor] Текущий статус этапа '{stage_name}' для книги {book_id}: '{current_stage_status}'.")
+        if current_stage_status == 'completed':
+            print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен со статусом 'completed'. Пропускаем обработку и переходим к следующему.")
+            continue
+        # Запускаем обработку этапа
+        if is_per_section_stage:
+            # Перед началом обработки секций явно выставляем статус этапа книги в 'processing', если есть незавершённые секции
             sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
-            if not sections:
-                print(f"[WorkflowProcessor] Предупреждение: Для книги ID {book_id} не найдено секций.")
-                workflow_db_manager.update_book_workflow_status(book_id, 'completed', error_message='No sections found')
-                workflow_successful = True # Считаем успешным, если нет секций
-                return workflow_successful # Ранний выход, так как нет работы
-
-            # Get all stages in order
-            stages = workflow_db_manager.get_all_stages_ordered_workflow()
-            if not stages:
-                 print(f"[WorkflowProcessor] ОШИБКА: Этапы рабочего процесса не определены.")
-                 workflow_db_manager.update_book_workflow_status(book_id, 'error', 'Configuration error: Workflow stages not defined.')
-                 return False # Возвращаем False при ошибке конфигурации
-
-            print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]}")
-
-            # Flag to indicate if we have passed the start_from_stage
-            passed_start_stage = False
-
-            # Iterate through stages and process them sequentially
-            book_workflow_error = False
-            book_workflow_error_message = None
-
-            for stage in stages:
-                stage_name = stage['stage_name']
-                is_per_section_stage = stage['is_per_section']
-                print(f"[WorkflowProcessor] Обработка этапа '{stage_name}' (per-section: {is_per_section_stage}) для книги ID {book_id}.")
-
-                # --- NEW LOGIC for start_from_stage ---
-                if start_from_stage and not passed_start_stage:
-                    if stage_name == start_from_stage:
-                        passed_start_stage = True
-                        print(f"[WorkflowProcessor] Обнаружен этап '{start_from_stage}'. Принудительный сброс статуса для перезапуска.")
-                        # Reset book-level stage status
-                        workflow_db_manager.update_book_stage_status_workflow(
-                            book_id,
-                            stage_name,
-                            'pending', # Force it to pending so it runs
-                            error_message=None # Clear any error
-                        )
-                        # If it's a per-section stage, also reset all sections for this stage
-                        if is_per_section_stage:
-                            sections_to_reset = workflow_db_manager.get_sections_for_book_workflow(book_id)
-                            for section_data in sections_to_reset:
-                                workflow_db_manager.update_section_stage_status_workflow(
-                                    book_id,
-                                    section_data['section_id'],
-                                    stage_name,
-                                    'pending', # Force section to pending
-                                    error_message=None
-                                )
-                    else:
-                        # If we are before start_from_stage, check if it's already completed and skip.
-                        book_stage_statuses_current_loop = workflow_db_manager.get_book_stage_statuses_workflow(book_id)
-                        current_stage_status_for_skip = book_stage_statuses_current_loop.get(stage_name, {}).get('status')
-                        if current_stage_status_for_skip in ['completed', 'completed_empty', 'skipped', 'cached']:
-                            print(f"[WorkflowProcessor] Пропускаем этап '{stage_name}' (уже '{current_stage_status_for_skip}'). Запуск с '{start_from_stage}'.")
-                            continue # Skip to the next stage in the loop
-                        elif current_stage_status_for_skip in ['error', 'completed_with_errors', 'processing', 'queued']:
-                            # If a previous stage is not in a final success state, we should proceed with it
-                            # to potentially resolve its state. This is more robust than blindly skipping.
-                            print(f"[WorkflowProcessor] Внимание: Этап '{stage_name}' перед '{start_from_stage}' имеет статус '{current_stage_status_for_skip}'. Продолжаем обработку, чтобы попытаться разрешить.")
-                            # Do not continue here, let the normal processing logic handle it.
-                # --- END NEW LOGIC for start_from_stage ---
-
-                # Get the current status of this stage for the book (after potential forced reset or skip decision)
-                book_stage_statuses = workflow_db_manager.get_book_stage_statuses_workflow(book_id)
-                book_stage_status_info = book_stage_statuses.get(stage_name, {}).get('status')
-                current_stage_status = book_stage_status_info if book_stage_status_info else 'pending'
-
-                print(f"[WorkflowProcessor] Текущий статус этапа '{stage_name}' для книги {book_id}: '{current_stage_status}'.")
-
-                # If stage is already completed or has errors, move to the next stage
-                # This check now applies AFTER the start_from_stage logic has potentially reset a stage.
-                if current_stage_status in ['completed', 'completed_with_errors', 'error']:
-                    print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен со статусом '{current_stage_status}'. Пропускаем обработку и переходим к следующему.")
-                    if current_stage_status in ['completed_with_errors', 'error']:
-                         book_workflow_error = True # Mark book workflow as having errors
-                         book_workflow_error_message = f"Stage '{stage_name}' completed with errors." # TODO: Aggregate messages
-                    continue # Move to the next stage in the loop
-
-                # --- NEW: Set book stage status to 'processing' before starting processing ---
-                # Only if current status is not 'processing' (could be 'queued' or 'pending')
-                if current_stage_status not in ['processing']:
-                     print(f"[WorkflowProcessor] Установка статуса этапа '{stage_name}' для книги {book_id} на 'processing'.")
-                     workflow_db_manager.update_book_stage_status_workflow(
-                         book_id,
-                         stage_name,
-                         'processing',
-                         error_message=None # Clear any error
-                     )
-                # --- END NEW ---
-
-                # Process the stage if it's pending or processing (or queued for per-section)
-                stage_processing_successful = False # Flag to track if processing this stage was successful
-
-                if is_per_section_stage:
-                    # --- Process Per-Section Stage ---
-                    print(f"[WorkflowProcessor] Запуск обработки посекционного этапа '{stage_name}' для книги {book_id}.")
-
-                    # TODO: Implement per-section stage processing logic (identify queued sections, process them in pool)
-                    # For now, sequential processing of sections in 'pending' status for this stage
-
-                    sections_to_process = []
-                    for section_data in sections:
-                         section_id = section_data['section_id']
-                         stage_statuses = section_data.get('stage_statuses', {})
-                         section_stage_status = stage_statuses.get(stage_name, {}).get('status', 'pending')
-
-                         # If status is pending or queued, add to processing list
-                         if section_stage_status in ['pending', 'queued']:
-                              sections_to_process.append(section_id)
-
-                    # --- LOGGING: Sections to process for this stage ---
-                    print(f"[WorkflowProcessor] LOG: Этап '{stage_name}', Книга ID {book_id}. Секций для обработки: {len(sections_to_process)}. ID секций: {sections_to_process}")
-                    # --- END LOGGING ---
-
-                    if not sections_to_process:
-                        print(f"[WorkflowProcessor] Нет секций в статусе 'pending' или 'queued' для этапа '{stage_name}' книги {book_id}. Пропускаем обработку секций.")
-                        # If there are no sections to process, check if all sections are in final states.
-                        all_sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
-
-                        all_sections_in_final_state = True
-                        for section in all_sections:
-                             stage_statuses = section.get('stage_statuses', {})
-                             section_stage_status = stage_statuses.get(stage_name, {}).get('status')
-                             if section_stage_status not in ['completed', 'cached', 'completed_empty', 'skipped', 'error']:
-                                  all_sections_in_final_state = False
-                                  break
-
-                        if all_sections_in_final_state:
-                             print(f"[WorkflowProcessor] Все секции для этапа '{stage_name}' книги {book_id} уже в конечном статусе. Считаем этап завершенным.")
-                             stage_processing_successful = True # Stage is considered completed if all sections are in final states
-                             # TODO: Update book stage status to completed here if all sections are final
-                        else:
-                             print(f"[WorkflowProcessor] Есть секции, которые еще не в конечном статусе для этапа '{stage_name}' книги {book_id}, но нет секций для обработки. Возможная проблема или ждем другие процессы.")
-                             # This might happen if some sections are 'processing' in a real async scenario.
-                             # For now, in sequential sync, this means something is wrong.
-                             book_workflow_error = True
-                             book_workflow_error_message = f"Issue processing sections for stage '{stage_name}'. Some sections not in final state."
-                             # Don't break yet, might need to check overall book status at the end
-
-                    else:
-                        # Process sections sequentially for now
-                        for section_id_to_process in sections_to_process:
-                             print(f"[WorkflowProcessor] Запуск обработки секции ID {section_id_to_process} для этапа '{stage_name}'...")
-                             # Determine which processing function to call based on stage_name
-                             if stage_name == SUMMARIZATION_STAGE_NAME:
-                                  section_success = process_section_summarization(book_id, section_id_to_process)
-                             # TODO: Add other per-section stage processing functions here (e.g., Translate)
-                             elif stage_name == 'translate':
-                                 # Call the placeholder function which updates DB status to 'completed'
-                                 # --- LOGGING: Before calling process_section_translate ---
-                                 print(f"[WorkflowProcessor] LOG: Вызов process_section_translate для секции {section_id_to_process}, этап '{stage_name}'.")
-                                 # --- END LOGGING ---
-                                 section_success = process_section_translate(book_id, section_id_to_process)
-                                 # --- LOGGING: After calling process_section_translate ---
-                                 print(f"[WorkflowProcessor] LOG: process_section_translate для секции {section_id_to_process} завершен. Результат success: {section_success}.")
-                                 # --- END LOGGING ---
-                             else:
-                                   print(f"[WorkflowProcessor] ОШИБКА: Неизвестный посекционный этап: {stage_name}")
-                                   section_success = False # Treat as failure
-
-                        # After attempting to process all queued/pending sections for this stage,
-                        # re-check the overall status of this stage for the book by counting section statuses.
-                        sections_after_processing = workflow_db_manager.get_sections_for_book_workflow(book_id)
-
-                        # --- LOGGING: Section statuses after processing this stage ---
-                        print(f"[WorkflowProcessor] LOG: Статусы секций для этапа '{stage_name}' после обработки:")
-                        for section in sections_after_processing:
-                            stage_statuses = section.get('stage_statuses', {})
-                            section_stage_status = stage_statuses.get(stage_name, {}).get('status')
-                            print(f"  Секция ID {section['section_id']} (EPUB ID: {section['section_epub_id']}): Статус '{stage_name}' = '{section_stage_status}'")
-                        # --- END LOGGING ---
-
-                        completed_sections_count = 0
-                        error_sections_count = 0
-                        all_sections_count = len(sections_after_processing)
-
-                        for section in sections_after_processing:
-                             stage_statuses = section.get('stage_statuses', {})
-                             section_stage_status = stage_statuses.get(stage_name, {}).get('status') # Get status for the current stage
-
-                             if section_stage_status in ['completed', 'cached', 'completed_empty', 'skipped']:
-                                 completed_sections_count += 1
-                             elif section_stage_status and (section_stage_status == 'error' or section_stage_status.startswith('error_')):
-                                 error_sections_count += 1
-
-                        # Determine the stage status for the book level
-                        stage_status_after_tasks = 'processing' # Default status is still processing tasks
-                        stage_error_message = None
-                        completion_count = completed_sections_count + error_sections_count
-
-                        # --- LOGGING: Stage status calculation result ---
-                        print(f"[WorkflowProcessor] LOG: Результаты подсчета статусов секций для этапа '{stage_name}':")
-                        print(f"  completed_sections_count: {completed_sections_count}")
-                        print(f"  error_sections_count: {error_sections_count}")
-                        print(f"  all_sections_count: {all_sections_count}")
-                        # --- END LOGGING ---
-
-                        if all_sections_count > 0 and completion_count == all_sections_count:
-                             # Все секции достигли конечного статуса (completed, cached, completed_empty, skipped, error)
-                             if error_sections_count == 0:
-                                 stage_status_after_tasks = 'completed'
-                                 print(f"[WorkflowProcessor] Все секции для стадии '{stage_name}' для книги ID {book_id} завершены успешно.")
-                             else:
-                                 stage_status_after_tasks = 'completed_with_errors' # Новый статус для стадии завершенной с ошибками секций
-                                 stage_error_message = f'Stage tasks completed with errors in {error_sections_count}/{all_sections_count} sections.'
-                                 print(f"[WorkflowProcessor] Все секции для стадии '{stage_name}' для книги ID {book_id} завершены с ошибками.")
-
-                        # --- LOGGING: Final stage status after task processing ---
-                        print(f"[WorkflowProcessor] LOG: Определен финальный статус этапа '{stage_name}' после обработки задач: '{stage_status_after_tasks}'.")
-                        # --- END LOGGING ---
-
-                        # Update the book stage status in the DB
-                        try:
-                             workflow_db_manager.update_book_stage_status_workflow(
-                                 book_id,
-                                 stage_name,
-                                 stage_status_after_tasks,
-                                 completed_count=completed_sections_count,
-                                 total_count=all_sections_count,
-                                 error_message=stage_error_message
-                             )
-                             # --- LOGGING: Success after updating book stage status ---
-                             print(f"[WorkflowProcessor] LOG: Успешно обновлен статус этапа книги '{stage_name}' до '{stage_status_after_tasks}'.")
-                             # --- END LOGGING ---
-                        except Exception as e:
-                             # --- LOGGING: Error updating book stage status ---
-                             print(f"[WorkflowProcessor] ОШИБКА при обновлении статуса этапа книги '{stage_name}' в БД: {e}")
-                             traceback.print_exc()
-                             # If updating stage status fails, we should mark the overall workflow as error
-                             book_workflow_error = True
-                             book_workflow_error_message = f"Failed to update status for stage '{stage_name}': {e}"
-                             # We still let the loop continue to process other stages if any
-                             # The final status will be 'error' due to book_workflow_error = True
-                             pass # Let the exception handler in the outer try block handle this potentially
-
-                else: # Stage is book-level (is_per_section_stage is False)
-                    # --- Process Book-Level Stage ---
-                    print(f"[WorkflowProcessor] Запуск обработки книжного этапа '{stage_name}' для книги {book_id}.")
-                    # Check if the stage needs processing (pending or queued)
-                    if current_stage_status in ['pending', 'queued']:
-                        print(f"[WorkflowProcessor] Этап '{stage_name}' книги {book_id} в статусе '{current_stage_status}'. Запускаем обработку.")
-                        # Determine which book-level processing function to call based on stage_name
-                        
-                        stage_status_after_tasks = 'error' # Default for book-level task result
-                        stage_error_message = 'Unknown error during book-level task.'
-
-                        try:
-                            if stage_name == ANALYSIS_STAGE_NAME:
-                                # process_book_analysis теперь возвращает финальный статус этапа
-                                stage_status_after_tasks = process_book_analysis(book_id)
-                                # process_book_analysis теперь не обновляет статус книги на processing/final
-                                
-                            # TODO: Add other book-level stage processing functions here (e.g., Epub Creation)
-                            elif stage_name == 'epub_creation': 
-                                # process_book_epub_creation теперь возвращает финальный статус этапа
-                                stage_status_after_tasks = process_book_epub_creation(book_id)
-                                # process_book_epub_creation теперь не обновляет статус книги на processing/final
-
-                            else:
-                                print(f"[WorkflowProcessor] ОШИБКА: Неизвестный книжный этап: {stage_name}")
-                                stage_status_after_tasks = 'error' # Treat as failure
-                                stage_error_message = f'Unknown book-level stage: {stage_name}'
-                                book_workflow_error = True
-                                book_workflow_error_message = stage_error_message
-
-                        except Exception as e:
-                            # Catch unexpected exceptions during book-level task execution
-                            stage_status_after_tasks = 'error'
-                            stage_error_message = f"Exception during book-level stage '{stage_name}' processing: {e}"
-                            print(f"[WorkflowProcessor] ОШИБКА при обработке книжного этапа '{stage_name}': {e}")
-                            traceback.print_exc()
-                            book_workflow_error = True
-                            book_workflow_error_message = stage_error_message
-
-                        # After the book-level processing function returns,
-                        # we get its determined status (stage_status_after_tasks).
-                        # We DON'T immediately update the book stage status to this final status here.
-                        # The overall loop logic below handles stage transitions and status updates.
-
-                    elif current_stage_status == 'processing':
-                         print(f"[WorkflowProcessor] Этап '{stage_name}' книги {book_id} в статусе 'processing'. Пропускаем запуск, ожидаем завершения.")
-                         # In a real async scenario, we might wait or check progress here.
-                         # In this sync implementation, 'processing' means it was started but didn't finish in a previous run.
-                         # We should probably re-run it or mark it as error if it stays in processing for too long.
-                         # For now, we'll just skip and rely on the next run to pick it up or error out.
-                         # TODO: Implement logic to handle 'processing' status on startup/rerun.
-                         stage_status_after_tasks = 'processing' # Keep status as is for now if it was already processing
-
-                    else: # Stage was already completed, completed_with_errors, or error (handled at loop start)
-                         # Stage status is already final, just ensure book_workflow_error is set if stage had errors
-                         if current_stage_status in ['completed_with_errors', 'error']:
-                              book_workflow_error = True
-                              book_workflow_error_message = f"Stage '{stage_name}' already completed with errors." # TODO: Aggregate messages
-                         stage_status_after_tasks = current_stage_status # Keep existing final status
-
-                # --- Проверка, нужно ли прервать рабочий процесс из-за ошибки на этом этапе ---
-                # ИСПРАВЛЕНИЕ: НЕ прерываем цикл немедленно при final_stage_status == 'error'
-                # Вместо этого, просто отмечаем, что произошла ошибка в workflow
-                # Критические ошибки конфигурации уже обрабатываются в начале функции.
-                if stage_status_after_tasks == 'error':
-                    print(f"[WorkflowProcessor] Этап '{stage_name}' завершился с ошибкой. Отмечаем ошибку в workflow.")
-                    book_workflow_error = True
-                    # Можно агрегировать сообщения об ошибках, но пока просто отмечаем наличие ошибки.
-                    # book_workflow_error_message = f\"Error in stage '{stage_name}'.\"
-                    # TODO: Агрегировать сообщения об ошибках из этапов в final book_workflow_error_message
-
-                # Если этап завершен успешно (или с ошибками секций для посекционного), переходим к следующему
-                # Этот переход неявный в данном синхронном цикле, он просто переходит к следующей итерации.
-                # Логика прерывания при 'error' выше обеспечивает остановку.
-
-            # --- Конец цикла по этапам ---
-
-            # --- Финальное обновление общего статуса книги ---
-            # Re-fetch book info to get the latest stage statuses
-            latest_book_info = workflow_db_manager.get_book_workflow(book_id)
-            if not latest_book_info:
-                 print(f"[WorkflowProcessor] Ошибка: Не удалось получить финальную информацию о книге {book_id} для определения статуса.")
-                 # Keep the current status (likely error from previous issues) or set to error if somehow not already
-                 if not book_workflow_error:
-                      workflow_db_manager.update_book_workflow_status(book_id, 'error', error_message='Failed to fetch final book info.')
-                 workflow_successful = False # Отмечаем, что не удалось финализировать статус
-            else:
-                latest_book_stage_statuses = workflow_db_manager.get_book_stage_statuses_workflow(book_id)
-                final_book_status = 'completed' # Assume completed initially
-                final_error_message = None
-                has_errors = False
-                has_completed_with_errors = False
-                has_pending_or_processing = False # Should not happen if loop finished correctly in sync mode
-
-                # Iterate through all stages to check their final statuses
-                for stage in stages:
-                     stage_name = stage['stage_name']
-                     stage_status_info = latest_book_stage_statuses.get(stage_name, {})
-                     stage_status = stage_status_info.get('status', 'pending')
-                     stage_error = stage_status_info.get('error_message')
-
-                     if stage_status == 'error':
-                          has_errors = True
-                          # Aggregate error messages if needed, for now just mark that an error occurred
-                          if final_error_message is None:
-                               final_error_message = f"Stage '{stage_name}' failed: {stage_error or 'No specific error provided.'}"
-                          else:
-                               final_error_message += f"; Stage '{stage_name}' failed: {stage_error or 'No specific error provided.'}"
-                     elif stage_status == 'completed_with_errors':
-                          has_completed_with_errors = True
-                          if final_error_message is None:
-                               final_error_message = f"Stage '{stage_name}' completed with errors: {stage_error or 'No specific error provided.'}"
-                          else:
-                               final_error_message += f"; Stage '{stage_name}' completed with errors: {stage_error or 'No specific error provided.'}"
-                     elif stage_status in ['pending', 'queued', 'processing']:
-                          # This indicates an issue if the loop finished but a stage is not in a final state
-                          has_pending_or_processing = True
-                          has_errors = True # Treat as an error state for the workflow overall
-                          final_book_status = 'error'
-                          final_error_message = f"Workflow ended with stage '{stage_name}' still in status '{stage_status}'."
-                          break # No need to check further stages if one is stuck
-                     # Note: 'cached', 'completed', 'completed_empty', 'skipped' are considered successful for determining overall status here.
-
-                if has_pending_or_processing:
-                     final_book_status = 'error'
-                elif has_errors:
-                     final_book_status = 'error'
-                elif has_completed_with_errors:
-                     final_book_status = 'completed_with_errors'
+            statuses = [s.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending') for s in sections]
+            if any(s in ['pending', 'queued', 'processing'] for s in statuses):
+                workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, 'processing')
+                # --- ДОБАВЛЯЮ: Немедленно обновить статус книги ---
+                update_overall_workflow_book_status(book_id)
+            # Обработка всех секций для этапа
+            for section in sections:
+                section_id = section['section_id']
+                section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
+                if section_stage_status in ['completed', 'completed_empty']:
+                    continue
+                if stage_name == 'summarize':
+                    result = process_section_summarization(book_id, section_id)
+                elif stage_name == 'translate':
+                    result = process_section_translate(book_id, section_id)
                 else:
-                     final_book_status = 'completed' # All stages completed successfully (including skipped, empty, cached)
-
-                print(f"[WorkflowProcessor] Финальное определение статуса для книги {book_id}. Has Errors: {has_errors}, Has Completed With Errors: {has_completed_with_errors}, Has Pending/Processing: {has_pending_or_processing}. Финальный статус: {final_book_status}.")
-
-                workflow_db_manager.update_book_workflow_status(book_id, final_book_status, error_message=final_error_message)
-
-                print(f"[WorkflowProcessor] Рабочий процесс start_book_workflow для книги ID: {book_id} завершен (основная функция). Финальный статус книги: {final_book_status}.")
-                workflow_successful = True # Если мы дошли сюда, процесс успешно завершен (даже если с ошибками в подстадиях)
-
-        except Exception as e:
-            print(f"[WorkflowProcessor] Необработанная ОШИБКА в start_book_workflow для книги {book_id}: {e}")
-            traceback.print_exc()
-            # Обновляем общий статус книги на 'error' в случае необработанного исключения
-            try:
-                # current_app доступен благодаря внешнему with app_instance.app_context()
-                if workflow_db_manager.get_book_workflow(book_id):
-                    workflow_db_manager.update_book_workflow_status(book_id, 'error', error_message=f'Unexpected workflow error: {e}')
-            except Exception as db_err:
-                print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки для книги {book_id}: {db_err}")
-                traceback.print_exc()
-            workflow_successful = False # Отмечаем неудачу
-
-    return workflow_successful # Единая точка выхода из функции
+                    result = True  # Для других этапов по умолчанию не останавливаем
+                # --- ОСТАНОВКА ПРИ КРИТИЧЕСКОЙ ОШИБКЕ ---
+                if result is False:
+                    print(f"[WorkflowProcessor] Критическая ошибка при обработке секции {section_id} на этапе '{stage_name}'. Останавливаем этап и выставляем статус ошибки.")
+                    # Выставляем статус этапа книги в 'error'
+                    workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, 'error', error_message=f"Critical error in section {section_id} at stage '{stage_name}'")
+                    # --- ДОБАВЛЯЮ: Явно пересчитываем статус этапа и книги ---
+                    recalculate_book_stage_status(book_id, stage_name)
+                    update_overall_workflow_book_status(book_id)
+                    # Логируем все статусы для диагностики
+                    log_all_workflow_statuses(book_id, context_msg=f"После критической ошибки в секции {section_id} этапа {stage_name}")
+                    return False  # Останавливаем весь workflow (можно break, если хотим только этап)
+                time.sleep(0.1)  # Чтобы не перегружать API
+        else:
+            # Книжный этап (анализ, создание epub и т.д.)
+            if stage_name == 'analyze':
+                process_book_analysis(book_id)
+            elif stage_name == 'epub_creation':
+                process_book_epub_creation(book_id)
+            # Можно добавить другие этапы по аналогии
+        # После завершения этапа обновляем book_info для получения актуальных статусов
+        book_info = workflow_db_manager.get_book_workflow(book_id)
+        # --- ВЫЗЫВАЕМ обновление статуса книги ---
+        update_overall_workflow_book_status(book_id)
+    print(f"[WorkflowProcessor] Рабочий процесс start_book_workflow для книги ID: {book_id} завершен (основная функция). Финальный статус книги: {book_info.get('current_workflow_status') if book_info else 'unknown'}.")
+    return True
 
 # --- New function to collect summarized text for a book ---
 def collect_book_summary_text(book_id: str) -> str:
@@ -884,47 +586,146 @@ def process_book_analysis(book_id: str):
 
         # 5. Обновляем финальный статус этапа анализа книги
         workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, status, error_message=error_message)
-        print(f"[WorkflowProcessor] Этап анализа для книги {book_id} завершен со статусом: {status}.")
+        print(f"[WorkflowProcessor] Этап анализа для книги {book_id} завершён со статусом: {status}.")
+
+        # --- ВМЕСТО копирования статуса из одной секции ---
+        recalculate_book_stage_status(book_id, 'analyze')
+        update_overall_workflow_book_status(book_id)
+        # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
+        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
+        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса этапа {ANALYSIS_STAGE_NAME}")
 
         return status in ['completed', 'completed_empty'] # Return True if completed successfully or empty
 
     except Exception as e:
-        status = 'error_unknown'
-        error_message = f"Необработанная ошибка при анализе книги {book_id}: {e}"
-        print(f"[WorkflowProcessor] {error_message}")
-        traceback.print_exc()
-        # Update status in DB on error
-        try:
-             # Ensure book exists before attempting status update on exception
-             if workflow_db_manager.get_book_workflow(book_id):
-                  workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, status, error_message=error_message)
-        except Exception as db_err:
-             print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки для анализа книги {book_id}: {db_err}")
-             traceback.print_exc()
-        return False # Return False on error
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[WorkflowProcessor] Необработанная ошибка при анализе книги {book_id}: {e}\n{tb}")
+        workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, f"error_unknown", error_message=f"Необработанная ошибка: {e}\n{tb}")
+        update_overall_workflow_book_status(book_id)
+        log_all_workflow_statuses(book_id, context_msg=f"После ошибки анализа {ANALYSIS_STAGE_NAME}")
+        return False
 
 # --- New function for Section-level Translation ---
 def process_section_translate(book_id: str, section_id: int):
     """
     Процессит перевод одной секции.
-    (Заглушка: Реальная логика перевода будет добавлена позже.)
     """
-    print(f"[WorkflowProcessor] Placeholder: Начат процесс перевода для секции {section_id} книги {book_id}")
-    try:
-        # Имитируем успешное завершение
-        workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'completed', error_message=None)
-        # TODO: Реализовать реальную логику перевода секции и сохранение результата
+    import traceback
+    from epub_parser import extract_section_text
+    import workflow_cache_manager
+    import workflow_db_manager
+    import workflow_translation_module
 
-        print(f"[WorkflowProcessor] Placeholder: Перевод для секции ID {section_id} книги {book_id} завершен со статусом: completed.")
-        return True # Имитируем успех
+    TRANSLATION_PROMPT_EXT = ""  # Константа, можно будет подтянуть из конфига
+
+    print(f"[WorkflowProcessor] Начат процесс перевода для секции {section_id} книги {book_id}")
+    status = 'error'
+    error_message = 'Unknown error'
+    translated_text = None
+    try:
+        # 1. Обновляем статус секции на 'processing'
+        workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'processing', error_message=None)
+
+        # 2. Извлекаем текст секции
+        section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
+        if not section_info:
+            error_message = f"Section {section_id} not found in workflow DB."
+            print(f"[WorkflowProcessor] {error_message}")
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=error_message)
+            return False
+        section_epub_id = section_info['section_epub_id']
+        book_info = workflow_db_manager.get_book_workflow(book_id)
+        if not book_info:
+            error_message = f"Book {book_id} not found in workflow DB."
+            print(f"[WorkflowProcessor] {error_message}")
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=error_message)
+            return False
+        epub_path = book_info['filepath']
+        section_text = extract_section_text(epub_path, section_epub_id)
+        if not section_text or not section_text.strip():
+            error_message = "Section text is empty."
+            print(f"[WorkflowProcessor] {error_message}")
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'completed_empty', error_message=error_message)
+            workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
+            return True
+
+        # 3. Загружаем глоссарий и рекомендации из анализа
+        # (должны быть сохранены после этапа анализа)
+        analysis_data = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'analyze')
+        dict_data = None
+        if analysis_data:
+            try:
+                # analysis_data может быть строкой с двумя секциями, парсим Markdown или JSON если нужно
+                # Здесь предполагается, что analysis_data уже в нужном формате (dict или строка)
+                # Если нужно — добавить парсер Markdown->dict
+                import json
+                dict_data = json.loads(analysis_data) if analysis_data.strip().startswith('{') else None
+            except Exception:
+                dict_data = None  # Если не парсится, передаем None
+        # 4. Получаем язык и модель
+        target_language = book_info.get('target_language', 'russian')
+        model_name = TRANSLATION_MODEL  # <-- теперь всегда используем хардкод
+
+        # 5. Вызываем перевод
+        print(f"[WorkflowProcessor] Вызов translate_text для секции {section_id} ({model_name} -> {target_language})")
+        translated_text = workflow_translation_module.translate_text(
+            text_to_translate=section_text,
+            target_language=target_language,
+            model_name=model_name,
+            prompt_ext=TRANSLATION_PROMPT_EXT,
+            operation_type='translate',
+            dict_data=dict_data
+        )
+        print(f"[WorkflowProcessor] Результат translate_text: {translated_text[:100] if translated_text else 'None'}... (длина {len(translated_text) if translated_text is not None else 'None'})")
+
+        # 6. Сохраняем результат и обновляем статус
+        if translated_text is not None and translated_text.strip() != "":
+            if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', translated_text):
+                status = 'completed'
+                error_message = None
+                print(f"[WorkflowProcessor] Перевод для секции ID {section_id} книги {book_id} завершён со статусом: {status}.")
+            else:
+                status = 'error_caching'
+                error_message = "Ошибка сохранения результата перевода в кеш."
+                print(f"[WorkflowProcessor] ОШИБКА сохранения результата перевода в кеш для {book_id}/{section_id}: {error_message}")
+        elif translated_text == workflow_translation_module.EMPTY_RESPONSE_ERROR:
+            status = 'error'
+            error_message = "API вернул EMPTY_RESPONSE_ERROR."
+            print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR.")
+        elif translated_text == workflow_translation_module.CONTEXT_LIMIT_ERROR:
+            status = 'error'
+            error_message = "API вернул CONTEXT_LIMIT_ERROR."
+            print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR.")
+        else:
+            status = 'completed_empty'
+            error_message = "Model returned empty result (None or empty string)."
+            workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
+            print(f"[WorkflowProcessor] Warning: Model returned empty result. Сохраняем пустой перевод.")
+
+        workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, error_message=error_message)
+
+        # --- ВМЕСТО копирования статуса из одной секции ---
+        recalculate_book_stage_status(book_id, 'translate')
+        update_overall_workflow_book_status(book_id)
+        # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
+        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
+        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса секции {section_id} этапа {ANALYSIS_STAGE_NAME}")
+
+        if status == 'error' or status == 'error_caching':
+            return False
+        return status in ['completed', 'completed_empty', 'cached']
     except Exception as e:
-        print(f"[WorkflowProcessor] Placeholder ОШИБКА при обработке перевода секции {section_id}: {e}")
+        error_message = f"Exception during translation: {e}"
+        print(f"[WorkflowProcessor] ОШИБКА при обработке перевода секции {section_id}: {e}")
         traceback.print_exc()
         try:
-             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=f'Placeholder error: {e}')
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=error_message)
         except Exception as db_err:
-             print(f"[WorkflowProcessor] Placeholder ОШИБКА при попытке записать статус ошибки для секции {section_id}: {db_err}")
-             traceback.print_exc()
+            print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки для секции {section_id}: {db_err}")
+            traceback.print_exc()
         return False
 
 # --- New function for Book-level EPUB Creation ---
@@ -997,5 +798,60 @@ def process_book_epub_creation(book_id: str):
 
     # Возвращаем True, если этап завершился успешно (статус 'completed'), иначе False.
     return status_to_set == 'completed'
+
+# --- New function to recalculate book stage status ---
+def recalculate_book_stage_status(book_id, stage_name):
+    """
+    Пересчитывает статус этапа книги по всем секциям на этом этапе.
+    Если этап не per-section (например, 'analyze', 'epub_creation'), статус не пересчитывается.
+    """
+    # --- Проверка: если этап не per-section, не трогаем статус ---
+    per_section_stages = ['summarize', 'translate']
+    if stage_name not in per_section_stages:
+        print(f"[WorkflowProcessor] recalculate_book_stage_status: этап '{stage_name}' не per-section, статус не пересчитывается.")
+        return
+    # --- Дальше обычная логика для per-section этапов ---
+    sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+    statuses = [s.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending') for s in sections]
+    if not statuses:
+        status = 'pending'
+    elif all(s == 'pending' for s in statuses):
+        status = 'pending'
+    elif any(s in ['processing', 'queued'] for s in statuses):
+        status = 'processing'
+    elif any(isinstance(s, str) and s.startswith('error') for s in statuses):
+        status = 'completed_with_errors'
+    elif all(s in ['completed', 'completed_empty', 'skipped'] for s in statuses):
+        status = 'completed'
+    else:
+        status = 'processing'
+    workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, status)
+    print(f"[WorkflowProcessor] recalculate_book_stage_status: book_id={book_id}, stage={stage_name}, status={status}")
+    log_all_workflow_statuses(book_id, context_msg=f"После recalculate_book_stage_status для этапа {stage_name}")
+
+# --- New function to log all workflow statuses ---
+def log_all_workflow_statuses(book_id, context_msg=None):
+    """
+    Логирует ВСЕ статусы этапов книги и секций по этапам для отладки.
+    """
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if not book_info:
+        print(f"[WorkflowProcessor] log_all_workflow_statuses: Книга {book_id} не найдена!")
+        return
+    print(f"\n[WorkflowProcessor] ====== СТАТУСЫ WORKFLOW КНИГИ {book_id} ======")
+    if context_msg:
+        print(f"[WorkflowProcessor] CONTEXT: {context_msg}")
+    print(f"[WorkflowProcessor] current_workflow_status: {book_info.get('current_workflow_status')}")
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    for stage, st_data in book_stage_statuses.items():
+        print(f"[WorkflowProcessor]   Этап '{stage}': {st_data}")
+    print(f"[WorkflowProcessor] --- СТАТУСЫ СЕКЦИЙ ПО ЭТАПАМ ---")
+    sections = book_info.get('sections', [])
+    for section in sections:
+        sec_id = section.get('section_epub_id')
+        stage_statuses = section.get('stage_statuses', {})
+        status_str = ", ".join([f"{st}:{stage_statuses.get(st, {}).get('status', '?')}" for st in book_stage_statuses.keys()])
+        print(f"[WorkflowProcessor]   Секция {sec_id}: {status_str}")
+    print(f"[WorkflowProcessor] ====== КОНЕЦ СТАТУСОВ КНИГИ {book_id} ======\n")
 
 # --- END OF FILE workflow_processor.py ---
