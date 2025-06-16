@@ -658,12 +658,21 @@ class OpenRouterTranslator(BaseTranslator):
         
         return text
 
-    def _build_prompt(self, operation_type: str, target_language: str, text: str, ...):
+    def _build_prompt(
+        self,
+        operation_type: str,
+        target_language: str,
+        text: str,
+        previous_context: str = "",
+        prompt_ext: Optional[str] = None
+    ) -> tuple[str, int]:
         # Очищаем текст перед использованием
         cleaned_text = self._clean_text_for_api(text)
         formatted_vars = {
             'text': cleaned_text,
-            ...
+            'target_language': target_language,
+            'prompt_ext_section': f"Additional instructions: {prompt_ext}" if prompt_ext else "",
+            'previous_context_section': f"Previous context: {previous_context}" if previous_context else ""
         }
 
 def configure_api() -> None:
