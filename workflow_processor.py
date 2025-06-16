@@ -38,7 +38,7 @@ SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free'
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'meta-llama/llama-4-maverick:free' # Можно использовать ту же модель или другую
+ANALYSIS_MODEL = 'deepseek/deepseek-r1-0528:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
 # --- Workflow Configuration ---
