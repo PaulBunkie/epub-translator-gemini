@@ -2,7 +2,7 @@
 
 import workflow_db_manager
 import epub_parser
-import workflow_translation_module as translation_module
+import workflow_translation_module
 import os
 import traceback
 import workflow_cache_manager # TODO: Implement workflow_cache_manager DONE
@@ -37,25 +37,16 @@ def clean_html(html_content):
 SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free'
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
-# NEW CONSTANT: Instruction for models regarding proper nouns and gender
-MODEL_GENDER_INSTRUCTION_PROMPT = "For proper nouns, indicate the presumed gender in parentheses"
-
 # --- Constants for Analysis Stage ---
 ANALYSIS_MODEL = 'meta-llama/llama-4-maverick:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
-
-# --- Prompt Template for Analysis ---
-ANALYSIS_PROMPT_TEMPLATE = "Your response will be used in the translation instruction, structure it so that the neural network that will do the translation understands how to translate individual terms."
-
-# TODO: Определить шаблон промпта для анализа. Он должен использовать результат суммаризации.
-# Пример: Проанализируй ключевые сущности (персонажи, места, события) на основе следующего текста.
 
 # --- Workflow Configuration ---
 DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after retries) as completed_empty instead of error
 MAX_RETRIES = 2 # Number of additional retries for model calls
 
 # --- Хардкодим модель для перевода, как для summarize/analyze ---
-TRANSLATION_MODEL = 'meta-llama/llama-4-maverick:free' #'deepseek/deepseek-r1-0528:free'
+TRANSLATION_MODEL = 'deepseek/deepseek-r1-0528:free' #'deepseek/deepseek-chat-v3-0324:free' #'meta-llama/llama-4-maverick:free'
 
 def process_section_summarization(book_id: str, section_id: int):
     """
@@ -127,7 +118,7 @@ def process_section_summarization(book_id: str, section_id: int):
         for attempt in range(MAX_RETRIES + 1):
             print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для секции {section_id} (суммаризация)...")
             try:
-                summarized_text = translation_module.translate_text(
+                summarized_text = workflow_translation_module.translate_text(
                     text_to_translate=section_content,
                     target_language=target_language_for_summarization,
                     model_name=model_name,
@@ -151,10 +142,10 @@ def process_section_summarization(book_id: str, section_id: int):
                     except Exception as time_check_err:
                         print(f"[DEBUG_TIME_CHECK] Ошибка при проверке времени для секции {section_id}: {time_check_err}")
                     break # Успех, выходим из цикла ретраев
-                elif summarized_text == translation_module.EMPTY_RESPONSE_ERROR:
+                elif summarized_text == workflow_translation_module.EMPTY_RESPONSE_ERROR:
                      error_message = "API вернул EMPTY_RESPONSE_ERROR."
                      print(f"[WorkflowProcessor] Предупреждение: Модель вернула EMPTY_RESPONSE_ERROR на попытке {attempt + 1}.")
-                elif summarized_text == translation_module.CONTEXT_LIMIT_ERROR:
+                elif summarized_text == workflow_translation_module.CONTEXT_LIMIT_ERROR:
                      status = 'error' # Контекстный лимит - не ретраим
                      error_message = "API вернул CONTEXT_LIMIT_ERROR."
                      print(f"[WorkflowProcessor] Ошибка: Модель вернула CONTEXT_LIMIT_ERROR на попытке {attempt + 1}. Не ретраим.")
@@ -242,9 +233,6 @@ def process_section_summarization(book_id: str, section_id: int):
         update_overall_workflow_book_status(book_id)
         # --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
-        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
-        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса секции {section_id} этапа {SUMMARIZATION_STAGE_NAME}")
-
         return status in ['completed', 'completed_empty'] # Возвращаем True, если успешно завершено (включая пустые)
 
     except Exception as e:
@@ -257,9 +245,6 @@ def process_section_summarization(book_id: str, section_id: int):
         except Exception as db_err:
              print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки для секции {section_id}: {db_err}")
              traceback.print_exc()
-
-        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
-        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса секции {section_id} этапа {SUMMARIZATION_STAGE_NAME}")
 
         return False
 
@@ -358,7 +343,6 @@ def update_overall_workflow_book_status(book_id):
         final_status = 'processing'
     workflow_db_manager.update_book_workflow_status(book_id, final_status)
     print(f"[WorkflowProcessor] update_overall_workflow_book_status: book_id={book_id}, current_workflow_status={final_status}")
-    log_all_workflow_statuses(book_id, context_msg="После update_overall_workflow_book_status")
     return True
 
 # TODO: Добавить функцию start_book_workflow для запуска процесса для всей книги DONE
@@ -422,8 +406,6 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
                     # --- ДОБАВЛЯЮ: Явно пересчитываем статус этапа и книги ---
                     recalculate_book_stage_status(book_id, stage_name)
                     update_overall_workflow_book_status(book_id)
-                    # Логируем все статусы для диагностики
-                    log_all_workflow_statuses(book_id, context_msg=f"После критической ошибки в секции {section_id} этапа {stage_name}")
                     return False  # Останавливаем весь workflow (можно break, если хотим только этап)
                 time.sleep(0.1)  # Чтобы не перегружать API
         else:
@@ -525,12 +507,11 @@ def process_book_analysis(book_id: str):
             print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для анализа книги {book_id}...")
             try:
                  print(f"[WorkflowProcessor] Вызов translate_text для анализа книги {book_id} ({model_name} -> {target_language})")
-                 analysis_result = translation_module.translate_text(
+                 analysis_result = workflow_translation_module.translate_text(
                      text_to_translate=collected_summary_text, # Pass the collected summary text
                      target_language=target_language,
                      model_name=model_name,
-                     # Комбинируем существующий шаблон анализа. MODEL_GENDER_INSTRUCTION_PROMPT больше не нужен здесь.
-                     prompt_ext=ANALYSIS_PROMPT_TEMPLATE, # <--- ИЗМЕНЕНО
+                     prompt_ext="", # prompt_ext всегда пустой для анализа
                      operation_type=ANALYSIS_STAGE_NAME # Pass the operation type
                  )
                  print(f"[WorkflowProcessor] Результат translate_text: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
@@ -540,10 +521,10 @@ def process_book_analysis(book_id: str):
                       error_message = None
                       print(f"[WorkflowProcessor] Модель вернула непустой результат на попытке {attempt + 1}.")
                       break # Success, exit retry loop
-                 elif analysis_result == translation_module.EMPTY_RESPONSE_ERROR:
+                 elif analysis_result == workflow_translation_module.EMPTY_RESPONSE_ERROR:
                       error_message = "API returned EMPTY_RESPONSE_ERROR."
                       print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR on attempt {attempt + 1}.")
-                 elif analysis_result == translation_module.CONTEXT_LIMIT_ERROR:
+                 elif analysis_result == workflow_translation_module.CONTEXT_LIMIT_ERROR:
                       status = 'error' # Context limit is not retried
                       error_message = "API returned CONTEXT_LIMIT_ERROR."
                       print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR on attempt {attempt + 1}. No retry.")
@@ -598,9 +579,6 @@ def process_book_analysis(book_id: str):
         update_overall_workflow_book_status(book_id)
         # --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
-        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
-        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса этапа {ANALYSIS_STAGE_NAME}")
-
         return status in ['completed', 'completed_empty'] # Return True if completed successfully or empty
 
     except Exception as e:
@@ -609,7 +587,6 @@ def process_book_analysis(book_id: str):
         print(f"[WorkflowProcessor] Необработанная ошибка при анализе книги {book_id}: {e}\n{tb}")
         workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, f"error_unknown", error_message=f"Необработанная ошибка: {e}\n{tb}")
         update_overall_workflow_book_status(book_id)
-        log_all_workflow_statuses(book_id, context_msg=f"После ошибки анализа {ANALYSIS_STAGE_NAME}")
         return False
 
 # --- New function for Section-level Translation ---
@@ -704,7 +681,7 @@ def process_section_translate(book_id: str, section_id: int):
                 workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
                 print(f"[WorkflowProcessor] Короткая секция (<100 симв). Перевод пустой. Статус: completed_empty.")
         else:
-            if translated_text is not None and translated_text.strip() != "" and translated_text not in [translation_module.EMPTY_RESPONSE_ERROR, translation_module.CONTEXT_LIMIT_ERROR]:
+            if translated_text is not None and translated_text.strip() != "" and translated_text not in [workflow_translation_module.EMPTY_RESPONSE_ERROR, workflow_translation_module.CONTEXT_LIMIT_ERROR]:
                 if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', translated_text):
                     status = 'completed'
                     error_message = None
@@ -715,10 +692,10 @@ def process_section_translate(book_id: str, section_id: int):
                     print(f"[WorkflowProcessor] ОШИБКА сохранения результата перевода в кеш для {book_id}/{section_id}: {error_message}")
             else:
                 status = 'error'
-                if translated_text == translation_module.EMPTY_RESPONSE_ERROR:
+                if translated_text == workflow_translation_module.EMPTY_RESPONSE_ERROR:
                     error_message = "API вернул EMPTY_RESPONSE_ERROR."
                     print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR.")
-                elif translated_text == translation_module.CONTEXT_LIMIT_ERROR:
+                elif translated_text == workflow_translation_module.CONTEXT_LIMIT_ERROR:
                     error_message = "API вернул CONTEXT_LIMIT_ERROR."
                     print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR.")
                 else:
@@ -733,11 +710,6 @@ def process_section_translate(book_id: str, section_id: int):
         update_overall_workflow_book_status(book_id)
         # --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
-        # После каждого обновления статуса секции (section_stage_statuses) добавляю логирование:
-        log_all_workflow_statuses(book_id, context_msg=f"После обновления статуса секции {section_id} этапа {ANALYSIS_STAGE_NAME}")
-
-        if status == 'error' or status == 'error_caching':
-            return False
         return status in ['completed', 'completed_empty', 'cached']
     except Exception as e:
         error_message = f"Exception during translation: {e}"
@@ -849,31 +821,5 @@ def recalculate_book_stage_status(book_id, stage_name):
         status = 'processing'
     workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, status)
     print(f"[WorkflowProcessor] recalculate_book_stage_status: book_id={book_id}, stage={stage_name}, status={status}")
-    log_all_workflow_statuses(book_id, context_msg=f"После recalculate_book_stage_status для этапа {stage_name}")
-
-# --- New function to log all workflow statuses ---
-def log_all_workflow_statuses(book_id, context_msg=None):
-    """
-    Логирует ВСЕ статусы этапов книги и секций по этапам для отладки.
-    """
-    book_info = workflow_db_manager.get_book_workflow(book_id)
-    if not book_info:
-        print(f"[WorkflowProcessor] log_all_workflow_statuses: Книга {book_id} не найдена!")
-        return
-    print(f"\n[WorkflowProcessor] ====== СТАТУСЫ WORKFLOW КНИГИ {book_id} ======")
-    if context_msg:
-        print(f"[WorkflowProcessor] CONTEXT: {context_msg}")
-    print(f"[WorkflowProcessor] current_workflow_status: {book_info.get('current_workflow_status')}")
-    book_stage_statuses = book_info.get('book_stage_statuses', {})
-    for stage, st_data in book_stage_statuses.items():
-        print(f"[WorkflowProcessor]   Этап '{stage}': {st_data}")
-    print(f"[WorkflowProcessor] --- СТАТУСЫ СЕКЦИЙ ПО ЭТАПАМ ---")
-    sections = book_info.get('sections', [])
-    for section in sections:
-        sec_id = section.get('section_epub_id')
-        stage_statuses = section.get('stage_statuses', {})
-        status_str = ", ".join([f"{st}:{stage_statuses.get(st, {}).get('status', '?')}" for st in book_stage_statuses.keys()])
-        print(f"[WorkflowProcessor]   Секция {sec_id}: {status_str}")
-    print(f"[WorkflowProcessor] ====== КОНЕЦ СТАТУСОВ КНИГИ {book_id} ======\n")
 
 # --- END OF FILE workflow_processor.py ---

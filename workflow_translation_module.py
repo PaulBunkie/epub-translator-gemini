@@ -1,4 +1,3 @@
-import translation_module
 import os
 import re
 import traceback
@@ -24,9 +23,9 @@ PROMPT_TEMPLATES = {
 - Translate standard abbreviations using well-established equivalents in {{target_language}}.
 - Leave fictional or uncommon abbreviations (e.g., invented acronyms or alien names) unchanged.
 - For neologisms, coined expressions, or wordplay, select a well-adapted and stylistically appropriate equivalent in {{target_language}} and use it consistently.
-- Keep all Markdown formatting elements untouched: headings, bold, italic, inline code, bullet points, links, etc.
+- Keep all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) unchanged.
 - Preserve exact Markdown heading levels. Do not change #/##/### levels or convert plain text into headings.
-- Keep *italic* and **bold** Markdown formatting inline, exactly as in the original. Do not introduce line breaks instead of or around italicized text.
+- Keep *italic* and **bold** Markdown formatting inline, exactly as in the original. Do not introduce line breaks instead of or around markdowned text.
 - Do not add any titles, headers, or metadata (e.g., "### Literary translation", "Translation:", etc.) that are not present in the source text. Start directly with the translation.
 
 {{russian_dialogue_rule}}
@@ -346,8 +345,6 @@ class WorkflowTranslator:
         Returns:
             Текст ответа модели или специальные константы ошибок/None.
         """
-        print(f"[WorkflowTranslator] Вызов API для модели: '{model_name}'.")
-
         # TODO: Добавить логику выбора API (Google/OpenRouter) на основе model_name
         # Для начала реализуем только OpenRouter
         api_type = "openrouter" # Пока только OpenRouter
@@ -366,30 +363,42 @@ class WorkflowTranslator:
                 # "X-Title": os.getenv("YOUR_APP_NAME", "EPUB Translator"), # Optional: Replace with your app name
             }
 
-            # TODO: Добавить обработку max_tokens, streaming и других параметров API
+            # --- Новый блок: расчёт max_tokens для OpenRouter ---
+            # Получаем лимиты модели
+            from translation_module import get_context_length, get_model_output_token_limit
+            model_total_context_limit = get_context_length(model_name) if model_name else 2048
+            model_declared_output_limit = get_model_output_token_limit(model_name) if model_name else None
+            # Формируем промпт для оценки длины
+            prompt_text = ""
+            if messages and isinstance(messages, list) and len(messages) > 0:
+                # Берём только user-сообщения (или первое)
+                prompt_text = messages[0].get('content', '')
+            input_prompt_tokens = len(prompt_text) // 3  # Грубая оценка: 1 токен ~ 3 символа
+            # Если max_completion_tokens не указан, используем половину размера контекста
+            if not model_declared_output_limit:
+                model_declared_output_limit = model_total_context_limit // 2
+                print(f"[WorkflowTranslator] max_completion_tokens не указан, используем половину контекста: {model_declared_output_limit}")
+            # Максимально допустимое количество токенов для вывода
+            calculated_max_output_tokens = model_total_context_limit - input_prompt_tokens - 100 # Буфер 100 токенов
+            # Окончательный лимит вывода: минимум из заявленного моделью и рассчитанного
+            final_output_token_limit = min(model_declared_output_limit, calculated_max_output_tokens)
+            print(f"[WorkflowTranslator] Рассчитанный output_token_limit для API: {final_output_token_limit} (Общий контекст: {model_total_context_limit}, Входной промпт: ~{input_prompt_tokens} токенов)")
+
             data = {
                 "model": model_name,
                 "messages": messages,
                 "temperature": temperature,
                 "reasoning": {
                     "exclude": True
-                }
-                # "max_tokens": 4000, # Определить адекватное значение или убрать
+                },
+                "max_tokens": final_output_token_limit
             }
 
             current_delay = retry_delay_seconds
             for attempt in range(max_retries):
                 try:
                     print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries}). URL: {url}")
-                    try:
-                        json_str = json.dumps(data, ensure_ascii=False)
-                        # Проверяем, что JSON валидный
-                        json.loads(json_str)
-                        response = requests.post(url, headers=headers, data=json_str)
-                    except Exception as e:
-                        print(f"[OpenRouterTranslator] Ошибка при формировании запроса: {e}")
-                        return None
-                    print(f"[OpenRouterTranslator] Получен ответ от OpenRouter: Статус {response.status_code}")
+                    response = requests.post(url, headers=headers, data=json.dumps(data, ensure_ascii=False))
 
                     # --- Проверка заголовков лимитов (опционально) ---
                     if 'X-Ratelimit-Remaining' in response.headers:
@@ -435,7 +444,6 @@ class WorkflowTranslator:
                              return output_content
                         else:
                             print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствуют choices).")
-                            print(f"Ответ API: {response_json}")
                             return None # Или специальная ошибка формата ответа
 
                     # --- Обработка ошибок, требующих ретрая ---
