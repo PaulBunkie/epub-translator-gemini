@@ -337,6 +337,9 @@ class WorkflowTranslator:
                 "model": model_name,
                 "messages": messages,
                 "temperature": temperature,
+                "reasoning": {
+                    "exclude": True
+                }
                 # "max_tokens": 4000, # Определить адекватное значение или убрать
             }
 

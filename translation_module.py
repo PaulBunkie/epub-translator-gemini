@@ -483,7 +483,10 @@ class OpenRouterTranslator(BaseTranslator):
             "messages": [{"role": "user", "content": prompt}], # Используем формат messages
             "max_tokens": final_output_token_limit, # ИЗМЕНЕНИЕ: Используем динамический лимит
             "temperature": 0.5, # УСТАНОВКА ТЕМПЕРАТУРЫ
-            "stream": False # Убеждаемся, что не ждем стриминг
+            "stream": False, # Убеждаемся, что не ждем стриминг
+            "reasoning": {
+                "exclude": True
+            }
         }
 
         # --- Retry logic for 429 errors ---
