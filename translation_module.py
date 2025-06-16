@@ -666,14 +666,38 @@ class OpenRouterTranslator(BaseTranslator):
         previous_context: str = "",
         prompt_ext: Optional[str] = None
     ) -> tuple[str, int]:
-        # Очищаем текст перед использованием
+        template = PROMPT_TEMPLATES.get(operation_type)
+        if not template:
+            raise ValueError(f"Неизвестный тип операции: {operation_type}")
+
+        prompt_ext_section = _format_prompt_section("ADDITIONAL INSTRUCTIONS (Apply if applicable, follow strictly for names and terms defined here)", prompt_ext)
+        previous_context_section = _format_prompt_section("Previous Context (use for style and recent terminology reference)", previous_context)
+
+        russian_dialogue_rule = ' - When formatting dialogue, use the Russian style with em dashes (—), not quotation marks.' if target_language.lower() == 'russian' else ''
+        translator_notes_heading = 'Примечания переводчика' if target_language.lower() == 'russian' else 'Translator Notes'
+
         cleaned_text = self._clean_text_for_api(text)
-        formatted_vars = {
-            'text': cleaned_text,
-            'target_language': target_language,
-            'prompt_ext_section': f"Additional instructions: {prompt_ext}" if prompt_ext else "",
-            'previous_context_section': f"Previous context: {previous_context}" if previous_context else ""
-        }
+
+        temp_prompt_for_overhead_calc = template.format(
+            target_language=target_language,
+            text="", # Замещаем текст пустым, чтобы получить длину остального промпта
+            prompt_ext_section=prompt_ext_section,
+            previous_context_section=previous_context_section,
+            russian_dialogue_rule=russian_dialogue_rule,
+            translator_notes_heading=translator_notes_heading,
+        )
+        estimated_non_text_char_length = len(temp_prompt_for_overhead_calc.replace("{text}", "").strip())
+
+        final_prompt = template.format(
+            target_language=target_language,
+            text=cleaned_text,
+            prompt_ext_section=prompt_ext_section,
+            previous_context_section=previous_context_section,
+            russian_dialogue_rule=russian_dialogue_rule,
+            translator_notes_heading=translator_notes_heading,
+        )
+        final_prompt = final_prompt.replace("\n\n\n", "\n\n").strip()
+        return final_prompt, estimated_non_text_char_length
 
 def configure_api() -> None:
     """

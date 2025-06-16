@@ -278,12 +278,14 @@ class WorkflowTranslator:
 
         # Очищаем текст перед использованием
         cleaned_text = self._clean_text_for_api(text_to_process)
+        cleaned_prompt_ext = self._clean_text_for_api(prompt_ext) if prompt_ext else None
+        cleaned_previous_context = self._clean_text_for_api(previous_context) if previous_context else None
 
         # Prepare dynamic parts for the templates based on operation type
         formatted_vars = {
             'target_language': target_language,
             'text': cleaned_text,
-            'prompt_ext_section': f"Additional instructions: {prompt_ext}" if prompt_ext else "",
+            'prompt_ext_section': f"Additional instructions: {cleaned_prompt_ext}" if cleaned_prompt_ext else "",
         }
 
         if operation_type == 'translate':
@@ -300,7 +302,7 @@ class WorkflowTranslator:
             formatted_vars['translation_guidelines_section'] = translation_guidelines_section
             
             # Handle previous_context_section for translate
-            formatted_vars['previous_context_section'] = f"Previous context (for continuity):\n{previous_context}" if previous_context else ""
+            formatted_vars['previous_context_section'] = f"Previous context (for continuity):\n{cleaned_previous_context}" if cleaned_previous_context else ""
 
             user_content = PROMPT_TEMPLATES['translate'].format(**formatted_vars)
             
