@@ -47,6 +47,8 @@ PROMPT_TEMPLATES = {
 - Keep uncommon or fictional abbreviations/acronyms (e.g., KPS) in their original form.
 - For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.
 - Keep all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) unchanged.
+- Preserve exact Markdown heading levels. Do not change #/##/### levels or convert plain text into headings.
+- Keep *italic* and **bold** Markdown formatting inline, exactly as in the original. Do not introduce line breaks instead of or around italicized text.
 - Do not add any titles, headers, or metadata (e.g., "### Literary translation", "Translation:", etc.) that are not present in the source text. Start directly with the translation.
 - Preserve paragraph structure. Do not introduce line breaks within a paragraph unless they are present in the original text.
 {russian_dialogue_rule}
