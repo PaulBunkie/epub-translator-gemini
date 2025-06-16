@@ -389,7 +389,7 @@ class WorkflowTranslator:
                 "messages": messages,
                 "temperature": temperature,
                 "reasoning": {
-                    "exclude": True
+                    "exclude": operation_type != 'analyze'
                 },
                 "max_tokens": final_output_token_limit
             }

@@ -34,7 +34,7 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free'
+SUMMARIZATION_MODEL = 'meta-llama/llama-4-scout:free'
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
@@ -46,7 +46,7 @@ DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after re
 MAX_RETRIES = 2 # Number of additional retries for model calls
 
 # --- Хардкодим модель для перевода, как для summarize/analyze ---
-TRANSLATION_MODEL = 'deepseek/deepseek-r1-0528:free' #'deepseek/deepseek-chat-v3-0324:free' #'meta-llama/llama-4-maverick:free'
+TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free' #'deepseek/deepseek-r1-0528:free' #'meta-llama/llama-4-maverick:free'
 
 def process_section_summarization(book_id: str, section_id: int):
     """
