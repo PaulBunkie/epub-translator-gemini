@@ -48,6 +48,7 @@ PROMPT_TEMPLATES = {
 - For neologisms or compound words, find accurate and stylistically appropriate {target_language} equivalents and use them consistently *within this response*.
 - Keep all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) unchanged.
 - Do not add any titles, headers, or metadata (e.g., "### Literary translation", "Translation:", etc.) that are not present in the source text. Start directly with the translation.
+- Preserve paragraph structure. Do not introduce line breaks within a paragraph unless they are present in the original text.
 {russian_dialogue_rule}
 - If clarification is needed for a {target_language} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
   - **Format:** Insert a sequential footnote marker directly after the word/phrase.
