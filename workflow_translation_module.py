@@ -326,6 +326,8 @@ class WorkflowTranslator:
         self,
         model_name: str,
         messages: List[Dict[str, Any]],
+        operation_type: str = 'translate',
+        chunk_text: str = None,
         temperature: float = 0.3,
         max_retries: int = 3, # Количество попыток
         retry_delay_seconds: int = 5 # Начальная задержка
@@ -406,17 +408,31 @@ class WorkflowTranslator:
                             return None
                         # Проверка наличия 'choices' и 'message'
                         if response_json and 'choices' in response_json and response_json['choices']:
-                             # Извлекаем контент из первого сообщения
-                             if 'message' in response_json['choices'][0] and 'content' in response_json['choices'][0]['message']:
-                                 print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")
-                                 return response_json['choices'][0]['message']['content'].strip()
-                             elif 'text' in response_json['choices'][0]: # Для старых моделей или других форматов
-                                  print("[OpenRouterTranslator] Ответ получен в формате text. Успех.")
-                                  return response_json['choices'][0]['text'].strip()
-                             else:
-                                 print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствует content или text).")
-                                 print(f"Ответ API: {response_json}")
-                                 return None # Или специальная ошибка формата ответа
+                             choice = response_json['choices'][0]
+                             finish_reason = choice.get('finish_reason')
+                             print(f"[OpenRouterTranslator] finish_reason: {finish_reason}")
+                             # --- Получаем текст ответа ---
+                             output_content = ""
+                             if 'message' in choice and 'content' in choice['message']:
+                                 output_content = choice['message']['content'].strip()
+                             elif 'text' in choice:
+                                 output_content = choice['text'].strip()
+                             print(f"[OpenRouterTranslator] ПЕРВЫЕ 100 СИМВОЛОВ ОТВЕТА: '{output_content[:100]}'")
+                             if chunk_text is not None:
+                                 print(f"[OpenRouterTranslator] Длина исходного текста секции: {len(chunk_text)} символов. Длина перевода: {len(output_content)} символов.")
+                             # --- Проверка на обрезание ---
+                             is_truncated = False
+                             # Применяем честную эвристику только для перевода: сравниваем длину перевода и исходного текста в символах
+                             if operation_type == 'translate' and finish_reason == 'stop' and chunk_text:
+                                 input_char_len = len(chunk_text.strip())
+                                 output_char_len = len(output_content.strip())
+                                 if output_char_len < input_char_len * 0.8:
+                                     is_truncated = True
+                                     print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} символов) значительно короче исходного текста ({input_char_len} символов) (<80%). Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                             if is_truncated:
+                                 return 'TRUNCATED_RESPONSE_ERROR'
+                             print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")
+                             return output_content
                         else:
                             print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствуют choices).")
                             print(f"Ответ API: {response_json}")
@@ -547,7 +563,7 @@ class WorkflowTranslator:
                 prompt_ext=prompt_ext,
                 dict_data=dict_data
             )
-            return self._call_model_api(model_name, messages)
+            return self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=text_to_translate)
 
         elif operation_type == 'translate':
             print(f"[WorkflowTranslator] Вызов операции 'translate' для текста длиной {len(text_to_translate)} символов.")
@@ -561,7 +577,9 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков с лимитом {CHUNK_SIZE_LIMIT_CHARS} символов.")
 
             for i, chunk in enumerate(chunks):
-                print(f"[WorkflowTranslator] Перевод чанка {i+1}/{len(chunks)} (длина: {len(chunk)} симв).")
+                chunk_stripped = chunk.strip()
+                chunk_length = len(chunk_stripped)  # Длина исходного текста секции/чанка
+                print(f"[WorkflowTranslator] Перевод чанка {i+1}/{len(chunks)} (длина исходного текста: {chunk_length} симв).")
                 messages = self._build_messages_for_operation(
                     operation_type,
                     chunk, # Передаем сам чанк
@@ -575,13 +593,25 @@ class WorkflowTranslator:
                 attempt = 0
                 translated_chunk = None
                 while attempt <= max_chunk_retries:
-                    translated_chunk = self._call_model_api(model_name, messages)
+                    translated_chunk = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
                     if translated_chunk is None:
                         print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1} (попытка {attempt+1}). Прерывание.")
                         return None
-                    # --- Эвристика: если перевод пустой или подозрительно короткий ---
-                    if not translated_chunk.strip() or len(translated_chunk.strip()) < max(10, len(chunk.strip()) * 0.8):
-                        print(f"[WorkflowTranslator] Предупреждение: перевод чанка {i+1} подозрительно короткий или пустой (длина: {len(translated_chunk.strip())}, исходный: {len(chunk.strip())}). Попытка {attempt+1}/{max_chunk_retries+1}.")
+                    # --- Эвристика: если чанк короткий (<100 символов), принимаем любой непустой перевод ---
+                    if chunk_length < 100:
+                        if translated_chunk.strip():
+                            break
+                        else:
+                            print(f"[WorkflowTranslator] Короткий чанк (<100 симв). Перевод пустой. Попытка {attempt+1}/{max_chunk_retries+1}.")
+                            attempt += 1
+                            if attempt > max_chunk_retries:
+                                print(f"[WorkflowTranslator] Ошибка: короткий чанк остался пустым после {max_chunk_retries+1} попыток. Возвращаем EMPTY_RESPONSE_ERROR.")
+                                return EMPTY_RESPONSE_ERROR
+                            time.sleep(2)
+                            continue
+                    # --- Для длинных чанков прежняя эвристика, но сравниваем только с длиной исходного текста ---
+                    elif not translated_chunk.strip() or len(translated_chunk.strip()) < max(10, chunk_length * 0.8):
+                        print(f"[WorkflowTranslator] Предупреждение: перевод чанка {i+1} подозрительно короткий или пустой (длина: {len(translated_chunk.strip())}, исходный: {chunk_length}). Попытка {attempt+1}/{max_chunk_retries+1}.")
                         attempt += 1
                         if attempt > max_chunk_retries:
                             print(f"[WorkflowTranslator] Ошибка: перевод чанка {i+1} остался пустым после {max_chunk_retries+1} попыток. Возвращаем EMPTY_RESPONSE_ERROR.")

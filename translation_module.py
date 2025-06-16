@@ -530,49 +530,22 @@ class OpenRouterTranslator(BaseTranslator):
                              print(f"[OpenRouterTranslator] Использование токенов: Вход={prompt_t}, Выход={completion_t}, Всего={total_t}")
                          # --- Конец логирования токенов ---
 
-                         # --- НОВАЯ ЭВРИСТИКА: Проверка на потенциальное обрезание ---
-                         if operation_type == 'translate' and finish_reason == 'stop':
-                             input_char_len = len(text) # Длина оригинального текста чанка (для логов и оценки)
+                         # --- УБРАНА ЭВРИСТИКА сравнения доли чанка во всём промпте. Оставляем только прямое сравнение длины исходного текста и перевода, если нужно.
+                         is_truncated = False
+                         if 'usage' in response_json and prompt_t > 0:
+                             # Честная проверка: сравниваем длину перевода и исходного текста (оба только текст)
+                             input_char_len = len(text)
                              output_content = ""
                              if 'message' in choice and 'content' in choice['message']:
                                  output_content = choice['message']['content'].strip()
                              elif 'text' in choice:
                                  output_content = choice['text'].strip()
-                             
-                             is_truncated = False
-                             if not _ends_with_complete_sentence(output_content):
+                             output_char_len = len(output_content)
+                             if output_char_len < input_char_len * 0.8:
                                  is_truncated = True
-                                 print(f"[OpenRouterTranslator] Предупреждение: Потенциальное обрезание обнаружено. "
-                                       f"finish_reason: '{finish_reason}', вывод заканчивается неполным предложением. "
-                                       f"Длина входа (симв): {input_char_len}, длина вывода (симв): {len(output_content)}. " # Логируем для информации
-                                       f"Возвращаем TRUNCATED_RESPONSE_ERROR.")
-                             # Добавляем новую токен-ориентированную проверку длины
-                             elif 'usage' in response_json and prompt_t > 0: # Убеждаемся, что prompt_t есть и не 0
-                                 # Оцениваем количество токенов исходного текста на основе токенов всего промпта и соотношения символов
-                                 estimated_source_text_tokens = 0
-                                 if total_prompt_char_length > 0:
-                                     # ИСПРАВЛЕНИЕ: Вычисляем оценочную длину символов только для текста в промпте
-                                     # Если estimated_non_text_char_length больше total_prompt_char_length, то текст вообще не влез.
-                                     # Или если total_prompt_char_length == estimated_non_text_char_length, то текст пустой.
-                                     # Если total_prompt_char_length - estimated_non_text_char_length <= 0, то текст либо отсутствует, либо
-                                     # его длина настолько мала, что не является значимой частью промпта.
-                                     
-                                     # Более надежная оценка: доля символов текста в общем промпте
-                                     char_ratio_of_text_in_prompt = input_char_len / total_prompt_char_length
-                                     estimated_source_text_tokens = int(prompt_t * char_ratio_of_text_in_prompt)
-                                 else: # Если общий промпт пуст (крайне маловероятно), то текст = prompt_t
-                                     estimated_source_text_tokens = prompt_t
-
-                                 # Если количество выходных токенов значительно меньше оцененных токенов исходного текста
-                                 if completion_t < estimated_source_text_tokens * 0.80: # ИЗМЕНЕНИЕ: Сравниваем с estimated_source_text_tokens
-                                     is_truncated = True
-                                     print(f"[OpenRouterTranslator] Предупреждение: Потенциальное обрезание обнаружено. "
-                                           f"finish_reason: '{finish_reason}', выходные токены ({completion_t}) значительно меньше оцененных токенов исходного текста ({estimated_source_text_tokens}) (<80%). "
-                                           f"Возвращаем TRUNCATED_RESPONSE_ERROR.")
-                             
-                             if is_truncated:
-                                 return TRUNCATED_RESPONSE_ERROR # Возвращаем новую ошибку
-                         # --- КОНЕЦ НОВОЙ ЭВРИСТИКИ ---
+                                 print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<80%). Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                         if is_truncated:
+                             return TRUNCATED_RESPONSE_ERROR
 
                          if 'message' in choice and 'content' in choice['message']:
                              print("[OpenRouterTranslator] Ответ получен в формате message.content")

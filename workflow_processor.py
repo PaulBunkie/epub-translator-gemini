@@ -326,9 +326,10 @@ def update_overall_workflow_book_status(book_id):
         return False
     book_stage_statuses = book_info.get('book_stage_statuses', {})
     stages_ordered = workflow_db_manager.get_all_stages_ordered_workflow()
-    final_status = 'completed'
     has_processing = False
     has_error = False
+    has_completed_with_errors = False
+    all_completed = True
     all_pending = True
     for stage in stages_ordered:
         stage_name = stage['stage_name']
@@ -337,20 +338,24 @@ def update_overall_workflow_book_status(book_id):
             has_processing = True
         if status not in ['pending']:
             all_pending = False
-        if status in ['completed_with_errors', 'error'] or (isinstance(status, str) and status.startswith('error')):
+        if status in ['error'] or (isinstance(status, str) and status.startswith('error')):
             has_error = True
-        if status not in ['completed', 'completed_empty', 'skipped', 'completed_with_errors']:
-            final_status = None # Не все этапы завершены
-    if has_processing:
+        if status == 'completed_with_errors':
+            has_completed_with_errors = True
+        if status not in ['completed', 'completed_empty', 'skipped']:
+            all_completed = False
+    if has_error:
+        final_status = 'error'
+    elif has_processing:
         final_status = 'processing'
     elif all_pending:
         final_status = 'uploaded'
-    elif final_status is None:
-        final_status = 'processing' # На всякий случай, если что-то не учли
-    elif has_error:
+    elif has_completed_with_errors:
         final_status = 'completed_with_errors'
-    else:
+    elif all_completed:
         final_status = 'completed'
+    else:
+        final_status = 'processing'
     workflow_db_manager.update_book_workflow_status(book_id, final_status)
     print(f"[WorkflowProcessor] update_overall_workflow_book_status: book_id={book_id}, current_workflow_status={final_status}")
     log_all_workflow_statuses(book_id, context_msg="После update_overall_workflow_book_status")
@@ -681,28 +686,45 @@ def process_section_translate(book_id: str, section_id: int):
         print(f"[WorkflowProcessor] Результат translate_text: {translated_text[:100] if translated_text else 'None'}... (длина {len(translated_text) if translated_text is not None else 'None'})")
 
         # 6. Сохраняем результат и обновляем статус
-        if translated_text is not None and translated_text.strip() != "":
-            if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', translated_text):
-                status = 'completed'
-                error_message = None
-                print(f"[WorkflowProcessor] Перевод для секции ID {section_id} книги {book_id} завершён со статусом: {status}.")
+        section_text_length = len(section_text.strip()) if section_text else 0
+        if section_text_length < 100:
+            # Для очень коротких секций: если перевод не пустой — completed, если пустой — completed_empty
+            if translated_text is not None and translated_text.strip() != "":
+                if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', translated_text):
+                    status = 'completed'
+                    error_message = None
+                    print(f"[WorkflowProcessor] Короткая секция (<100 симв). Перевод принят как валидный. Статус: completed.")
+                else:
+                    status = 'error_caching'
+                    error_message = "Ошибка сохранения результата перевода в кеш."
+                    print(f"[WorkflowProcessor] ОШИБКА сохранения результата перевода в кеш для {book_id}/{section_id}: {error_message}")
             else:
-                status = 'error_caching'
-                error_message = "Ошибка сохранения результата перевода в кеш."
-                print(f"[WorkflowProcessor] ОШИБКА сохранения результата перевода в кеш для {book_id}/{section_id}: {error_message}")
-        elif translated_text == workflow_translation_module.EMPTY_RESPONSE_ERROR:
-            status = 'error'
-            error_message = "API вернул EMPTY_RESPONSE_ERROR."
-            print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR.")
-        elif translated_text == workflow_translation_module.CONTEXT_LIMIT_ERROR:
-            status = 'error'
-            error_message = "API вернул CONTEXT_LIMIT_ERROR."
-            print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR.")
+                status = 'completed_empty'
+                error_message = "Короткая секция (<100 симв). Перевод пустой."
+                workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
+                print(f"[WorkflowProcessor] Короткая секция (<100 симв). Перевод пустой. Статус: completed_empty.")
         else:
-            status = 'completed_empty'
-            error_message = "Model returned empty result (None or empty string)."
-            workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
-            print(f"[WorkflowProcessor] Warning: Model returned empty result. Сохраняем пустой перевод.")
+            if translated_text is not None and translated_text.strip() != "" and translated_text not in [translation_module.EMPTY_RESPONSE_ERROR, translation_module.CONTEXT_LIMIT_ERROR]:
+                if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', translated_text):
+                    status = 'completed'
+                    error_message = None
+                    print(f"[WorkflowProcessor] Перевод для секции ID {section_id} книги {book_id} завершён со статусом: {status}.")
+                else:
+                    status = 'error_caching'
+                    error_message = "Ошибка сохранения результата перевода в кеш."
+                    print(f"[WorkflowProcessor] ОШИБКА сохранения результата перевода в кеш для {book_id}/{section_id}: {error_message}")
+            else:
+                status = 'error'
+                if translated_text == translation_module.EMPTY_RESPONSE_ERROR:
+                    error_message = "API вернул EMPTY_RESPONSE_ERROR."
+                    print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR.")
+                elif translated_text == translation_module.CONTEXT_LIMIT_ERROR:
+                    error_message = "API вернул CONTEXT_LIMIT_ERROR."
+                    print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR.")
+                else:
+                    error_message = "Model returned empty result (None, empty string или неизвестная ошибка)."
+                    print(f"[WorkflowProcessor] Warning: Model returned empty result или неизвестную ошибку.")
+                workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
 
         workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, error_message=error_message)
 
