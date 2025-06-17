@@ -14,39 +14,44 @@ CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
 EMPTY_RESPONSE_ERROR = "__EMPTY_RESPONSE_AFTER_RETRIES__"
 
 # User-provided PROMPT_TEMPLATES - EXACTLY AS PROVIDED
-PROMPT_TEMPLATES = {
-    'translate': f"""You are a professional literary translator working with books. Your goal is to provide a high-quality, natural-sounding translation into {{target_language}}, following these principles:
+SYSTEM_PROMPT_TEMPLATES = {
+    'translate': {
+        'system': f"""You are a professional literary translator working with books. Your task is to provide a high-quality, natural-sounding translation into {{target_language}}.
 
+Your translation must follow these principles strictly:
+
+# CORE PRINCIPLES
 - Translate with full preservation of the author's tone, rhythm, and stylistic intent.
-- Maintain consistency in names, terminology, and gender assignments within the entire response.
-- Do not soften explicit, profane, or emotional language unless a cultural or contextual reason requires it.
+- Maintain absolute consistency in names, terminology, and gender assignments.
+- Do not soften or alter explicit, profane, or emotional language.
 - Translate standard abbreviations using well-established equivalents in {{target_language}}.
-- Leave fictional or uncommon abbreviations (e.g., invented acronyms or alien names) unchanged.
-- For neologisms, coined expressions, or wordplay, select a well-adapted and stylistically appropriate equivalent in {{target_language}} and use it consistently.
-- Keep all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) unchanged.
-- Preserve exact Markdown heading levels. Do not change #/##/### levels or convert plain text into headings.
-- Keep *italic* and **bold** Markdown formatting inline, exactly as in the original. Do not introduce line breaks instead of or around markdowned text.
-- Do not add any titles, headers, or metadata (e.g., "### Literary translation", "Translation:", etc.) that are not present in the source text. Start directly with the translation.
+- Leave fictional or uncommon abbreviations (e.g., invented acronyms) unchanged.
+- For neologisms, coined expressions, or wordplay, select a stylistically appropriate equivalent in {{target_language}} and use it consistently.
 
+# FORMATTING AND MARKDOWN (STRICT)
+- Preserve all Markdown elements like headings (#, ##), lists (-, *), bold (**), italic (*), code (`), and links ([text](url)) exactly as in the original.
+- Do not change heading levels or convert plain text into headings.
+- Keep *italic* and **bold** Markdown formatting inline, without adding line breaks.
+
+# FOOTNOTES
+- If a clarification for the reader is essential (e.g., for cultural references, puns, or untranslatable elements), add a translator's footnote.
+- Use superscript numbers (¹,²,³) immediately after the relevant word or phrase.
+- At the very end of your response, add a separator (`---`) followed by the footnotes.
+- List the footnotes in order with brief, clear explanations. Use footnotes only when truly necessary.
+
+# LANGUAGE-SPECIFIC RULES
 {{russian_dialogue_rule}}
 
-If clarification is needed for the reader (such as cultural references, wordplay, or untranslatable elements), add a translator's footnote:
-- Use superscript numbers (¹,²,³) directly after the relevant word/phrase. If superscript is unavailable, use square brackets ([1], [2], [3]).
-- Add a separator (`---`) and a heading (`{{translator_notes_heading}}`) at the end.
-- List footnotes in order with clear, brief explanations.
-
-Use footnotes only when truly necessary.
-
+# GENERAL GUIDELINES
 {{prompt_ext_section}}
 {{translation_guidelines_section}}
-{{previous_context_section}}
 
-Text to Process:
-{{text}}
-
-Result:""",
-
-    'summarize': f"""You are a professional summarization engine.
+# OUTPUT REQUIREMENTS
+- Your response must contain ONLY the translation and, if necessary, the footnotes section.
+- DO NOT add any titles, headers, metadata, or any other introductory text (e.g., "Translation:", "Результат:") that is not part of the translation itself. Start directly with the translated text."""
+    },
+    'summarize': {
+        'system': f"""You are a professional summarization engine.
 
 Your goal is to produce a clear and concise summary of the provided text in its original language, capturing the essential points and tone.
 
@@ -58,14 +63,10 @@ Focus especially on:
 
 Do not include introduction, meta-comments, or conclusions outside the summary itself.
 
-{{prompt_ext_section}}
-
-Text to Summarize:
-{{text}}
-
-Summary:""",
-
-    'analyze': f"""You are a literary analyst and terminology specialist assisting professional translators.
+{{prompt_ext_section}}"""
+    },
+    'analyze': {
+        'system': f"""You are a literary analyst and terminology specialist assisting professional translators.
 
 Your task is to analyze the provided text and extract:
 - A glossary of key terms with accurate and consistent translations into {{target_language}}
@@ -136,13 +137,34 @@ Do not suggest specific translations. Focus on highlighting areas that require a
 
 ---END_ADAPTATION_OVERVIEW---
 
-{{prompt_ext_section}}
+{{prompt_ext_section}}"""
+    }
+}
 
-Text to Analyze:
+USER_PROMPT_TEMPLATES = {
+    'translate': {
+        'user': f"""Here is the previous context for this segment of text:
+{{previous_context_section}}
+
+---
+
+Now, translate the following text. Remember all rules. Your response must start directly with the translation.
+
+Text to Process:
+{{text}}"""
+    },
+    'summarize': {
+        'user': f"""Text to Summarize:
 {{text}}
 
-Final Answer:
-"""
+Summary:"""
+    },
+    'analyze': {
+        'user': f"""Text to Analyze:
+{{text}}
+
+Final Answer:"""
+    }
 }
 
 # --- НОВЫЙ КЛАСС WorkflowTranslator ---
@@ -293,11 +315,6 @@ class WorkflowTranslator:
         previous_context: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         messages = []
-        system_instruction = self.get_system_instruction(operation_type, target_language)
-        if system_instruction:
-            messages.append({"role": "system", "content": system_instruction})
-
-        user_content: str = "" # Initialize user_content to an empty string
 
         # Очищаем текст перед использованием
         cleaned_text = self._clean_text_for_api(text_to_process)
@@ -312,28 +329,38 @@ class WorkflowTranslator:
         }
 
         if operation_type == 'translate':
-            formatted_vars['russian_dialogue_rule'] = "For dialogue in Russian, use appropriate punctuation for direct speech (e.g., em dash for conversational breaks)." if target_language.lower() == "russian" else ""
-            formatted_vars['translator_notes_heading'] = "Примечания переводчика"
+            # Языкозависимые правила
+            if target_language.lower() == "russian":
+                formatted_vars['russian_dialogue_rule'] = "For dialogue in Russian, use appropriate punctuation for direct speech (e.g., em dash for conversational breaks)."
+            else:
+                formatted_vars['russian_dialogue_rule'] = ""
 
-            # Handle translation_guidelines_section for glossary within translate
             formatted_vars['translation_guidelines_section'] = f"You MUST use the following glossary for ALL listed terms and names:\n\n{dict_data}" if dict_data else ''
-            
-            # Handle previous_context_section for translate
             formatted_vars['previous_context_section'] = f"Previous context (for continuity):\n{cleaned_previous_context}" if cleaned_previous_context else ""
 
-            user_content = PROMPT_TEMPLATES['translate'].format(**formatted_vars)
+            system_content = SYSTEM_PROMPT_TEMPLATES['translate']['system'].format(**formatted_vars)
+            user_content = USER_PROMPT_TEMPLATES['translate']['user'].format(**formatted_vars)
+            
+            messages.append({"role": "system", "content": system_content})
+            messages.append({"role": "user", "content": user_content})
             
         elif operation_type == 'summarize':
-            # ИЗМЕНЕНО: Используем общий шаблон PROMPT_TEMPLATES['summarize'] и форматируем его
-            user_content = PROMPT_TEMPLATES['summarize'].format(**formatted_vars)
+            system_content = SYSTEM_PROMPT_TEMPLATES['summarize']['system'].format(**formatted_vars)
+            user_content = USER_PROMPT_TEMPLATES['summarize']['user'].format(**formatted_vars)
+            
+            messages.append({"role": "system", "content": system_content})
+            messages.append({"role": "user", "content": user_content})
             
         elif operation_type == 'analyze':
-            user_content = PROMPT_TEMPLATES['analyze'].format(**formatted_vars)
+            system_content = SYSTEM_PROMPT_TEMPLATES['analyze']['system'].format(**formatted_vars)
+            user_content = USER_PROMPT_TEMPLATES['analyze']['user'].format(**formatted_vars)
+            
+            messages.append({"role": "system", "content": system_content})
+            messages.append({"role": "user", "content": user_content})
             
         else:
             raise ValueError(f"Unknown operation type: {operation_type}")
 
-        messages.append({"role": "user", "content": user_content})
         return messages
 
     def _call_model_api(
