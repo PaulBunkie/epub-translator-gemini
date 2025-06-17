@@ -14,7 +14,7 @@ NEWS_API_URL = 'https://newsapi.org/v2/everything'
 GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "gemini-2.5-flash-preview-05-20")
 REQUEST_TIMEOUT_SECONDS = 20
 NEWS_FETCH_DAYS_AGO = 3
-LOCATION_CACHE_TTL_SECONDS = 3600
+LOCATION_CACHE_TTL_SECONDS = 4000
 
 _gemini_model_instance = None
 _is_gemini_api_configured = False

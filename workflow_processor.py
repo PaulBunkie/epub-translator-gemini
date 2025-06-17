@@ -34,7 +34,7 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'meta-llama/llama-4-scout:free'
+SUMMARIZATION_MODEL = 'google/gemini-2.0-flash-exp:free'
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
@@ -46,7 +46,7 @@ DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after re
 MAX_RETRIES = 2 # Number of additional retries for model calls
 
 # --- Хардкодим модель для перевода, как для summarize/analyze ---
-TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free' #'deepseek/deepseek-r1-0528:free' #'meta-llama/llama-4-maverick:free'
+TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free' #'meta-llama/llama-4-maverick:free'
 
 def process_section_summarization(book_id: str, section_id: int):
     """
@@ -636,16 +636,7 @@ def process_section_translate(book_id: str, section_id: int):
         # 3. Загружаем глоссарий и рекомендации из анализа
         # (должны быть сохранены после этапа анализа)
         analysis_data = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'analyze')
-        dict_data = None
-        if analysis_data:
-            try:
-                # analysis_data может быть строкой с двумя секциями, парсим Markdown или JSON если нужно
-                # Здесь предполагается, что analysis_data уже в нужном формате (dict или строка)
-                # Если нужно — добавить парсер Markdown->dict
-                import json
-                dict_data = json.loads(analysis_data) if analysis_data.strip().startswith('{') else None
-            except Exception:
-                dict_data = None  # Если не парсится, передаем None
+        dict_data = {'glossary_data': analysis_data} if analysis_data else None
         # 4. Получаем язык и модель
         target_language = book_info.get('target_language', 'russian')
         model_name = TRANSLATION_MODEL  # <-- теперь всегда используем хардкод

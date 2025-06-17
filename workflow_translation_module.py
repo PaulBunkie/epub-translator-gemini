@@ -69,9 +69,10 @@ Summary:""",
 
 Your task is to analyze the provided text and extract:
 - A glossary of key terms with accurate and consistent translations into {{target_language}}
+- A list of potential translation difficulties and their suggested solutions
 - A short cultural and stylistic adaptation guide
 
-Your response must include **two sections**, marked as follows:
+Your response must include **three sections**, marked as follows:
 
 ---START_GLOSSARY_TABLE---
 
@@ -83,17 +84,19 @@ Format as a valid Markdown table:
 
 Definitions:
 - **Term**: As written in the source text.
-- **Type**: Define the type of the term (Character, Title, Location, Organization, Abbreviation, Neologism, Cultural Term, Technology, etc.).
-- **Gender**:
-  For character names in languages with grammatical gender and no natural support for non-binary constructions (e.g., Russian):
-  If a character's gender is not explicitly stated, you must assign a binary gender (m or f) for grammatical purposes. Follow these steps:
-    First, look for clear contextual indicators: perceived gender of names, titles, pronoun use, relational roles (e.g., "brother," "mother"), or descriptive traits.
-    If no reliable indicators exist, default to masculine (m) to preserve grammatical consistency and avoid disrupting the flow of the target language.
-  Do not use "—" (unspecified) unless the character is explicitly presented as non-gendered, such as an AI, animal, or abstract entity. This rule applies only to fictional characters or people — not to objects, organizations, or abstract nouns.
+- **Type**: Define the type of the term (Character, Title, Location, Organization, Abbreviation, Neologism, Cultural Term, Technology, etc.).  
+  Include all unknown Latin-script abbreviations that lack clear, widely recognized meanings. Do not attempt to translate them — mark them `[keep original]`.
+- **Gender**:  
+  For character names in languages with grammatical gender and no natural support for non-binary constructions (e.g., Russian):  
+  If a character's gender is not explicitly stated, you must assign a binary gender (m or f) for grammatical purposes. Follow these steps:  
+  First, look for clear contextual indicators: perceived gender of names, titles, pronoun use, relational roles (e.g., "brother," "mother"), or descriptive traits.  
+  If no reliable indicators exist, default to masculine (m) to preserve grammatical consistency and avoid disrupting the flow of the target language.  
+  Do not use "—" (unspecified) unless the character is explicitly presented as non-gendered, such as an AI, animal, or abstract entity.  
+  This rule applies only to fictional characters or people — not to objects, organizations, or abstract nouns.
 - **Translation**: Precise term in {{target_language}}, or `[keep original]` if it should remain unchanged.
 - **Comment**: Use only when clarification is needed (e.g. ambiguity, invented term, pun, or stylistic choice).
 
-- **You MUST include all named characters from the text.** Also, include all named locations and organizations. Additionally, include other terms that are contextually important or potentially ambiguous.
+- **You MUST include all named characters from the text.** Also include all named locations and organizations. Additionally, include other terms that are contextually important or potentially ambiguous.
 
 Do not include:
 - Generic words or everyday vocabulary
@@ -102,9 +105,23 @@ Do not include:
 
 ---END_GLOSSARY_TABLE---
 
+---START_TRANSLATION_DIFFICULTIES_LIST---
+
+**SECTION 2: TRANSLATION DIFFICULTIES**
+
+Carefully analyze the provided text to identify only those terms, names, neologisms, or phrases that are likely to pose challenges in translation — particularly those whose meaning depends on subtle context, internal references, or future reoccurrences.
+Focus on:
+Invented terms or compound words that may appear separately in later chapters but form part of a larger conceptual system (e.g., fictional technologies, organizations, or cultural concepts).
+Words whose meaning, tone, or function is context-dependent and not immediately obvious from a single sentence or paragraph.
+Names or terms that resemble real-world concepts but are used differently in the fictional universe.
+Omit straightforward words or expressions that a capable translation model can handle reliably without additional guidance. This glossary is not exhaustive — it is strategic: it should protect against misinterpretation, inconsistency, or loss of nuance across chapters.
+For each entry, include the original term, a suggested translation, and a brief comment explaining the context or reasoning behind the choice.
+
+---END_TRANSLATION_DIFFICULTIES_LIST---  
+
 ---START_ADAPTATION_OVERVIEW---
 
-**SECTION 2: ADAPTATION OVERVIEW**
+**SECTION 3: ADAPTATION OVERVIEW**
 
 Write a concise guide to help a human translator handle this text accurately and naturally in {{target_language}}.
 
@@ -168,13 +185,17 @@ class WorkflowTranslator:
         elif operation_type == 'analyze':
             return (
                 f"You are a literary analyst and terminology specialist. Your task is to analyze the provided text "
-                f"and produce two outputs:\n"
-                "- A glossary table with key terms and their translations into {target_language}\n"
-                "- An overview of stylistic and cultural adaptation considerations for professional translators in {target_language}\n"
-                "Maintain precision, avoid speculation, and base all output strictly on the source text.\n\n"
-                "Your response must include exactly two sections using the following markers:\n"
+                f"and produce three outputs:\n"
+                "1. A glossary of source-language terms and their carefully considered {target_language} equivalents, reflecting contextual meaning, tone, and stylistic appropriateness to ensure faithful and coherent translation.\n"
+                "Maintain precision, and base all output strictly on the source text.\n\n"                                
+                "2. A list of potential translation difficulties and their suggested solutions\n"
+                "Pay special attention to neologisms, invented terms, and unusual compound words. These elements often carry stylistic or worldbuilding significance. Do not ignore or omit them. Instead, carefully interpret their likely meaning from context and suggest a thoughtful, stylistically appropriate translation in the target language. When possible, preserve their creative flavor or function. Be consistent with your choice within the response.\n\n"
+                "3. An overview of stylistic and cultural adaptation considerations for professional translators\n\n"                
+                "Your response must include exactly three sections using the following markers:\n"
                 "---START_GLOSSARY_TABLE---\n"
                 "---END_GLOSSARY_TABLE---\n\n"
+                "---START_TRANSLATION_DIFFICULTIES_LIST---\n"
+                "---END_TRANSLATION_DIFFICULTIES_LIST---\n\n"                
                 "---START_ADAPTATION_OVERVIEW---\n"
                 "---END_ADAPTATION_OVERVIEW---"
             )
@@ -295,13 +316,7 @@ class WorkflowTranslator:
             formatted_vars['translator_notes_heading'] = "Примечания переводчика"
 
             # Handle translation_guidelines_section for glossary within translate
-            translation_guidelines_section = ""
-            if dict_data and 'glossary_data' in dict_data and dict_data['glossary_data']:
-                glossary_table = self._convert_glossary_to_markdown_table(dict_data['glossary_data'])
-                translation_guidelines_section = f"---START_GLOSSARY_FOR_TRANSLATION---\n" \
-                                                 f"Use the provided glossary for consistency:\n\n{glossary_table}\n" \
-                                                 f"---END_GLOSSARY_FOR_TRANSLATION---"
-            formatted_vars['translation_guidelines_section'] = translation_guidelines_section
+            formatted_vars['translation_guidelines_section'] = f"You MUST use the following glossary for ALL listed terms and names:\n\n{dict_data}" if dict_data else ''
             
             # Handle previous_context_section for translate
             formatted_vars['previous_context_section'] = f"Previous context (for continuity):\n{cleaned_previous_context}" if cleaned_previous_context else ""
@@ -327,7 +342,7 @@ class WorkflowTranslator:
         messages: List[Dict[str, Any]],
         operation_type: str = 'translate',
         chunk_text: str = None,
-        temperature: float = 0.3,
+        #temperature: float = 0.3,
         max_retries: int = 3, # Количество попыток
         retry_delay_seconds: int = 5 # Начальная задержка
     ) -> str | None:
@@ -387,10 +402,10 @@ class WorkflowTranslator:
             data = {
                 "model": model_name,
                 "messages": messages,
-                "temperature": temperature,
-                "reasoning": {
-                    "exclude": operation_type != 'analyze'
-                },
+                #"temperature": temperature#,
+                #"reasoning": {
+                #    "exclude": operation_type != 'analyze'
+                #},
                 "max_tokens": final_output_token_limit
             }
 

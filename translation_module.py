@@ -532,7 +532,7 @@ class OpenRouterTranslator(BaseTranslator):
 
                          # --- УБРАНА ЭВРИСТИКА сравнения доли чанка во всём промпте. Оставляем только прямое сравнение длины исходного текста и перевода, если нужно.
                          is_truncated = False
-                         if 'usage' in response_json and prompt_t > 0:
+                         if 'usage' in response_json and prompt_t > 0 and operation_type == 'translate':
                              # Честная проверка: сравниваем длину перевода и исходного текста (оба только текст)
                              input_char_len = len(text)
                              output_content = ""
