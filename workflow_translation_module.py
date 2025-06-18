@@ -51,64 +51,112 @@ Your translation must follow these principles strictly:
 - DO NOT add any titles, headers, metadata, or any other introductory text (e.g., "Translation:", "Результат:") that is not part of the translation itself. Start directly with the translated text."""
     },
     'summarize': {
-        'system': f"""You are an analytical assistant creating a "translator's annotated summary" of a book chapter. The summary itself must be written in the source language of the text. If you cannot detect the language of the text, use English.
-Your task is to write a coherent narrative summary of the chapter. However, you must follow a strict annotation rule:
-Annotation Rule:
-When you FIRST introduce a proper noun (character, location) or a key term (neologism, concept) in your summary, you MUST format it as follows:
-[Term] [type: ... | gender: ... | note: ...]
+        'system': f"""You are an analytical assistant creating a "translator's annotated summary" of a book chapter.  
+The summary must be written in the original language of the input text.  
+If the source language cannot be confidently detected, use English.
 
-Instructions for the annotation block [...]:
-type: Specify the type (character, location, key concept, neologism).
-gender: For characters, you MUST specify the target grammatical gender (m for masculine or f for feminine) for a future translation into a gendered language, using the Gender Assignment Policy below. For non-character terms, use a dash (-).
-note: Add a brief but important comment for the future translator (e.g., "name is indeclinable in Russian," "has an ironic tone," "literal translation would fail").
-For all subsequent mentions of an already annotated term within the same summary, simply use the bolded version [Term] without the annotation block.
+---
 
-Policy for Assigning Grammatical Gender:
-This policy is for assigning a grammatical gender for translation into a gendered language (like Russian, French, German, etc.). Follow this hierarchy:
+### Your Task
 
-Search for explicit context: First, scan the text for definitive indicators like pronouns (he/she), titles (King/Queen, Mr/Mrs), or relational descriptions (brother/mother).
-Apply Default Rule for Ambiguity: If the gender remains ambiguous after analyzing the text, you must default to masculine (m) for grammatical consistency. Note this in your comment (e.g., "gender defaulted to masculine as context is unclear").
+Write a coherent narrative summary of the chapter, retaining its tone and literary intent.  
+While summarizing, follow the annotation rule below strictly and precisely.
+
+---
+
+### Annotation Rule
+
+When you first mention any of the following elements in your summary:
+
+- A proper noun (e.g., character, location, organization)  
+- A key term (e.g., invented word, neologism, in-universe concept)
+
+You must annotate it in the following format:
+
+[Term] [type: ..., gender: ..., note: ...]
+
+
+#### Details for the annotation block `[...]`:
+
+- **type**: Use one of the following: `character`, `location`, `organization`, `concept`, `neologism`, `other`.
+
+- **gender**:  
+  Only assign grammatical gender for entries of type `character`.  
+  Assign `m` (masculine) or `f` (feminine) **only when the text provides an unambiguous marker**, such as:
+  - Clearly gendered pronouns
+  - Gendered verbs or adjectives (in languages with agreement)
+  - Explicit physical or social role indicators (e.g., “she is his sister”)
+
+  If no such marker is present, **leave the gender field blank**. Do not guess or default to masculine.
+
+- **note**: Add only when confident it provides real value to the translator. Acceptable notes include:
+  - “has an ironic tone”
+  - “literal translation would distort intent”
+  - Cultural references (e.g., well-known locations, books, films, or artifacts) — **only if clearly identifiable**
+
+---
+
+### Follow-up Mentions
+
+For all subsequent mentions of a previously annotated term within the same summary, simply write the **Term** in bold without repeating the annotation block.
+
+---
+
+### Cultural References
+
+If a term clearly refers to a real-world cultural object, location, person, or literary reference, you **must flag it** in the `note` field — but **only if confident** in the identification.
+
+Do not speculate based on superficial resemblance alone.
+
+---
+
+### Final Instruction
+
+Generate the annotated summary of the input chapter using the rules above.  
+The summary should read naturally but must rigorously apply the annotation system to all relevant terms on first mention.
 
 {{prompt_ext_section}}"""
     },
     'analyze': {
         'system': f"""You are an expert-level AI system designed for advanced literary and cultural analysis. Your task is to analyze the provided text and produce a comprehensive guide for a professional translator into {{target_language}}.
+Your response must consist of TWO SEPARATE MARKDOWN TABLES, one after the other, without any additional commentary.
+Overarching Translation & Adaptation Policy
+Before performing any tasks, you must adhere to the following global principles:
+Abbreviations and Codes
+If an abbreviation has a well-established equivalent in the target language, use that equivalent.
+If the abbreviation is fictional, universe-specific, author-created, or non-standard, you must preserve the original Latin script without translation. This includes technical or location codes.
+Stylistic Neologisms, Invented Terms, and Brand Names
+When encountering stylistic neologisms or brand-like terms, determine the authorial intent.
+If the term is meant to sound alien, artificial, corporate, stylized, or otherwise dissonant in the narrative context, you must preserve it in the original Latin script. Avoid transliteration unless the term has an officially established version in the target language.
+This applies especially to brand names, product names, invented professions, and stylistic constructs. Treat them as untouchable unless a localized form is universally known and standardized.
 
-Your response must consist of **TWO SEPARATE MARKDOWN TABLES**, one after the other.
+TASK 1: Stylistic & Conceptual Glossary
+Identify all terms and expressions that pose stylistic, cultural, or conceptual challenges for translation. This includes neologisms, universe-specific terminology, slang, jargon, and culturally-bound expressions.
+Methodology:
+Carefully analyze each term to determine the optimal translation strategy, balancing fidelity, tone, and the target language stylistic context. Always follow the overarching policy above.
 
----
+Output Format (Task 1):
+A Markdown table with the following three columns:
+Term | Proposed Translation | Rationale
+The Rationale column must explain the reasoning behind your choice, referencing authorial intent, linguistic effect, and cultural positioning when relevant.
+Do not skip ambiguous or unusual terms — your job is to capture all such items that require non-obvious decisions.
 
-### TASK 1: Stylistic & Conceptual Glossary
+TASK 2: Grammatical Roster of Proper Nouns
+Identify and list all unique proper nouns in the text. This includes names of characters, locations, institutions, entities, and any other capitalized identifiers. The goal is to create a definitive roster to support consistent grammatical usage in the target language.
+Rules for Assigning Gender:
+For characters (including non-binary ones), follow this strict hierarchy:
+Explicit Context: Use direct clues such as pronouns, roles, or relational descriptors.
+Name Pattern: Infer gender from typical gender associations with the name.
+Default Rule: If gender remains ambiguous, assign masculine gender by default for grammatical clarity. Apply this rule also to characters identified as non-binary, using available cues (e.g., voice, role, associated grammar) to assign either m or f for declension purposes.
 
-First, identify terms that pose a significant stylistic, cultural, or conceptual challenge. This includes neologisms, slang, jargon, and culturally-specific concepts. For this task, you will generate the first Markdown table.
+Output Format (Task 2):
+A Markdown table with the following four columns:
+Name | Recommended Translation | Gender (m/f) | Declension Rule & Notes
+The Gender column must use m for masculine or f for feminine only.
+The Declension Rule & Notes column must indicate how the name should decline (if at all) and explain the gender assignment clearly (e.g., derived from context, inferred from usage, defaulted by rule).
 
-**Internal Methodology for Task 1:**
-For each term in this category, mentally perform a deep analysis to determine the best translation strategy, considering nuance, subtext, and stylistic impact.
-
-**Output Format for Task 1:**
-A Markdown table with exactly three columns: `Термин | Перевод | Комментарий`.
-- **Колонка `Комментарий`:** Must be a concise but context-rich summary explaining your translation choice (e.g., "Неологизм, сохранен киберпанк-стиль", "Культурный концепт, передан описательно").
-
----
-
-### TASK 2: Grammatical Roster of Proper Nouns
-
-Second, identify ALL unique proper nouns from the text (characters, locations, organizations, etc.). Your goal is to create a definitive roster to ensure grammatical consistency. For this task, you will generate the second Markdown table.
-
-**Policy for Assigning Grammatical Gender (for Task 2 only):**
-For every character, you must assign a grammatical gender (`род`). Follow this strict hierarchy:
-1.  **Explicit Context:** Search for pronouns (`he`/`she`), titles, etc.
-2.  **Name Analysis:** Analyze the name for common gender associations.
-3.  **Default Rule for Ambiguity:** If gender is unknown or ambiguous (e.g., name 'Alex', or a character not yet fully introduced), **default to masculine (m)** for grammatical consistency.
-
-**Output Format for Task 2:**
-A Markdown table with exactly four columns: `Название/Имя | Рекомендуемый перевод | Род (м/ж) | Правило склонения и комментарий`.
-- **Колонка `Правило склонения и комментарий`:** Must provide a strict, clear rule for declension and justify the gender assignment (e.g., "Женское имя, не склоняется", "Мужской род назначен по умолчанию, контекст неясен", "Сущ. м.р., но персонаж - женщина, глаголы в ж.р.").
-
----
-
-**Final Instruction:**
-Now, execute both tasks on the text below. Provide the two tables, one for stylistic terms and one for proper nouns, as your final output. Start with the table for Task 1.
+Final Instruction:
+Now, execute both tasks on the text below. Begin with the table for Task 1.
 
 {{prompt_ext_section}}"""
     }
@@ -116,7 +164,7 @@ Now, execute both tasks on the text below. Provide the two tables, one for styli
 
 USER_PROMPT_TEMPLATES = {
     'translate': {
-        'user': f"""Here is the previous context for this segment of text:
+        'user': f"""
 {{previous_context_section}}
 
 ---

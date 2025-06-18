@@ -361,13 +361,17 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
             workflow_db_manager.update_book_stage_status_workflow(book_id, stage, 'pending', model_name=None, error_message=None)
             import workflow_cache_manager
             workflow_cache_manager.delete_book_stage_result(book_id, stage)
+            # Явная проверка статуса после сброса
+            status = workflow_db_manager.get_book_workflow(book_id)['book_stage_statuses'][stage]['status']
+            print(f"[DEBUG] Статус этапа {stage} после сброса: {status}")
         # Сброс per-section этапа translate
         sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
         for section in sections:
             section_id = section['section_id']
             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'pending', model_name=None, error_message=None)
             workflow_cache_manager.delete_section_stage_result(book_id, section_id, 'translate')
-    # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+        # --- ОБНОВЛЯЮ book_info после сброса ---
+        book_info = workflow_db_manager.get_book_workflow(book_id)
 
     stages = workflow_db_manager.get_all_stages_ordered_workflow()
     print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]}")

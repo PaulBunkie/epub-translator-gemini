@@ -23,12 +23,17 @@ else:
 def get_workflow_db():
     """Устанавливает соединение с новой базой данных и возвращает его."""
     # Используем другое имя атрибута в g, чтобы не конфликтовать со старой БД
-    db = getattr(g, '_workflow_database', None)
+    try:
+        db = getattr(g, '_workflow_database', None)
+    except Exception as e:
+        print(f"[WorkflowDB] Хуяк!: {e}")
+        traceback.print_exc()
+        return None
+
     if db is None:
         db = g._workflow_database = sqlite3.connect(DATABASE_FILE)
         db.row_factory = sqlite3.Row # Позволяет обращаться к колонкам по имени
         db.execute("PRAGMA foreign_keys = ON;") # Включаем поддержку внешних ключей
-        print(f"[WorkflowDB] Подключено к базе данных: {DATABASE_FILE}")
     return db
 
 def close_workflow_db(e=None):
@@ -36,7 +41,6 @@ def close_workflow_db(e=None):
     db = getattr(g, '_workflow_database', None)
     if db is not None:
         db.close()
-        # print(f"[WorkflowDB] Соединение с БД {DATABASE_FILE} закрыто.") # Слишком много логов при поллинге
 
 # В app.py нужно будет добавить привязку close_workflow_db к teardown_appcontext
 

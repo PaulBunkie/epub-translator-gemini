@@ -60,6 +60,9 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SECRET_KEY'] = os.urandom(24) # Для сессий и flash-сообщений
 
+# --- Регистрация закрытия соединения с workflow БД ---
+app.teardown_appcontext(workflow_db_manager.close_workflow_db)
+
 # --- Инициализируем БД при старте приложения ---
 with app.app_context():
      init_db()
@@ -1340,14 +1343,16 @@ def workflow_delete_book_request(book_id):
 def workflow_start_existing_book(book_id):
     current_app.logger.info(f"Запрос на запуск рабочего процесса для существующей книги: {book_id}")
     try:
-        # Получаем start_from_stage из JSON тела запроса
-        # Если не указан, будет None
         start_from_stage = request.json.get('start_from_stage')
         current_app.logger.info(f"Получен start_from_stage: {start_from_stage} для книги {book_id}")
 
-        # Запускаем рабочий процесс в отдельном потоке, передавая экземпляр app
-        # и новый параметр start_from_stage
-        executor.submit(workflow_processor.start_book_workflow, book_id, current_app._get_current_object(), start_from_stage)
+        # --- Гарантируем app context через глобальный app ---
+        from app import app as global_app
+        def run_workflow_in_context(book_id, start_from_stage):
+            with global_app.app_context():
+                workflow_processor.start_book_workflow(book_id, global_app, start_from_stage)
+
+        executor.submit(run_workflow_in_context, book_id, start_from_stage)
         
         return jsonify({'status': 'success', 'message': 'Workflow started in background'}), 200
     except Exception as e:
