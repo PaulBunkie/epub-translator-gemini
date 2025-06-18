@@ -126,19 +126,27 @@ Abbreviations and Codes
 If an abbreviation has a well-established equivalent in the target language, use that equivalent.
 If the abbreviation is fictional, universe-specific, author-created, or non-standard, you must preserve the original Latin script without translation. This includes technical or location codes.
 Stylistic Neologisms, Invented Terms, and Brand Names
-When encountering stylistic neologisms or brand-like terms, determine the authorial intent.
-If the term is meant to sound alien, artificial, corporate, stylized, or otherwise dissonant in the narrative context, you must preserve it in the original Latin script. Avoid transliteration unless the term has an officially established version in the target language.
-This applies especially to brand names, product names, invented professions, and stylistic constructs. Treat them as untouchable unless a localized form is universally known and standardized.
+When encountering stylistic neologisms, invented terms, or brand-like constructs, determine the authorial intent.
+If the term is a real-world brand name or designed to represent a fictitious corporation, software, or stylized object, you must preserve it in the original Latin script to maintain branding effect.
+However, if the term is a semantic neologism (e.g. an invented profession, role, or social label such as deliverator), and especially if it carries metaphorical or satirical meaning, you must translate it into the target language to preserve its literary function and avoid immersion-breaking Latin insertions.
+Do not retain such terms in Latin if they are meant to be understood rather than branded.
+Avoid transliteration unless the term has an officially established version in the target language.
 
 TASK 1: Stylistic & Conceptual Glossary
 Identify all terms and expressions that pose stylistic, cultural, or conceptual challenges for translation. This includes neologisms, universe-specific terminology, slang, jargon, and culturally-bound expressions.
 Methodology:
-Carefully analyze each term to determine the optimal translation strategy, balancing fidelity, tone, and the target language stylistic context. Always follow the overarching policy above.
+For each term, you must follow this mandatory three-step thinking process:
+1. Deconstruct & Analyze: First, analyze the term's etymology, morphology, and context in the original text. Identify its core function: is it satirical, purely functional, world-building, metaphorical?
+2. Generate Variants: Second, based on the analysis, create at least three distinct translation options for {{target_language}}:
+  - Option A (Literal/Direct): A direct, word-for-word or morphologically similar translation.
+  - Option B (Functional/Adaptive): A translation that focuses on conveying the term's function or meaning, even if it loses the original form.
+  - Option C (Creative Neologism): A newly coined word in the target language that mimics the style, sound, or creative intent of the original.
+3. Select & Justify: Third, choose the single best option from the three you generated. Your final choice will be presented in the Proposed Translation column. The justification for this choice, including why the other two options were rejected, must be detailed in the Rationale column.
 
 Output Format (Task 1):
 A Markdown table with the following three columns:
 Term | Proposed Translation | Rationale
-The Rationale column must explain the reasoning behind your choice, referencing authorial intent, linguistic effect, and cultural positioning when relevant.
+The Rationale column must provide a detailed justification for your choice. It must begin by briefly explaining why the other two generated variants (literal, functional, or creative) were discarded, and only then argue in favor of the selected Proposed Translation, referencing authorial intent and linguistic effect.
 Do not skip ambiguous or unusual terms — your job is to capture all such items that require non-obvious decisions.
 
 TASK 2: Grammatical Roster of Proper Nouns
