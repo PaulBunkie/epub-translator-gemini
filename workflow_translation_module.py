@@ -51,91 +51,64 @@ Your translation must follow these principles strictly:
 - DO NOT add any titles, headers, metadata, or any other introductory text (e.g., "Translation:", "Результат:") that is not part of the translation itself. Start directly with the translated text."""
     },
     'summarize': {
-        'system': f"""You are a professional summarization engine.
+        'system': f"""You are an analytical assistant creating a "translator's annotated summary" of a book chapter. The summary itself must be written in the source language of the text. If you cannot detect the language of the text, use English.
+Your task is to write a coherent narrative summary of the chapter. However, you must follow a strict annotation rule:
+Annotation Rule:
+When you FIRST introduce a proper noun (character, location) or a key term (neologism, concept) in your summary, you MUST format it as follows:
+[Term] [type: ... | gender: ... | note: ...]
 
-Your goal is to produce a clear and concise summary of the provided text in its original language, capturing the essential points and tone.
+Instructions for the annotation block [...]:
+type: Specify the type (character, location, key concept, neologism).
+gender: For characters, you MUST specify the target grammatical gender (m for masculine or f for feminine) for a future translation into a gendered language, using the Gender Assignment Policy below. For non-character terms, use a dash (-).
+note: Add a brief but important comment for the future translator (e.g., "name is indeclinable in Russian," "has an ironic tone," "literal translation would fail").
+For all subsequent mentions of an already annotated term within the same summary, simply use the bolded version [Term] without the annotation block.
 
-Focus especially on:
-- Unique names (characters, locations, organizations)
-- Important events or turning points
-- Recurring terminology, neologisms, or invented concepts
-- Thematic or stylistic elements relevant to narrative comprehension
+Policy for Assigning Grammatical Gender:
+This policy is for assigning a grammatical gender for translation into a gendered language (like Russian, French, German, etc.). Follow this hierarchy:
 
-Do not include introduction, meta-comments, or conclusions outside the summary itself.
+Search for explicit context: First, scan the text for definitive indicators like pronouns (he/she), titles (King/Queen, Mr/Mrs), or relational descriptions (brother/mother).
+Apply Default Rule for Ambiguity: If the gender remains ambiguous after analyzing the text, you must default to masculine (m) for grammatical consistency. Note this in your comment (e.g., "gender defaulted to masculine as context is unclear").
 
 {{prompt_ext_section}}"""
     },
     'analyze': {
-        'system': f"""You are a literary analyst and terminology specialist assisting professional translators.
+        'system': f"""You are an expert-level AI system designed for advanced literary and cultural analysis. Your task is to analyze the provided text and produce a comprehensive guide for a professional translator into {{target_language}}.
 
-Your task is to analyze the provided text and extract:
-- A glossary of key terms with accurate and consistent translations into {{target_language}}
-- A list of potential translation difficulties and their suggested solutions
-- A short cultural and stylistic adaptation guide
+Your response must consist of **TWO SEPARATE MARKDOWN TABLES**, one after the other.
 
-Your response must include **three sections**, marked as follows:
+---
 
----START_GLOSSARY_TABLE---
+### TASK 1: Stylistic & Conceptual Glossary
 
-**SECTION 1: GLOSSARY TABLE**
+First, identify terms that pose a significant stylistic, cultural, or conceptual challenge. This includes neologisms, slang, jargon, and culturally-specific concepts. For this task, you will generate the first Markdown table.
 
-Format as a valid Markdown table:
+**Internal Methodology for Task 1:**
+For each term in this category, mentally perform a deep analysis to determine the best translation strategy, considering nuance, subtext, and stylistic impact.
 
-`Term | Type | Gender | Translation | Comment`
+**Output Format for Task 1:**
+A Markdown table with exactly three columns: `Термин | Перевод | Комментарий`.
+- **Колонка `Комментарий`:** Must be a concise but context-rich summary explaining your translation choice (e.g., "Неологизм, сохранен киберпанк-стиль", "Культурный концепт, передан описательно").
 
-Definitions:
-- **Term**: As written in the source text.
-- **Type**: Define the type of the term (Character, Title, Location, Organization, Abbreviation, Neologism, Cultural Term, Technology, etc.).  
-  Include all unknown Latin-script abbreviations that lack clear, widely recognized meanings. Do not attempt to translate them — mark them `[keep original]`.
-- **Gender**:  
-  For character names in languages with grammatical gender and no natural support for non-binary constructions (e.g., Russian):  
-  If a character's gender is not explicitly stated, you must assign a binary gender (m or f) for grammatical purposes. Follow these steps:  
-  First, look for clear contextual indicators: perceived gender of names, titles, pronoun use, relational roles (e.g., "brother," "mother"), or descriptive traits.  
-  If no reliable indicators exist, default to masculine (m) to preserve grammatical consistency and avoid disrupting the flow of the target language.  
-  Do not use "—" (unspecified) unless the character is explicitly presented as non-gendered, such as an AI, animal, or abstract entity.  
-  This rule applies only to fictional characters or people — not to objects, organizations, or abstract nouns.
-- **Translation**: Precise term in {{target_language}}, or `[keep original]` if it should remain unchanged.
-- **Comment**: Use only when clarification is needed (e.g. ambiguity, invented term, pun, or stylistic choice).
+---
 
-- **You MUST include all named characters from the text.** Also include all named locations and organizations. Additionally, include other terms that are contextually important or potentially ambiguous.
+### TASK 2: Grammatical Roster of Proper Nouns
 
-Do not include:
-- Generic words or everyday vocabulary
-- Common place names, unless they are ambiguous or recontextualized
-- Anything not present in the source text
+Second, identify ALL unique proper nouns from the text (characters, locations, organizations, etc.). Your goal is to create a definitive roster to ensure grammatical consistency. For this task, you will generate the second Markdown table.
 
----END_GLOSSARY_TABLE---
+**Policy for Assigning Grammatical Gender (for Task 2 only):**
+For every character, you must assign a grammatical gender (`род`). Follow this strict hierarchy:
+1.  **Explicit Context:** Search for pronouns (`he`/`she`), titles, etc.
+2.  **Name Analysis:** Analyze the name for common gender associations.
+3.  **Default Rule for Ambiguity:** If gender is unknown or ambiguous (e.g., name 'Alex', or a character not yet fully introduced), **default to masculine (m)** for grammatical consistency.
 
----START_TRANSLATION_DIFFICULTIES_LIST---
+**Output Format for Task 2:**
+A Markdown table with exactly four columns: `Название/Имя | Рекомендуемый перевод | Род (м/ж) | Правило склонения и комментарий`.
+- **Колонка `Правило склонения и комментарий`:** Must provide a strict, clear rule for declension and justify the gender assignment (e.g., "Женское имя, не склоняется", "Мужской род назначен по умолчанию, контекст неясен", "Сущ. м.р., но персонаж - женщина, глаголы в ж.р.").
 
-**SECTION 2: TRANSLATION DIFFICULTIES**
+---
 
-Carefully analyze the provided text to identify only those terms, names, neologisms, or phrases that are likely to pose challenges in translation — particularly those whose meaning depends on subtle context, internal references, or future reoccurrences.
-Focus on:
-Invented terms or compound words that may appear separately in later chapters but form part of a larger conceptual system (e.g., fictional technologies, organizations, or cultural concepts).
-Words whose meaning, tone, or function is context-dependent and not immediately obvious from a single sentence or paragraph.
-Names or terms that resemble real-world concepts but are used differently in the fictional universe.
-Omit straightforward words or expressions that a capable translation model can handle reliably without additional guidance. This glossary is not exhaustive — it is strategic: it should protect against misinterpretation, inconsistency, or loss of nuance across chapters.
-For each entry, include the original term, a suggested translation, and a brief comment explaining the context or reasoning behind the choice.
-
----END_TRANSLATION_DIFFICULTIES_LIST---  
-
----START_ADAPTATION_OVERVIEW---
-
-**SECTION 3: ADAPTATION OVERVIEW**
-
-Write a concise guide to help a human translator handle this text accurately and naturally in {{target_language}}.
-
-Include:
-- Narrative style and tone
-- Use of idioms, slang, dialects, or specialized jargon
-- Fictional or cultural references that may require adaptation
-- Unusual structures, non-standard grammar, or typographic elements
-- Any recurring challenges or stylistic features that must be preserved
-
-Do not suggest specific translations. Focus on highlighting areas that require attention, with reasoning.
-
----END_ADAPTATION_OVERVIEW---
+**Final Instruction:**
+Now, execute both tasks on the text below. Provide the two tables, one for stylistic terms and one for proper nouns, as your final output. Start with the table for Task 1.
 
 {{prompt_ext_section}}"""
     }
@@ -197,29 +170,11 @@ class WorkflowTranslator:
             return (
                 "You are a high-precision summarization engine. Your task is to produce a clear, concise summary "
                 "of the given text in its original language. "
-                "Focus on preserving essential information, including:\n"
-                "- Neologisms and coined terms\n"
-                "- Character names, locations, and organizations\n"
-                "- Key plot points and thematic elements\n"
-                "Avoid interpretation, commentary, or stylistic rewriting."
             )
 
         elif operation_type == 'analyze':
             return (
                 f"You are a literary analyst and terminology specialist. Your task is to analyze the provided text "
-                f"and produce three outputs:\n"
-                "1. A glossary of source-language terms and their carefully considered {target_language} equivalents, reflecting contextual meaning, tone, and stylistic appropriateness to ensure faithful and coherent translation.\n"
-                "Maintain precision, and base all output strictly on the source text.\n\n"                                
-                "2. A list of potential translation difficulties and their suggested solutions\n"
-                "Pay special attention to neologisms, invented terms, and unusual compound words. These elements often carry stylistic or worldbuilding significance. Do not ignore or omit them. Instead, carefully interpret their likely meaning from context and suggest a thoughtful, stylistically appropriate translation in the target language. When possible, preserve their creative flavor or function. Be consistent with your choice within the response.\n\n"
-                "3. An overview of stylistic and cultural adaptation considerations for professional translators\n\n"                
-                "Your response must include exactly three sections using the following markers:\n"
-                "---START_GLOSSARY_TABLE---\n"
-                "---END_GLOSSARY_TABLE---\n\n"
-                "---START_TRANSLATION_DIFFICULTIES_LIST---\n"
-                "---END_TRANSLATION_DIFFICULTIES_LIST---\n\n"                
-                "---START_ADAPTATION_OVERVIEW---\n"
-                "---END_ADAPTATION_OVERVIEW---"
             )
 
         else:

@@ -152,3 +152,23 @@ def load_book_stage_result(book_id, stage_name, file_extension='.txt'):
 # TODO: Implement load_book_stage_result
 
 # TODO: Возможно, добавить функцию для удаления кэша всей книги
+
+def delete_book_stage_result(book_id, stage_name):
+    """
+    Удаляет кэш только для одного этапа книги (например, analyze, translate, epub_creation).
+    """
+    stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
+    print(f"[WorkflowCache] Попытка удалить директорию кэша этапа: {stage_dir}")
+
+    if not os.path.exists(stage_dir):
+        print(f"[WorkflowCache] Директория кэша этапа не найдена, удаление не требуется: {stage_dir}")
+        return False # Директория не найдена, считаем успешным удалением
+
+    try:
+        shutil.rmtree(stage_dir)
+        print(f"[WorkflowCache] Директория кэша этапа удалена успешно: {stage_dir}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowCache] ОШИБКА при удалении директории кэша этапа {stage_dir}: {e}")
+        traceback.print_exc()
+        return False

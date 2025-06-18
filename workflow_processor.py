@@ -34,7 +34,7 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'google/gemini-2.0-flash-exp:free'
+SUMMARIZATION_MODEL = 'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
@@ -352,6 +352,23 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
     После завершения каждого этапа автоматически переходит к следующему.
     """
     print(f"[WorkflowProcessor] Запуск рабочего процесса для книги ID: {book_id}, старт с этапа: {start_from_stage}")
+
+    # --- ДОБАВЛЕНО: Сброс статусов и кэша для этапов, кроме summarize ---
+    if start_from_stage == 'analyze':
+        print(f"[WorkflowProcessor] Сброс этапов analyze, translate, epub_creation для книги {book_id} перед повторным запуском workflow.")
+        # Сброс book-level этапов
+        for stage in ['analyze', 'epub_creation']:
+            workflow_db_manager.update_book_stage_status_workflow(book_id, stage, 'pending', model_name=None, error_message=None)
+            import workflow_cache_manager
+            workflow_cache_manager.delete_book_stage_result(book_id, stage)
+        # Сброс per-section этапа translate
+        sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+        for section in sections:
+            section_id = section['section_id']
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'pending', model_name=None, error_message=None)
+            workflow_cache_manager.delete_section_stage_result(book_id, section_id, 'translate')
+    # --- КОНЕЦ ДОБАВЛЕНИЯ ---
+
     stages = workflow_db_manager.get_all_stages_ordered_workflow()
     print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]}")
     book_info = workflow_db_manager.get_book_workflow(book_id)
@@ -635,7 +652,7 @@ def process_section_translate(book_id: str, section_id: int):
 
         # 3. Загружаем глоссарий и рекомендации из анализа
         # (должны быть сохранены после этапа анализа)
-        analysis_data = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'analyze')
+        analysis_data = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
         dict_data = {'glossary_data': analysis_data} if analysis_data else None
         # 4. Получаем язык и модель
         target_language = book_info.get('target_language', 'russian')
