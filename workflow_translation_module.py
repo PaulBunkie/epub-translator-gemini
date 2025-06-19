@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 import requests # Импорт для выполнения HTTP запросов
 import json # Импорт для работы с JSON
 import time # Импорт для задержки при ретраях
+import google.generativeai as genai # Импорт для Google API
 
 # Константа для обозначения ошибки лимита контекста
 # TODO: Возможно, стоит перенести в класс или конфиг
@@ -85,13 +86,13 @@ You must annotate it in the following format:
   Assign `m` (masculine) or `f` (feminine) **only when the text provides an unambiguous marker**, such as:
   - Clearly gendered pronouns
   - Gendered verbs or adjectives (in languages with agreement)
-  - Explicit physical or social role indicators (e.g., “she is his sister”)
+  - Explicit physical or social role indicators (e.g., "she is his sister")
 
   If no such marker is present, **leave the gender field blank**. Do not guess or default to masculine.
 
 - **note**: Add only when confident it provides real value to the translator. Acceptable notes include:
-  - “has an ironic tone”
-  - “literal translation would distort intent”
+  - "has an ironic tone"
+  - "literal translation would distort intent"
   - Cultural references (e.g., well-known locations, books, films, or artifacts) — **only if clearly identifiable**
 
 ---
@@ -128,7 +129,7 @@ If the abbreviation is fictional, universe-specific, author-created, or non-stan
 Stylistic Neologisms, Invented Terms, and Brand Names
 When encountering stylistic neologisms, invented terms, or brand-like constructs, determine the authorial intent.
 If the term is a real-world brand name or designed to represent a fictitious corporation, software, or stylized object, you must preserve it in the original Latin script to maintain branding effect.
-However, if the term is a semantic neologism (e.g. an invented profession, role, or social label such as deliverator), and especially if it carries metaphorical or satirical meaning, you must translate it into the target language to preserve its literary function and avoid immersion-breaking Latin insertions.
+However, if the term is a semantic neologism, and especially if it carries metaphorical or satirical meaning, you must translate it into the target language to preserve its literary function and avoid immersion-breaking Latin insertions.
 Do not retain such terms in Latin if they are meant to be understood rather than branded.
 Avoid transliteration unless the term has an officially established version in the target language.
 
@@ -144,12 +145,12 @@ The Rationale column must explain the reasoning behind your choice, referencing 
 Do not skip ambiguous or unusual terms — your job is to capture all such items that require non-obvious decisions.
 
 TASK 2: Grammatical Roster of Proper Nouns
-Identify and list all unique proper nouns in the text. This includes names of characters, locations, institutions, entities, and any other capitalized identifiers. The goal is to create a definitive roster to support consistent grammatical usage in the target language.
+Identify and list ALL unique proper nouns in the text. This includes names of characters, locations, institutions, entities, and any other capitalized identifiers. The goal is to create a definitive roster to support consistent grammatical usage in the target language.
 Rules for Assigning Gender:
 For characters (including non-binary ones), follow this strict hierarchy:
-Explicit Context: Use direct clues such as pronouns, roles, or relational descriptors.
-Name Pattern: Infer gender from typical gender associations with the name.
-Default Rule: If gender remains ambiguous, assign masculine gender by default for grammatical clarity. Apply this rule also to characters identified as non-binary, using available cues (e.g., voice, role, associated grammar) to assign either m or f for declension purposes.
+- Explicit Context: Use direct clues such as pronouns, roles, or relational descriptors.
+- Name Pattern: Infer gender from typical gender associations with the name.
+- Default Rule: If gender remains ambiguous, assign masculine gender by default for grammatical clarity. Apply this rule also to characters identified as non-binary, using available cues (e.g., voice, role, associated grammar) to assign either m or f for declension purposes.
 
 Output Format (Task 2):
 A Markdown table with the following four columns:
@@ -200,7 +201,14 @@ class WorkflowTranslator:
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         if not self.openrouter_api_key:
             print("Предупреждение: Переменная окружения OPENROUTER_API_KEY не установлена.")
-        # TODO: Добавить инициализацию Google API ключа
+        
+        # Инициализация Google API ключа
+        self.google_api_key = os.getenv("GOOGLE_API_KEY")
+        if self.google_api_key:
+            genai.configure(api_key=self.google_api_key)
+            print("Google API ключ успешно сконфигурирован для workflow.")
+        else:
+            print("Предупреждение: Переменная окружения GOOGLE_API_KEY не установлена.")
 
     def get_system_instruction(self, operation_type: str, target_language: str) -> str:
         """
@@ -368,6 +376,15 @@ class WorkflowTranslator:
 
         return messages
 
+    def _determine_api_type(self, model_name: str) -> str:
+        """
+        Определяет тип API на основе имени модели.
+        """
+        if model_name and model_name.startswith('models/'):
+            return "google"
+        else:
+            return "openrouter"
+
     def _call_model_api(
         self,
         model_name: str,
@@ -380,7 +397,7 @@ class WorkflowTranslator:
     ) -> str | None:
         """
         Вызывает API модели (Google или OpenRouter) с заданным списком сообщений.
-        Реализует логику вызова OpenRouter API.
+        Реализует логику вызова OpenRouter API и Google API.
 
         Args:
             model_name: Имя модели для вызова.
@@ -392,12 +409,52 @@ class WorkflowTranslator:
         Returns:
             Текст ответа модели или специальные константы ошибок/None.
         """
-        # TODO: Добавить логику выбора API (Google/OpenRouter) на основе model_name
-        # Для начала реализуем только OpenRouter
-        api_type = "openrouter" # Пока только OpenRouter
-        # TODO: Определить api_type на основе model_name или другого признака
+        # Определяем тип API на основе имени модели
+        api_type = self._determine_api_type(model_name)
+        print(f"[WorkflowTranslator] Определен тип API: {api_type} для модели: {model_name}")
 
-        if api_type == "openrouter":
+        if api_type == "google":
+            if not self.google_api_key:
+                print("[WorkflowTranslator] ОШИБКА: GOOGLE_API_KEY не установлен.")
+                return None
+
+            # Преобразуем messages в формат Google API
+            prompt = ""
+            for message in messages:
+                if message.get('role') == 'user':
+                    prompt += message.get('content', '') + "\n"
+                elif message.get('role') == 'system':
+                    prompt = message.get('content', '') + "\n" + prompt
+
+            try:
+                print(f"[WorkflowTranslator] Отправка запроса к Google API (модель: {model_name})...")
+                model = genai.GenerativeModel(model_name)
+                
+                # Настройки безопасности для Google API
+                safety_settings = {
+                    'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'block_none',
+                    'HARM_CATEGORY_HATE_SPEECH': 'block_none',
+                    'HARM_CATEGORY_HARASSMENT': 'block_none',
+                    'HARM_CATEGORY_DANGEROUS_CONTENT': 'block_none'
+                }
+                
+                response = model.generate_content(prompt, safety_settings=safety_settings)
+                
+                # Проверка на пустой ответ
+                if not response.text:
+                    print("[WorkflowTranslator] Google API вернул пустой ответ.")
+                    return None
+                
+                print(f"[WorkflowTranslator] Google API ответ получен успешно.")
+                return response.text
+
+            except Exception as e:
+                print(f"[WorkflowTranslator] ОШИБКА при вызове Google API: {e}")
+                if "context window" in str(e).lower():
+                    return CONTEXT_LIMIT_ERROR
+                return None
+
+        elif api_type == "openrouter":
             if not self.openrouter_api_key:
                  print("[WorkflowTranslator] ОШИБКА: OPENROUTER_API_KEY не установлен.")
                  return None # Или специальная ошибка конфигурации
@@ -420,7 +477,7 @@ class WorkflowTranslator:
             if messages and isinstance(messages, list) and len(messages) > 0:
                 # Берём только user-сообщения (или первое)
                 prompt_text = messages[0].get('content', '')
-            input_prompt_tokens = len(prompt_text) // 3  # Грубая оценка: 1 токен ~ 3 символа
+            input_prompt_tokens = len(prompt_text) // 3
             # Если max_completion_tokens не указан, используем половину размера контекста
             if not model_declared_output_limit:
                 model_declared_output_limit = model_total_context_limit // 2
@@ -454,41 +511,27 @@ class WorkflowTranslator:
 
                     # --- Обработка успешного ответа ---
                     if response.status_code == 200:
-                        try:
-                            response_json = response.json()
-                        except Exception as e_json:
-                            print(f"[OpenRouterTranslator] ОШИБКА: Не удалось распарсить JSON-ответ от OpenRouter: {e_json}")
-                            # Логируем часть тела ответа для диагностики
-                            resp_text = response.text if hasattr(response, 'text') else str(response.content)
-                            print(f"[OpenRouterTranslator] Тело ответа (первые 500 символов): {resp_text[:500]}")
-                            return None
-                        # Проверка наличия 'choices' и 'message'
-                        if response_json and 'choices' in response_json and response_json['choices']:
-                             choice = response_json['choices'][0]
-                             finish_reason = choice.get('finish_reason')
-                             print(f"[OpenRouterTranslator] finish_reason: {finish_reason}")
-                             # --- Получаем текст ответа ---
-                             output_content = ""
-                             if 'message' in choice and 'content' in choice['message']:
-                                 output_content = choice['message']['content'].strip()
-                             elif 'text' in choice:
-                                 output_content = choice['text'].strip()
-                             print(f"[OpenRouterTranslator] ПЕРВЫЕ 100 СИМВОЛОВ ОТВЕТА: '{output_content[:100]}'")
-                             if chunk_text is not None:
-                                 print(f"[OpenRouterTranslator] Длина исходного текста секции: {len(chunk_text)} символов. Длина перевода: {len(output_content)} символов.")
-                             # --- Проверка на обрезание ---
-                             is_truncated = False
-                             # Применяем честную эвристику только для перевода: сравниваем длину перевода и исходного текста в символах
-                             if operation_type == 'translate' and finish_reason == 'stop' and chunk_text:
-                                 input_char_len = len(chunk_text.strip())
-                                 output_char_len = len(output_content.strip())
-                                 if output_char_len < input_char_len * 0.8:
-                                     is_truncated = True
-                                     print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} символов) значительно короче исходного текста ({input_char_len} символов) (<80%). Возвращаем TRUNCATED_RESPONSE_ERROR.")
-                             if is_truncated:
-                                 return 'TRUNCATED_RESPONSE_ERROR'
-                             print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")
-                             return output_content
+                        response_json = response.json()
+                        if 'choices' in response_json and len(response_json['choices']) > 0:
+                            choice = response_json['choices'][0]
+                            if 'message' in choice and 'content' in choice['message']:
+                                output_content = choice['message']['content'].strip()
+                                # Проверка на обрезание ответа
+                                is_truncated = choice.get('finish_reason') == 'length'
+                                if is_truncated:
+                                    return 'TRUNCATED_RESPONSE_ERROR'
+                                
+                                # --- ЭВРИСТИКА определения потенциально неполного перевода ---
+                                if operation_type == 'translate' and chunk_text:
+                                    # Честная проверка: сравниваем длину перевода и исходного текста (оба только текст)
+                                    input_char_len = len(chunk_text)
+                                    output_char_len = len(output_content)
+                                    if output_char_len < input_char_len * 0.8:
+                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<80%). Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                                        return 'TRUNCATED_RESPONSE_ERROR'
+                                
+                                print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")
+                                return output_content
                         else:
                             print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствуют choices).")
                             return None # Или специальная ошибка формата ответа
@@ -505,16 +548,11 @@ class WorkflowTranslator:
                                 print(f"[OpenRouterTranslator] Используется задержка из Retry-After: {current_delay} сек.")
                             except ValueError:
                                 pass # Оставляем текущую задержку, если заголовок некорректен
+                        time.sleep(current_delay)
+                        current_delay *= 2  # Экспоненциальное увеличение задержки
+                        continue # Перейти к следующей попытке
 
-                        if attempt < max_retries - 1:
-                            time.sleep(current_delay)
-                            current_delay *= 2 # Экспоненциальное увеличение задержки
-                            continue # Перейти к следующей попытке
-                        else:
-                            print("[OpenRouterTranslator] Максимальное количество попыток 429 исчерпано.")
-                            return None # Или специальная ошибка лимита запросов
-
-                    # --- Обработка других ошибок API (не ретраим по умолчанию) ---
+                    # --- Обработка других ошибок ---
                     elif response.status_code >= 400:
                         print(f"[OpenRouterTranslator] Ошибка API: Статус {response.status_code}")
                         try:
@@ -535,7 +573,7 @@ class WorkflowTranslator:
                             print(f"Текст ответа: {response.text}")
 
 
-                        return None # Возвращаем None для других ошибок API
+                        return None
 
                 except requests.exceptions.RequestException as e:
                     # Обработка ошибок сети, таймаутов и т.п.
@@ -556,9 +594,7 @@ class WorkflowTranslator:
                      return None # Возвращаем None при непредвиденной ошибке
 
             print("[OpenRouterTranslator] Не удалось получить успешный ответ от OpenRouter API после всех попыток.")
-            return None # Возвращаем None, если все попытки исчерпаны
-
-        # TODO: Добавить логику для Google API вызова здесь
+            return None
 
         else:
             # Неизвестный тип API
@@ -652,6 +688,17 @@ class WorkflowTranslator:
                     if translated_chunk is None:
                         print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1} (попытка {attempt+1}). Прерывание.")
                         return None
+                    
+                    # Проверка на специальные ошибки
+                    if translated_chunk == 'TRUNCATED_RESPONSE_ERROR':
+                        print(f"[WorkflowTranslator] Обнаружена ошибка TRUNCATED_RESPONSE_ERROR для чанка {i+1}. Попытка {attempt+1}/{max_chunk_retries+1}.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: чанк {i+1} остался обрезанным после {max_chunk_retries+1} попыток. Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                            return 'TRUNCATED_RESPONSE_ERROR'
+                        time.sleep(2)
+                        continue
+                    
                     # --- Эвристика: если чанк короткий (<100 символов), принимаем любой непустой перевод ---
                     if chunk_length < 100:
                         if translated_chunk.strip():

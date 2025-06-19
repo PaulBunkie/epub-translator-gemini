@@ -34,11 +34,11 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
+SUMMARIZATION_MODEL = 'meta-llama/llama-3.3-70b-instruct' #'models/gemini-2.5-flash-preview-04-17' #'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'deepseek/deepseek-r1-0528:free' # Можно использовать ту же модель или другую
+ANALYSIS_MODEL = 'deepseek/deepseek-chat-v3-0324:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
 # --- Workflow Configuration ---
@@ -46,7 +46,7 @@ DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after re
 MAX_RETRIES = 2 # Number of additional retries for model calls
 
 # --- Хардкодим модель для перевода, как для summarize/analyze ---
-TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free' #'meta-llama/llama-4-maverick:free'
+TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free'
 
 def process_section_summarization(book_id: str, section_id: int):
     """
@@ -693,7 +693,7 @@ def process_section_translate(book_id: str, section_id: int):
                 workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
                 print(f"[WorkflowProcessor] Короткая секция (<100 симв). Перевод пустой. Статус: completed_empty.")
         else:
-            if translated_text is not None and translated_text.strip() != "" and translated_text not in [workflow_translation_module.EMPTY_RESPONSE_ERROR, workflow_translation_module.CONTEXT_LIMIT_ERROR]:
+            if translated_text is not None and translated_text.strip() != "" and translated_text not in [workflow_translation_module.EMPTY_RESPONSE_ERROR, workflow_translation_module.CONTEXT_LIMIT_ERROR, 'TRUNCATED_RESPONSE_ERROR']:
                 if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', translated_text):
                     status = 'completed'
                     error_message = None
@@ -710,6 +710,9 @@ def process_section_translate(book_id: str, section_id: int):
                 elif translated_text == workflow_translation_module.CONTEXT_LIMIT_ERROR:
                     error_message = "API вернул CONTEXT_LIMIT_ERROR."
                     print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR.")
+                elif translated_text == 'TRUNCATED_RESPONSE_ERROR':
+                    error_message = "API вернул TRUNCATED_RESPONSE_ERROR (перевод обрезан)."
+                    print(f"[WorkflowProcessor] Error: Model returned TRUNCATED_RESPONSE_ERROR.")
                 else:
                     error_message = "Model returned empty result (None, empty string или неизвестная ошибка)."
                     print(f"[WorkflowProcessor] Warning: Model returned empty result или неизвестную ошибку.")
