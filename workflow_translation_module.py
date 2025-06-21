@@ -266,30 +266,38 @@ class WorkflowTranslator:
         """
         Разбивает текст на чанки по приблизительному количеству символов,
         используя переданный chunk_size_limit_chars.
-        Этот метод является базовой реализацией, стараясь не разрывать слова.
+        Умное разбиение по параграфам и предложениям.
         """
         if not text:
             return []
 
-        # Используем переданный лимит символов напрямую
-        max_chunk_chars = chunk_size_limit_chars
-
         chunks = []
-        current_pos = 0
-        text_len = len(text)
+        remaining_text = text
 
-        while current_pos < text_len:
-            end_pos = min(current_pos + max_chunk_chars, text_len)
-            chunk = text[current_pos:end_pos]
+        while remaining_text.strip():
+            # Используем умную логику разбиения
+            if len(remaining_text) <= chunk_size_limit_chars:
+                chunks.append(remaining_text.strip())
+                break
 
-            if end_pos < text_len and not text[end_pos].isspace() and text[end_pos-1].isalpha():
-                last_space = chunk.rfind(' ')
-                if last_space > 0 and (len(chunk) - last_space) < 50:
-                    chunk = chunk[:last_space]
-                    end_pos = current_pos + len(chunk)
+            # Ищем разрыв предложения до лимита
+            split_pos = -1
+            # Приоритет разделителей: конец абзаца, потом предложения
+            for sep in ['\n\n', '.\n', '!\n', '?\n', '. ', '! ', '? ']:
+                # Ищем последнее вхождение разделителя в пределах лимита
+                pos = remaining_text.rfind(sep, 0, chunk_size_limit_chars)
+                if pos != -1:
+                    split_pos = pos + len(sep)
+                    break # Нашли лучший разделитель, выходим
 
+            if split_pos == -1:
+                # Если не нашли хороший разрыв, просто режем по лимиту
+                split_pos = chunk_size_limit_chars
+
+            chunk = remaining_text[:split_pos]
+            remaining_text = remaining_text[split_pos:]
+            
             chunks.append(chunk.strip())
-            current_pos = end_pos
 
         return [c for c in chunks if c]
 
@@ -491,12 +499,16 @@ class WorkflowTranslator:
             data = {
                 "model": model_name,
                 "messages": messages,
-                #"temperature": temperature#,
+                "temperature": 0.5, # УСТАНОВКА ТЕМПЕРАТУРЫ
+                "stream": False #, # Убеждаемся, что не ждем стриминг
                 #"reasoning": {
-                #    "exclude": operation_type != 'analyze'
+                #    "exclude": True
                 #},
-                "max_tokens": final_output_token_limit
             }
+
+            # Добавляем max_tokens только для перевода
+            if operation_type == 'translate':
+                data["max_tokens"] = final_output_token_limit
 
             current_delay = retry_delay_seconds
             for attempt in range(max_retries):
@@ -646,15 +658,56 @@ class WorkflowTranslator:
         # CHUNK_SIZE_LIMIT_CHARS, определенный выше, будет использоваться только для "translate".
 
         if operation_type == 'summarize' or operation_type == 'analyze':
-            messages = self._build_messages_for_operation(
-                operation_type,
-                text_to_translate, # Передаем полный текст
-                target_language, 
-                model_name=model_name,
-                prompt_ext=prompt_ext,
-                dict_data=dict_data
-            )
-            return self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=text_to_translate)
+            print(f"[WorkflowTranslator] Вызов операции '{operation_type}' для текста длиной {len(text_to_translate)} символов.")
+            
+            # Используем умное чанкование для суммаризации
+            summarized_chunks = []
+            
+            # Рассчитываем лимит чанка для суммаризации
+            from translation_module import get_context_length
+            context_token_limit = get_context_length(model_name) if model_name else 2048
+            context_chars_limit = context_token_limit * 3
+            # Оставляем буфер для промпта и ответа (4000 символов)
+            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
+            if CHUNK_SIZE_LIMIT_CHARS <= 0:
+                CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
+            
+            chunks = self._chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+            if not chunks:
+                print(f"[WorkflowTranslator] Нет чанков для {operation_type}.")
+                return None
+            
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для {operation_type}.")
+            
+            for i, chunk in enumerate(chunks):
+                print(f"[WorkflowTranslator] {operation_type.capitalize()} чанка {i+1}/{len(chunks)} (длина: {len(chunk)} символов)")
+                
+                messages = self._build_messages_for_operation(
+                    operation_type,
+                    chunk,  # Передаем чанк, а не весь текст
+                    target_language, 
+                    model_name=model_name,
+                    prompt_ext=prompt_ext,
+                    dict_data=dict_data
+                )
+                
+                # Для суммаризации не передаем max_tokens, чтобы модель сама определила длину
+                result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
+                
+                if result and result not in [CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR, 'TRUNCATED_RESPONSE_ERROR']:
+                    summarized_chunks.append(result)
+                else:
+                    print(f"[WorkflowTranslator] Ошибка {operation_type} чанка {i+1}: {result}")
+                    # Добавляем оригинальный текст с пометкой об ошибке
+                    summarized_chunks.append(f"\n[ОШИБКА {operation_type.upper()}: {result}]\n{chunk}\n[КОНЕЦ ОШИБКИ]\n")
+            
+            if summarized_chunks:
+                full_result = "\n\n".join(summarized_chunks)
+                print(f"[WorkflowTranslator] {operation_type.capitalize()} завершена. Общая длина: {len(full_result)} символов.")
+                return full_result
+            else:
+                print(f"[WorkflowTranslator] Ошибка: {operation_type} не дала результатов.")
+                return None
 
         elif operation_type == 'translate':
             print(f"[WorkflowTranslator] Вызов операции 'translate' для текста длиной {len(text_to_translate)} символов.")

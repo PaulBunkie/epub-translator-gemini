@@ -12,7 +12,7 @@ import re
 from typing import Optional
 
 # --- Constants for Workflow Processor ---
-MIN_SECTION_LENGTH = 700 # Minimum length of clean text for summarization/analysis
+MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analysis
 
 # --- Helper function to clean HTML text ---
 def clean_html(html_content):
@@ -34,7 +34,7 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'meta-llama/llama-3.3-70b-instruct' #'models/gemini-2.5-flash-preview-04-17' #'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
+SUMMARIZATION_MODEL = 'qwen/qwen3-32b:free' #'models/gemini-2.5-flash-preview-04-17' #'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
