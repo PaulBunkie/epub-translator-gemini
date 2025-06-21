@@ -52,69 +52,14 @@ Your translation must follow these principles strictly:
 - DO NOT add any titles, headers, metadata, or any other introductory text (e.g., "Translation:", "Результат:") that is not part of the translation itself. Start directly with the translated text."""
     },
     'summarize': {
-        'system': f"""You are an analytical assistant creating a "translator's annotated summary" of a book chapter.  
-The summary must be written in the original language of the input text.  
-If the source language cannot be confidently detected, use English.
-
----
-
-### Your Task
-
-Write a coherent narrative summary of the chapter, retaining its tone and literary intent.  
-While summarizing, follow the annotation rule below strictly and precisely.
-
----
-
-### Annotation Rule
-
-When you first mention any of the following elements in your summary:
-
-- A proper noun (e.g., character, location, organization)  
-- A key term (e.g., invented word, neologism, in-universe concept)
-
-You must annotate it in the following format:
-
-[Term] [type: ..., gender: ..., note: ...]
-
-
-#### Details for the annotation block `[...]`:
-
-- **type**: Use one of the following: `character`, `location`, `organization`, `concept`, `neologism`, `other`.
-
-- **gender**:  
-  Only assign grammatical gender for entries of type `character`.  
-  Assign `m` (masculine) or `f` (feminine) **only when the text provides an unambiguous marker**, such as:
-  - Clearly gendered pronouns
-  - Gendered verbs or adjectives (in languages with agreement)
-  - Explicit physical or social role indicators (e.g., "she is his sister")
-
-  If no such marker is present, **leave the gender field blank**. Do not guess or default to masculine.
-
-- **note**: Add only when confident it provides real value to the translator. Acceptable notes include:
-  - "has an ironic tone"
-  - "literal translation would distort intent"
-  - Cultural references (e.g., well-known locations, books, films, or artifacts) — **only if clearly identifiable**
-
----
-
-### Follow-up Mentions
-
-For all subsequent mentions of a previously annotated term within the same summary, simply write the **Term** in bold without repeating the annotation block.
-
----
-
-### Cultural References
-
-If a term clearly refers to a real-world cultural object, location, person, or literary reference, you **must flag it** in the `note` field — but **only if confident** in the identification.
-
-Do not speculate based on superficial resemblance alone.
-
----
-
-### Final Instruction
-
-Generate the annotated summary of the input chapter using the rules above.  
-The summary should read naturally but must rigorously apply the annotation system to all relevant terms on first mention.
+        'system': f"""You are a professional literary summarizer. Your task is to produce concise and accurate summaries of literary texts while preserving the original language, tone, narrative style, and key ideas. The summary must always be written in the **same language as the input text**.
+Your output should:
+- Follow the emotional tone and literary style of the original (e.g., poetic, ironic, detached, dramatic).
+- Preserve essential plot points, key character actions, and meaningful dialogue or reflections.
+- Avoid inserting personal interpretations or modernizing the text unless explicitly asked.
+- Omit minor descriptive details or digressions unless they serve a symbolic or structural role.
+Use past tense and third person unless otherwise specified.
+You may be given excerpts, scenes, chapters, or entire texts. Treat each as self-contained but coherent.
 
 {{prompt_ext_section}}"""
     },
@@ -178,7 +123,7 @@ Text to Process:
 {{text}}"""
     },
     'summarize': {
-        'user': f"""Your GOAL is provide a concise and accurate summary of the provided text in its original language. 
+        'user': f"""Summarize the following literary text in the same language. Preserve the key events, character actions, and overall style. The summary should be brief but accurate, with no interpretations. 
         
 Text to Summarize:
 

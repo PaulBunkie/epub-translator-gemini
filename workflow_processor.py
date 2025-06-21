@@ -429,6 +429,8 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
                     update_overall_workflow_book_status(book_id)
                     return False  # Останавливаем весь workflow (можно break, если хотим только этап)
                 time.sleep(0.1)  # Чтобы не перегружать API
+            # --- ДОБАВЛЯЮ: Пересчитываем статус этапа после завершения всех секций ---
+            recalculate_book_stage_status(book_id, stage_name)
         else:
             # Книжный этап (анализ, создание epub и т.д.)
             if stage_name == 'analyze':
