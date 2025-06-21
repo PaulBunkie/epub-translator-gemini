@@ -178,7 +178,10 @@ Text to Process:
 {{text}}"""
     },
     'summarize': {
-        'user': f"""Text to Summarize:
+        'user': f"""Your GOAL is provide a concise and accurate summary of the provided text in its original language. 
+        
+Text to Summarize:
+
 {{text}}
 
 Summary:"""
@@ -529,7 +532,9 @@ class WorkflowTranslator:
                             if 'message' in choice and 'content' in choice['message']:
                                 output_content = choice['message']['content'].strip()
                                 # Проверка на обрезание ответа
-                                is_truncated = choice.get('finish_reason') == 'length'
+                                finish_reason = choice.get('finish_reason')
+                                print(f"[WorkflowTranslator] finish_reason: {finish_reason}")
+                                is_truncated = finish_reason == 'length'
                                 if is_truncated:
                                     return 'TRUNCATED_RESPONSE_ERROR'
                                 
@@ -630,7 +635,6 @@ class WorkflowTranslator:
         CHUNK_SIZE_LIMIT_CHARS = 0 # Инициализируем переменную для определения лимита чанка
 
         # Определение лимита чанка в зависимости от типа операции.
-        # Поскольку _get_context_length УДАЛЕНА, для summarize/analyze используем фиксированный большой лимит.
         if operation_type == 'translate':
             # Новый динамический расчет лимита чанка для перевода
             from translation_module import get_context_length
@@ -642,13 +646,15 @@ class WorkflowTranslator:
                 CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
             print(f"[WorkflowTranslator] Динамический лимит чанка для перевода: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         elif operation_type in ['summarize', 'analyze']:
-            # Внимание: здесь мы больше НЕ используем _get_context_length.
-            # Если для summarize/analyze требуется динамическое определение лимита из API,
-            # нужно будет перенести сюда весь блок get_context_length из translation_module.py
-            # вместе со вспомогательными функциями (_cached_models_list, get_models_list).
-            # Пока используем большой фиксированный лимит, чтобы избежать поломки.
-            CHUNK_SIZE_LIMIT_CHARS = 60000 # Достаточно большой лимит для большинства summarize/analyze запросов
-            print(f"[WorkflowTranslator] Для '{operation_type}' использован большой фиксированный лимит ({CHUNK_SIZE_LIMIT_CHARS} символов) вместо динамического.")
+            # Динамический расчет лимита чанка для суммаризации/анализа
+            from translation_module import get_context_length
+            context_token_limit = get_context_length(model_name) if model_name else 2048
+            context_chars_limit = context_token_limit * 3
+            # Оставляем буфер для промпта и ответа (4000 символов)
+            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
+            if CHUNK_SIZE_LIMIT_CHARS <= 0:
+                CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
+            print(f"[WorkflowTranslator] Динамический лимит чанка для {operation_type}: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         else:
             CHUNK_SIZE_LIMIT_CHARS = 20000 # Дефолтное значение для неизвестных операций
             print(f"[WorkflowTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
@@ -662,15 +668,6 @@ class WorkflowTranslator:
             
             # Используем умное чанкование для суммаризации
             summarized_chunks = []
-            
-            # Рассчитываем лимит чанка для суммаризации
-            from translation_module import get_context_length
-            context_token_limit = get_context_length(model_name) if model_name else 2048
-            context_chars_limit = context_token_limit * 3
-            # Оставляем буфер для промпта и ответа (4000 символов)
-            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
-            if CHUNK_SIZE_LIMIT_CHARS <= 0:
-                CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
             
             chunks = self._chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
             if not chunks:

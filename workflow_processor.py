@@ -34,7 +34,7 @@ def clean_html(html_content):
     return cleaned_text
 
 # Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'qwen/qwen3-32b:free' #'models/gemini-2.5-flash-preview-04-17' #'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
+SUMMARIZATION_MODEL = 'models/gemini-2.5-flash-preview-04-17' #'models/gemini-2.5-flash-preview-04-17' #'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
