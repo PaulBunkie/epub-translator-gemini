@@ -589,6 +589,9 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS <= 0:
                 CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 60000 символов ---
+            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 60000)
+            # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
             print(f"[WorkflowTranslator] Динамический лимит чанка для перевода: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         elif operation_type in ['summarize', 'analyze']:
             # Динамический расчет лимита чанка для суммаризации/анализа
@@ -599,6 +602,9 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS <= 0:
                 CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 60000 символов ---
+            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 60000)
+            # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
             print(f"[WorkflowTranslator] Динамический лимит чанка для {operation_type}: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         else:
             CHUNK_SIZE_LIMIT_CHARS = 20000 # Дефолтное значение для неизвестных операций

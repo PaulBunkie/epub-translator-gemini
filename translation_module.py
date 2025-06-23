@@ -356,6 +356,10 @@ class OpenRouterTranslator(BaseTranslator):
         CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
         if CHUNK_SIZE_LIMIT_CHARS <= 0:
             CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2 # Если буфер слишком большой
+        
+        # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 60000 символов ---
+        CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 60000)
+        # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
 
         if len(text) <= CHUNK_SIZE_LIMIT_CHARS:
             return text, ""
