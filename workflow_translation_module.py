@@ -137,27 +137,21 @@ Text to Process:
     },
     'summarize': {
         'user': f"""Summarize the following literary text in the same language. Preserve the key events, character actions, and overall style. The summary should be brief but accurate, with no interpretations. 
-        
+Your response must start directly with the summary.        
 Text to Summarize:
-
 {{text}}
-
-Summary:"""
+"""
     },
     'reduce': {
-        'user': f"""Compress the following chapter summary to 50% of its original length (±5%). This is not a further abstraction — retain all characters, major events, technologies, and worldbuilding. Do not omit anything essential. Shorten phrasing, remove redundancy, but keep all critical facts.
-
+        'user': f"""Compress the following text to 50% of its original length (±5%). This is not a further abstraction — retain all characters, major events, technologies, and worldbuilding. Do not omit anything essential. Shorten phrasing, remove redundancy, but keep all critical facts.
+Your response must start directly with the compressed text.
 Text to Reduce:
-
-{{text}}
-
-Reduced Text:"""
+{{text}}"""
     },
     'analyze': {
-        'user': f"""Text to Analyze:
-{{text}}
-
-Final Answer:"""
+        'user': f"""Your response must start directly with the analysis.
+Text to Analyze:
+{{text}}"""
     }
 }
 
