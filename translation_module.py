@@ -525,6 +525,12 @@ class OpenRouterTranslator(BaseTranslator):
                          finish_reason = choice.get('finish_reason')
                          print(f"[OpenRouterTranslator] finish_reason: {finish_reason}") # ДОБАВЛЕНО ЛОГИРОВАНИЕ finish_reason
 
+                         # --- ПРОВЕРКА finish_reason на ошибку ---
+                         if finish_reason == 'error':
+                             print(f"[OpenRouterTranslator] ОШИБКА: Модель вернула finish_reason='error'. Возвращаем None.")
+                             return None
+                         # --- КОНЕЦ ПРОВЕРКИ ---
+
                          # --- Добавляем логирование информации об использовании токенов ---
                          if 'usage' in response_json:
                              usage = response_json['usage']

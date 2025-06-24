@@ -210,44 +210,52 @@ class WorkflowTranslator:
             table_lines.append(" | ".join(row))
         return "\n".join(table_lines)
 
-    def _chunk_text(self, text: str, chunk_size_limit_chars: int) -> List[str]:
+    def _bubble_chunk_text(self, text: str, target_chunk_size: int = 30000) -> List[str]:
         """
-        Разбивает текст на чанки по приблизительному количеству символов,
-        используя переданный chunk_size_limit_chars.
-        Умное разбиение по параграфам и предложениям.
+        Метод пузырька: делим текст пополам по абзацам, пока чанки не станут < target_chunk_size
         """
-        if not text:
+        if not text.strip():
             return []
-
-        chunks = []
-        remaining_text = text
-
-        while remaining_text.strip():
-            # Используем умную логику разбиения
-            if len(remaining_text) <= chunk_size_limit_chars:
-                chunks.append(remaining_text.strip())
-                break
-
-            # Ищем разрыв предложения до лимита
-            split_pos = -1
-            # Приоритет разделителей: конец абзаца, потом предложения
-            for sep in ['\n\n', '.\n', '!\n', '?\n', '. ', '! ', '? ']:
-                # Ищем последнее вхождение разделителя в пределах лимита
-                pos = remaining_text.rfind(sep, 0, chunk_size_limit_chars)
-                if pos != -1:
-                    split_pos = pos + len(sep)
-                    break # Нашли лучший разделитель, выходим
-
-            if split_pos == -1:
-                # Если не нашли хороший разрыв, просто режем по лимиту
-                split_pos = chunk_size_limit_chars
-
-            chunk = remaining_text[:split_pos]
-            remaining_text = remaining_text[split_pos:]
+        
+        chunks = [text]
+        
+        while True:
+            new_chunks = []
+            need_splitting = False
             
-            chunks.append(chunk.strip())
-
-        return [c for c in chunks if c]
+            for chunk in chunks:
+                if len(chunk) > target_chunk_size:
+                    # Ищем середину текста
+                    mid = len(chunk) // 2
+                    
+                    # Ищем ближайший разрыв абзаца (двойной перенос строки) до середины
+                    split_point = chunk.rfind('\n\n', 0, mid)
+                    if split_point == -1:
+                        # Если нет двойного переноса, ищем одинарный
+                        split_point = chunk.rfind('\n', 0, mid)
+                    
+                    if split_point == -1:
+                        # Если нет переносов строк, используем середину
+                        split_point = mid
+                    
+                    # Убираем лишние пробелы в начале второго чанка
+                    first_chunk = chunk[:split_point].rstrip()
+                    second_chunk = chunk[split_point:].lstrip()
+                    
+                    if first_chunk:
+                        new_chunks.append(first_chunk)
+                    if second_chunk:
+                        new_chunks.append(second_chunk)
+                    
+                    need_splitting = True
+                else:
+                    new_chunks.append(chunk)
+            
+            chunks = new_chunks
+            if not need_splitting:
+                break
+        
+        return chunks
 
     def _clean_text_for_api(self, text: str) -> str:
         """
@@ -479,6 +487,13 @@ class WorkflowTranslator:
                                 # Проверка на обрезание ответа
                                 finish_reason = choice.get('finish_reason')
                                 print(f"[WorkflowTranslator] finish_reason: {finish_reason}")
+                                
+                                # --- ПРОВЕРКА finish_reason на ошибку ---
+                                if finish_reason == 'error':
+                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула finish_reason='error'. Возвращаем None.")
+                                    return None
+                                # --- КОНЕЦ ПРОВЕРКИ ---
+                                
                                 is_truncated = finish_reason == 'length'
                                 if is_truncated:
                                     return 'TRUNCATED_RESPONSE_ERROR'
@@ -611,21 +626,21 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
 
         # Далее логика для summarize/analyze/translate.
-        # Для summarize и analyze мы сейчас не чанкуем текст здесь, а передаем его целиком в _build_messages_for_operation.
-        # CHUNK_SIZE_LIMIT_CHARS, определенный выше, будет использоваться только для "translate".
+        # Для summarize и analyze используем метод пузырька с разбиением по абзацам.
+        # CHUNK_SIZE_LIMIT_CHARS используется как target_chunk_size для метода пузырька.
 
         if operation_type == 'summarize' or operation_type == 'analyze':
             print(f"[WorkflowTranslator] Вызов операции '{operation_type}' для текста длиной {len(text_to_translate)} символов.")
             
-            # Используем умное чанкование для суммаризации
+            # Используем метод пузырька для разбиения на чанки
             summarized_chunks = []
             
-            chunks = self._chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+            chunks = self._bubble_chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
             if not chunks:
                 print(f"[WorkflowTranslator] Нет чанков для {operation_type}.")
                 return None
             
-            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для {operation_type}.")
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для {operation_type} (метод пузырька).")
             
             for i, chunk in enumerate(chunks):
                 print(f"[WorkflowTranslator] {operation_type.capitalize()} чанка {i+1}/{len(chunks)} (длина: {len(chunk)} символов)")
@@ -640,7 +655,20 @@ class WorkflowTranslator:
                 )
                 
                 # Для суммаризации не передаем max_tokens, чтобы модель сама определила длину
-                result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
+                max_chunk_retries = 2
+                attempt = 0
+                result = None
+                while attempt <= max_chunk_retries:
+                    result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
+                    if result is None:
+                        print(f"[WorkflowTranslator] Ошибка {operation_type} чанка {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не удалось обработать после {max_chunk_retries+1} попыток.")
+                            break
+                        time.sleep(2)
+                        continue
+                    break
                 
                 if result and result not in [CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR, 'TRUNCATED_RESPONSE_ERROR']:
                     summarized_chunks.append(result)
@@ -661,12 +689,12 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Вызов операции 'translate' для текста длиной {len(text_to_translate)} символов.")
 
             translated_chunks = []
-            chunks = self._chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+            chunks = self._bubble_chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
             if not chunks:
                 print("[WorkflowTranslator] Нет чанков для перевода.")
                 return None
 
-            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков с лимитом {CHUNK_SIZE_LIMIT_CHARS} символов.")
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков методом пузырька (target_size: {CHUNK_SIZE_LIMIT_CHARS} символов).")
 
             for i, chunk in enumerate(chunks):
                 chunk_stripped = chunk.strip()
@@ -687,8 +715,13 @@ class WorkflowTranslator:
                 while attempt <= max_chunk_retries:
                     translated_chunk = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
                     if translated_chunk is None:
-                        print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1} (попытка {attempt+1}). Прерывание.")
-                        return None
+                        print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не удалось перевести после {max_chunk_retries+1} попыток. Прерывание.")
+                            return None
+                        time.sleep(2)
+                        continue
                     
                     # Проверка на специальные ошибки
                     if translated_chunk == 'TRUNCATED_RESPONSE_ERROR':
