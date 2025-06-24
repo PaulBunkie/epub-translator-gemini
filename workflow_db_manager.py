@@ -134,14 +134,21 @@ def init_workflow_db():
                 stages_data = [
                     ('summarize', 1, 'Суммаризация', True), # is_per_section = True
                     ('analyze', 2, 'Анализ трудностей', False), # is_per_section = False
-                    ('translate', 3, 'Перевод', True), # is_per_section = True
-                    ('epub_creation', 4, 'Создание EPUB', False), # is_per_section = False
+                    ('translate', 4, 'Перевод', True), # is_per_section = True
+                    ('epub_creation', 5, 'Создание EPUB', False), # is_per_section = False
                 ]
                 db.executemany('''
                     INSERT INTO workflow_stages (stage_name, stage_order, display_name, is_per_section)
                     VALUES (?, ?, ?, ?)
                 ''', stages_data)
                 print("[WorkflowDB] Таблица workflow_stages заполнена.")
+            
+            # Мигрируем stage_order к новому формату (если нужно)
+            migrate_stage_orders_to_decimals()
+            
+            # Добавляем этап reduce_text, если его нет
+            add_reduce_text_stage()
+            
             # --- КОНЕЦ ИЗМЕНЕНИЯ: Новая структура таблиц ---
 
         print("[WorkflowDB] База данных инициализирована.")
@@ -784,5 +791,60 @@ def get_all_stages_ordered_workflow() -> List[Dict[str, Any]]:
         print(f"[WorkflowDB] ERROR retrieving all stages: {e}")
         traceback.print_exc()
         return []
+
+def add_reduce_text_stage():
+    """Добавляет этап reduce_text в существующую базу данных."""
+    db = get_workflow_db()
+    try:
+        # Проверяем, существует ли этап
+        cursor = db.execute("SELECT 1 FROM workflow_stages WHERE stage_name = 'reduce_text'")
+        if cursor.fetchone():
+            print("[WorkflowDB] Этап 'reduce_text' уже существует.")
+            return True
+        
+        # Добавляем этап
+        db.execute("INSERT INTO workflow_stages (stage_name, stage_order, display_name, is_per_section) VALUES ('reduce_text', 15, 'Сокращение текста', 0)")
+        db.commit()
+        print("[WorkflowDB] Этап 'reduce_text' добавлен в базу данных.")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка добавления этапа 'reduce_text': {e}")
+        return False
+
+def migrate_stage_orders_to_decimals():
+    """Мигрирует stage_order к значениям с шагом 10 (10, 20, 30, 40)."""
+    db = get_workflow_db()
+    try:
+        # Проверяем, нужно ли мигрировать (если есть stage_order < 10, значит миграция нужна)
+        cursor = db.execute("SELECT COUNT(*) FROM workflow_stages WHERE stage_order < 10")
+        needs_migration = cursor.fetchone()[0] > 0
+        
+        if not needs_migration:
+            print("[WorkflowDB] Миграция stage_order не нужна (уже в новом формате).")
+            return True
+        
+        print("[WorkflowDB] Начинаем миграцию stage_order к новому формату...")
+        
+        # Обновляем stage_order для каждого этапа
+        stage_mapping = {
+            'summarize': 10,
+            'reduce_text': 15,
+            'analyze': 20,
+            'translate': 30,
+            'epub_creation': 40
+        }
+        
+        for stage_name, new_order in stage_mapping.items():
+            db.execute("UPDATE workflow_stages SET stage_order = ? WHERE stage_name = ?", (new_order, stage_name))
+            print(f"[WorkflowDB] Обновлен {stage_name}: stage_order = {new_order}")
+        
+        db.commit()
+        print("[WorkflowDB] Миграция stage_order завершена.")
+        return True
+        
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка миграции stage_order: {e}")
+        db.rollback()
+        return False
 
 # --- END OF FILE workflow_db_manager.py ---

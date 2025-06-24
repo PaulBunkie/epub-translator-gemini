@@ -14,6 +14,12 @@ CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
 # Константа для обозначения ошибки пустого ответа
 EMPTY_RESPONSE_ERROR = "__EMPTY_RESPONSE_AFTER_RETRIES__"
 
+# Единый лимит размера чанка для всех операций
+CHUNK_SIZE_LIMIT_CHARS = 30000
+
+# Отдельный лимит для анализа - должен быть больше, чтобы вместить всю суммаризацию книги
+ANALYSIS_CHUNK_SIZE_LIMIT_CHARS = 100000
+
 # User-provided PROMPT_TEMPLATES - EXACTLY AS PROVIDED
 SYSTEM_PROMPT_TEMPLATES = {
     'translate': {
@@ -60,6 +66,13 @@ Your output should:
 - Omit minor descriptive details or digressions unless they serve a symbolic or structural role.
 Use past tense and third person unless otherwise specified.
 You may be given excerpts, scenes, chapters, or entire texts. Treat each as self-contained but coherent.
+
+{{prompt_ext_section}}"""
+    },
+    'reduce': {
+        'system': f"""You are a text compressor. Your task is to reduce existing summaries or outlines by approximately 50% (±5%), while retaining all key information, events, characters, organizations, technologies, and terminology. 
+This is not a summary of a summary — it is a compression. Do not remove named entities or critical events. Remove only redundancy, verbose phrasing, or low-value connective text. Do not change the order of events.
+The result must retain as much information as possible in half the length. Bullet points and headings are allowed only if they were in the original.
 
 {{prompt_ext_section}}"""
     },
@@ -130,6 +143,15 @@ Text to Summarize:
 {{text}}
 
 Summary:"""
+    },
+    'reduce': {
+        'user': f"""Compress the following chapter summary to 50% of its original length (±5%). This is not a further abstraction — retain all characters, major events, technologies, and worldbuilding. Do not omit anything essential. Shorten phrasing, remove redundancy, but keep all critical facts.
+
+Text to Reduce:
+
+{{text}}
+
+Reduced Text:"""
     },
     'analyze': {
         'user': f"""Text to Analyze:
@@ -210,7 +232,70 @@ class WorkflowTranslator:
             table_lines.append(" | ".join(row))
         return "\n".join(table_lines)
 
-    def _bubble_chunk_text(self, text: str, target_chunk_size: int = 30000) -> List[str]:
+    def _smart_chunk_text_for_reduction(self, text: str, target_chunk_size: int = ANALYSIS_CHUNK_SIZE_LIMIT_CHARS) -> List[str]:
+        """
+        Умное разбиение текста на оптимальное количество чанков для рекурсивной суммаризации.
+        Цель: минимизировать количество чанков, чтобы каждый был < target_chunk_size.
+        """
+        if not text.strip():
+            return []
+        
+        text_length = len(text)
+        
+        # Если текст уже помещается в один чанк
+        if text_length <= target_chunk_size:
+            return [text]
+        
+        # Вычисляем оптимальное количество чанков
+        optimal_chunks_count = max(2, (text_length + target_chunk_size - 1) // target_chunk_size)
+        print(f"[WorkflowTranslator] Умное разбиение: текст {text_length} символов на {optimal_chunks_count} чанков (цель: <{target_chunk_size} каждый)")
+        
+        # Разбиваем текст на равные части
+        chunk_size = text_length // optimal_chunks_count
+        chunks = []
+        current_pos = 0
+        
+        for i in range(optimal_chunks_count):
+            if current_pos >= text_length:
+                break
+                
+            # Определяем границы для текущего чанка
+            if i == optimal_chunks_count - 1:
+                # Последний чанк - берем все оставшееся
+                end_pos = text_length
+            else:
+                end_pos = current_pos + chunk_size
+            
+            # Ищем ближайший разрыв абзаца в пределах ±10% от идеальной позиции
+            ideal_pos = (current_pos + end_pos) // 2
+            search_start = max(current_pos, ideal_pos - chunk_size // 10)
+            search_end = min(end_pos, ideal_pos + chunk_size // 10)
+            
+            # Ищем разрыв абзаца (двойной перенос строки)
+            split_point = text.rfind('\n\n', search_start, search_end)
+            if split_point == -1:
+                # Если нет двойного переноса, ищем одинарный
+                split_point = text.rfind('\n', search_start, search_end)
+            
+            if split_point == -1:
+                # Если нет переносов строк, используем идеальную позицию
+                split_point = ideal_pos
+            
+            # Создаем чанк
+            chunk = text[current_pos:split_point].strip()
+            if chunk:
+                chunks.append(chunk)
+            
+            # Обновляем позицию для следующего чанка
+            current_pos = split_point
+        
+        print(f"[WorkflowTranslator] Умное разбиение завершено: {len(chunks)} чанков")
+        for i, chunk in enumerate(chunks):
+            print(f"[WorkflowTranslator] Чанк {i+1}: {len(chunk)} символов")
+        
+        return chunks
+
+    def _bubble_chunk_text(self, text: str, target_chunk_size: int = CHUNK_SIZE_LIMIT_CHARS) -> List[str]:
         """
         Метод пузырька: делим текст пополам по абзацам, пока чанки не станут < target_chunk_size
         """
@@ -331,6 +416,13 @@ class WorkflowTranslator:
         elif operation_type == 'analyze':
             system_content = SYSTEM_PROMPT_TEMPLATES['analyze']['system'].format(**formatted_vars)
             user_content = USER_PROMPT_TEMPLATES['analyze']['user'].format(**formatted_vars)
+            
+            messages.append({"role": "system", "content": system_content})
+            messages.append({"role": "user", "content": user_content})
+            
+        elif operation_type == 'reduce':
+            system_content = SYSTEM_PROMPT_TEMPLATES['reduce']['system'].format(**formatted_vars)
+            user_content = USER_PROMPT_TEMPLATES['reduce']['user'].format(**formatted_vars)
             
             messages.append({"role": "system", "content": system_content})
             messages.append({"role": "user", "content": user_content})
@@ -593,7 +685,7 @@ class WorkflowTranslator:
         Использует _build_messages_for_operation для создания промпта
         и _call_model_api для взаимодействия с моделью.
         """
-        CHUNK_SIZE_LIMIT_CHARS = 0 # Инициализируем переменную для определения лимита чанка
+        CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 0 # Инициализируем переменную для определения лимита чанка
 
         # Определение лимита чанка в зависимости от типа операции.
         if operation_type == 'translate':
@@ -602,28 +694,41 @@ class WorkflowTranslator:
             context_token_limit = get_context_length(model_name) if model_name else 2048
             context_chars_limit = context_token_limit * 3
             # Оставляем буфер для промпта и ответа (4000 символов)
-            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
-            if CHUNK_SIZE_LIMIT_CHARS <= 0:
-                CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
-            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ---
-            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit - 4000
+            if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
+                CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit // 2
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум CHUNK_SIZE_LIMIT_CHARS символов ---
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, CHUNK_SIZE_LIMIT_CHARS)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
-            print(f"[WorkflowTranslator] Динамический лимит чанка для перевода: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
-        elif operation_type in ['summarize', 'analyze']:
-            # Динамический расчет лимита чанка для суммаризации/анализа
+            print(f"[WorkflowTranslator] Динамический лимит чанка для перевода: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов (модель: {model_name})")
+        elif operation_type == 'summarize':
+            # Динамический расчет лимита чанка для суммаризации
             from translation_module import get_context_length
             context_token_limit = get_context_length(model_name) if model_name else 2048
             context_chars_limit = context_token_limit * 3
             # Оставляем буфер для промпта и ответа (4000 символов)
-            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
-            if CHUNK_SIZE_LIMIT_CHARS <= 0:
-                CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
-            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ---
-            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit - 4000
+            if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
+                CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit // 2
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум CHUNK_SIZE_LIMIT_CHARS символов ---
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, CHUNK_SIZE_LIMIT_CHARS)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
-            print(f"[WorkflowTranslator] Динамический лимит чанка для {operation_type}: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
+            print(f"[WorkflowTranslator] Динамический лимит чанка для суммаризации: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов (модель: {model_name})")
+        elif operation_type == 'analyze':
+            # Для анализа используем больший лимит, чтобы вместить всю суммаризацию книги
+            from translation_module import get_context_length
+            context_token_limit = get_context_length(model_name) if model_name else 2048
+            context_chars_limit = context_token_limit * 3
+            # Оставляем буфер для промпта и ответа (4000 символов)
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit - 4000
+            if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
+                CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit // 2
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум ANALYSIS_CHUNK_SIZE_LIMIT_CHARS символов для анализа ---
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, ANALYSIS_CHUNK_SIZE_LIMIT_CHARS)
+            # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
+            print(f"[WorkflowTranslator] Динамический лимит чанка для анализа: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов (модель: {model_name})")
         else:
-            CHUNK_SIZE_LIMIT_CHARS = 20000 # Дефолтное значение для неизвестных операций
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 20000 # Дефолтное значение для неизвестных операций
             print(f"[WorkflowTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
 
         # Далее логика для summarize/analyze/translate.
@@ -633,15 +738,15 @@ class WorkflowTranslator:
         if operation_type == 'summarize' or operation_type == 'analyze':
             print(f"[WorkflowTranslator] Вызов операции '{operation_type}' для текста длиной {len(text_to_translate)} символов.")
             
-            # Используем метод пузырька для разбиения на чанки
+            # Используем умное разбиение для оптимального количества чанков
             summarized_chunks = []
             
-            chunks = self._bubble_chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+            chunks = self._smart_chunk_text_for_reduction(text_to_translate, CHUNK_SIZE_LIMIT_CHARS_DYNAMIC)
             if not chunks:
                 print(f"[WorkflowTranslator] Нет чанков для {operation_type}.")
                 return None
             
-            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для {operation_type} (метод пузырька).")
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для {operation_type} (умное разбиение).")
             
             for i, chunk in enumerate(chunks):
                 print(f"[WorkflowTranslator] {operation_type.capitalize()} чанка {i+1}/{len(chunks)} (длина: {len(chunk)} символов)")
@@ -689,12 +794,12 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Вызов операции 'translate' для текста длиной {len(text_to_translate)} символов.")
 
             translated_chunks = []
-            chunks = self._bubble_chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+            chunks = self._smart_chunk_text_for_reduction(text_to_translate, CHUNK_SIZE_LIMIT_CHARS_DYNAMIC)
             if not chunks:
                 print("[WorkflowTranslator] Нет чанков для перевода.")
                 return None
 
-            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков методом пузырька (target_size: {CHUNK_SIZE_LIMIT_CHARS} символов).")
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков умным разбиением (target_size: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов).")
 
             for i, chunk in enumerate(chunks):
                 chunk_stripped = chunk.strip()
@@ -763,6 +868,89 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Неизвестный тип операции: {operation_type}")
             return None 
 
+    def _summarize_to_fit_chunk(self, text: str, target_language: str, model_name: str, prompt_ext: Optional[str] = None) -> str:
+        """
+        Рекурсивно суммаризирует текст, пока он не поместится в один чанк.
+        Используется для подготовки текста к анализу.
+        """
+        if not text or len(text) <= ANALYSIS_CHUNK_SIZE_LIMIT_CHARS:
+            return text
+        
+        print(f"[WorkflowTranslator] Текст слишком большой для анализа ({len(text)} символов). Делаем дополнительную суммаризацию.")
+        
+        # Делаем суммаризацию с использованием ANALYSIS_CHUNK_SIZE_LIMIT_CHARS для разбиения
+        summarized_text = self._summarize_text_with_limit(text, target_language, model_name, prompt_ext, ANALYSIS_CHUNK_SIZE_LIMIT_CHARS)
+        
+        if not summarized_text:
+            print(f"[WorkflowTranslator] Ошибка дополнительной суммаризации. Возвращаем исходный текст.")
+            return text
+        
+        # Рекурсивно проверяем размер
+        if len(summarized_text) <= ANALYSIS_CHUNK_SIZE_LIMIT_CHARS:
+            print(f"[WorkflowTranslator] Дополнительная суммаризация успешна. Размер: {len(summarized_text)} символов.")
+            return summarized_text
+        else:
+            print(f"[WorkflowTranslator] Текст все еще слишком большой ({len(summarized_text)} символов). Повторяем суммаризацию.")
+            return self._summarize_to_fit_chunk(summarized_text, target_language, model_name, prompt_ext)
+
+    def _summarize_text_with_limit(self, text: str, target_language: str, model_name: str, prompt_ext: Optional[str] = None, chunk_limit: int = CHUNK_SIZE_LIMIT_CHARS) -> str | None:
+        """
+        Суммаризирует текст с указанным лимитом чанка.
+        """
+        print(f"[WorkflowTranslator] Вызов операции 'reduce' для текста длиной {len(text)} символов (лимит чанка: {chunk_limit}).")
+        
+        # Используем умное разбиение для оптимального количества чанков
+        reduced_chunks = []
+        
+        chunks = self._smart_chunk_text_for_reduction(text, chunk_limit)
+        if not chunks:
+            print(f"[WorkflowTranslator] Нет чанков для reduce.")
+            return None
+        
+        print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для reduce (умное разбиение, лимит: {chunk_limit}).")
+        
+        for i, chunk in enumerate(chunks):
+            print(f"[WorkflowTranslator] Reduce чанка {i+1}/{len(chunks)} (длина: {len(chunk)} символов)")
+            
+            messages = self._build_messages_for_operation(
+                'reduce',
+                chunk,  # Передаем чанк, а не весь текст
+                target_language, 
+                model_name=model_name,
+                prompt_ext=prompt_ext,
+                dict_data=None
+            )
+            
+            # Для reduce не передаем max_tokens, чтобы модель сама определила длину
+            max_chunk_retries = 2
+            attempt = 0
+            result = None
+            while attempt <= max_chunk_retries:
+                result = self._call_model_api(model_name, messages, operation_type='reduce', chunk_text=chunk)
+                if result is None:
+                    print(f"[WorkflowTranslator] Ошибка reduce чанка {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
+                    attempt += 1
+                    if attempt > max_chunk_retries:
+                        print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не удалось обработать после {max_chunk_retries+1} попыток.")
+                        break
+                    time.sleep(2)
+                    continue
+                break
+            
+            if result and result != CONTEXT_LIMIT_ERROR:
+                reduced_chunks.append(result)
+            else:
+                print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не дал валидного результата. Возвращаем None для ретрая.")
+                return None
+        
+        if reduced_chunks:
+            full_result = "\n\n".join(reduced_chunks)
+            print(f"[WorkflowTranslator] Reduce завершена. Общая длина: {len(full_result)} символов.")
+            return full_result
+        else:
+            print(f"[WorkflowTranslator] Ошибка: reduce не дала результатов.")
+            return None
+
 # --- ПУБЛИЧНАЯ ФУНКЦИЯ, КОТОРАЯ ВЫЗЫВАЕТ МЕТОД КЛАССА ---
 def translate_text(
     text_to_translate: str,
@@ -786,6 +974,89 @@ def translate_text(
         prompt_ext=prompt_ext,
         operation_type=operation_type,
         dict_data=dict_data # !!! Передаем dict_data дальше !!!
+    )
+
+# --- ПУБЛИЧНАЯ ФУНКЦИЯ ДЛЯ АНАЛИЗА С АВТОМАТИЧЕСКОЙ СУММАРИЗАЦИЕЙ ---
+def analyze_with_summarization(
+    text_to_analyze: str,
+    target_language: str = "russian",
+    model_name: str = None,
+    prompt_ext: Optional[str] = None,
+    dict_data: dict | None = None,
+    summarization_model: str = None,
+    book_id: str = None
+) -> str | None:
+    """
+    Анализирует текст с автоматической суммаризацией, если текст слишком большой.
+    Гарантирует, что на анализ попадает текст, помещающийся в один чанк.
+    """
+    print(f"[WorkflowModule] Вызов analyze_with_summarization. Размер текста: {len(text_to_analyze)} символов.")
+    translator = WorkflowTranslator()
+    
+    # Проверяем размер текста
+    if len(text_to_analyze) > ANALYSIS_CHUNK_SIZE_LIMIT_CHARS:
+        print(f"[WorkflowModule] Текст слишком большой для анализа. Применяем рекурсивную суммаризацию.")
+        # Используем модель суммаризации для суммаризации, а не модель анализа
+        summarization_model_to_use = summarization_model or 'meta-llama/llama-4-maverick:free'
+        print(f"[WorkflowModule] Используем модель суммаризации: {summarization_model_to_use}")
+        
+        # Обновляем статус книги на 'processing' для этапа сокращения
+        if book_id:
+            try:
+                import workflow_db_manager
+                workflow_db_manager.update_book_stage_status_workflow(book_id, 'reduce_text', 'processing')
+                print(f"[WorkflowModule] Статус книги обновлен на 'processing' для этапа сокращения.")
+            except Exception as e:
+                print(f"[WorkflowModule] Ошибка при обновлении статуса книги: {e}")
+        
+        summarized_text = translator._summarize_to_fit_chunk(
+            text_to_analyze, 
+            target_language, 
+            summarization_model_to_use,  # Используем модель суммаризации
+            prompt_ext
+        )
+        if not summarized_text:
+            print(f"[WorkflowModule] Ошибка суммаризации. Возвращаем None.")
+            # Обновляем статус книги на 'error' для этапа сокращения
+            if book_id:
+                try:
+                    import workflow_db_manager
+                    workflow_db_manager.update_book_stage_status_workflow(book_id, 'reduce_text', 'error', error_message='Ошибка рекурсивного сокращения текста')
+                    print(f"[WorkflowModule] Статус книги обновлен на 'error' для этапа сокращения.")
+                except Exception as e:
+                    print(f"[WorkflowModule] Ошибка при обновлении статуса книги: {e}")
+            return None
+        text_to_analyze = summarized_text
+        print(f"[WorkflowModule] Текст подготовлен для анализа. Новый размер: {len(text_to_analyze)} символов.")
+        
+        # Обновляем статус книги на 'completed' для этапа сокращения
+        if book_id:
+            try:
+                import workflow_db_manager
+                workflow_db_manager.update_book_stage_status_workflow(book_id, 'reduce_text', 'completed')
+                print(f"[WorkflowModule] Статус книги обновлен на 'completed' для этапа сокращения.")
+            except Exception as e:
+                print(f"[WorkflowModule] Ошибка при обновлении статуса книги: {e}")
+        
+        # Сохраняем суммаризацию в кэш, если передан book_id
+        if book_id:
+            try:
+                import workflow_cache_manager
+                if workflow_cache_manager.save_book_stage_result(book_id, 'analysis_summary', summarized_text):
+                    print(f"[WorkflowModule] Суммаризация для анализа сохранена в кэш (book_id: {book_id}, размер: {len(summarized_text)} символов)")
+                else:
+                    print(f"[WorkflowModule] Предупреждение: Не удалось сохранить суммаризацию в кэш (book_id: {book_id})")
+            except Exception as e:
+                print(f"[WorkflowModule] Ошибка при сохранении суммаризации в кэш: {e}")
+    
+    # Теперь анализируем подготовленный текст с моделью анализа
+    return translator.translate_text(
+        text_to_translate=text_to_analyze,
+        target_language=target_language,
+        model_name=model_name,  # Используем модель анализа
+        prompt_ext=prompt_ext,
+        operation_type='analyze',
+        dict_data=dict_data
     )
 
 # TODO: Возможно, потребуется реализовать другие функции, аналогичные translation_module,

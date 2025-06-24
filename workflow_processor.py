@@ -41,6 +41,9 @@ SUMMARIZATION_STAGE_NAME = 'summarize'
 ANALYSIS_MODEL = 'deepseek/deepseek-chat-v3-0324:free' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
+# --- Constants for Recursive Reduction Stage ---
+REDUCTION_STAGE_NAME = 'reduce_text'
+
 # --- Workflow Configuration ---
 DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after retries) as completed_empty instead of error
 MAX_RETRIES = 2 # Number of additional retries for model calls
@@ -433,11 +436,17 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
             recalculate_book_stage_status(book_id, stage_name)
         else:
             # Книжный этап (анализ, создание epub и т.д.)
+            result = True  # По умолчанию успех
             if stage_name == 'analyze':
-                process_book_analysis(book_id)
+                result = process_book_analysis(book_id)
             elif stage_name == 'epub_creation':
-                process_book_epub_creation(book_id)
+                result = process_book_epub_creation(book_id)
             # Можно добавить другие этапы по аналогии
+            
+            # Проверяем результат книжного этапа
+            if result is False:
+                print(f"[WorkflowProcessor] Критическая ошибка на книжном этапе '{stage_name}'. Останавливаем workflow.")
+                return False
         # После завершения этапа обновляем book_info для получения актуальных статусов
         book_info = workflow_db_manager.get_book_workflow(book_id)
         # --- ВЫЗЫВАЕМ обновление статуса книги ---
@@ -529,15 +538,17 @@ def process_book_analysis(book_id: str):
         for attempt in range(MAX_RETRIES + 1):
             print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для анализа книги {book_id}...")
             try:
-                 print(f"[WorkflowProcessor] Вызов translate_text для анализа книги {book_id} ({model_name} -> {target_language})")
-                 analysis_result = workflow_translation_module.translate_text(
-                     text_to_translate=collected_summary_text, # Pass the collected summary text
+                 print(f"[WorkflowProcessor] Вызов analyze_with_summarization для анализа книги {book_id} ({model_name} -> {target_language})")
+                 analysis_result = workflow_translation_module.analyze_with_summarization(
+                     text_to_analyze=collected_summary_text, # Pass the collected summary text
                      target_language=target_language,
                      model_name=model_name,
                      prompt_ext="", # prompt_ext всегда пустой для анализа
-                     operation_type=ANALYSIS_STAGE_NAME # Pass the operation type
+                     dict_data=None, # dict_data не нужен для анализа
+                     summarization_model=ANALYSIS_MODEL, # Используем модель анализа для рекурсивной суммаризации
+                     book_id=book_id # Передаем book_id для сохранения суммаризации в кэш
                  )
-                 print(f"[WorkflowProcessor] Результат translate_text: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
+                 print(f"[WorkflowProcessor] Результат analyze_with_summarization: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
 
                  if analysis_result is not None and analysis_result.strip() != "":
                       status = 'completed'
@@ -605,7 +616,6 @@ def process_book_analysis(book_id: str):
         return status in ['completed', 'completed_empty'] # Return True if completed successfully or empty
 
     except Exception as e:
-        import traceback
         tb = traceback.format_exc()
         print(f"[WorkflowProcessor] Необработанная ошибка при анализе книги {book_id}: {e}\n{tb}")
         workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, f"error_unknown", error_message=f"Необработанная ошибка: {e}\n{tb}")
@@ -617,7 +627,6 @@ def process_section_translate(book_id: str, section_id: int):
     """
     Процессит перевод одной секции.
     """
-    import traceback
     from epub_parser import extract_section_text
     import workflow_cache_manager
     import workflow_db_manager
