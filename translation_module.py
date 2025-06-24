@@ -328,111 +328,143 @@ class OpenRouterTranslator(BaseTranslator):
             print(f"Ошибка при получении списка моделей OpenRouter: {e}")
             return []
 
-    def _get_next_chunk(self, text: str, model_name: str) -> tuple[str, str]:
+    def _bubble_chunk_text(self, text: str, target_chunk_size: int = 30000) -> List[str]:
         """
-        Разбивает текст на чанки, которые поместятся в контекст модели.
-        Возвращает кортеж (текущий_чанк, оставшийся_текст).
-
-        TODO: Текущая реализация имеет несколько проблем:
-        1. Начинаем с фиксированного размера чанка в 1000 символов
-        2. Не учитываем размер промпта при расчете
-        3. Не учитываем max_tokens для ответа
-        4. Просто делим контекст пополам, что может быть неоптимально
-
-        Нужно пересмотреть логику:
-        - Учитывать размер промпта
-        - Учитывать max_tokens для ответа
-        - Возможно, разбивать по предложениям/параграфам
-        - Добавить перекрытие чанков для лучшего контекста
+        Метод пузырька: делим текст пополам по абзацам, пока чанки не станут < target_chunk_size
         """
-        # Получаем лимит контекста для модели в токенах
-        context_token_limit = get_context_length(model_name)
+        if not text.strip():
+            return []
         
-        # Грубая оценка: 1 токен ~ 3.5-4 символа. Возьмем 3 для запаса.
-        # Это максимальное количество символов, которое может поместиться в контекст.
-        context_chars_limit = context_token_limit * 3
+        chunks = [text]
         
-        # Устанавливаем лимит для чанка, оставляя ~4000 символов для промпта и ответа.
-        CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
-        if CHUNK_SIZE_LIMIT_CHARS <= 0:
-            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2 # Если буфер слишком большой
+        while True:
+            new_chunks = []
+            need_splitting = False
+            
+            for chunk in chunks:
+                if len(chunk) > target_chunk_size:
+                    # Ищем середину текста
+                    mid = len(chunk) // 2
+                    
+                    # Ищем ближайший разрыв абзаца (двойной перенос строки) до середины
+                    split_point = chunk.rfind('\n\n', 0, mid)
+                    if split_point == -1:
+                        # Если нет двойного переноса, ищем одинарный
+                        split_point = chunk.rfind('\n', 0, mid)
+                    
+                    if split_point == -1:
+                        # Если нет переносов строк, используем середину
+                        split_point = mid
+                    
+                    # Убираем лишние пробелы в начале второго чанка
+                    first_chunk = chunk[:split_point].rstrip()
+                    second_chunk = chunk[split_point:].lstrip()
+                    
+                    if first_chunk:
+                        new_chunks.append(first_chunk)
+                    if second_chunk:
+                        new_chunks.append(second_chunk)
+                    
+                    need_splitting = True
+                else:
+                    new_chunks.append(chunk)
+            
+            chunks = new_chunks
+            if not need_splitting:
+                break
         
-        # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 60000 символов ---
-        CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
-        # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
-
-        if len(text) <= CHUNK_SIZE_LIMIT_CHARS:
-            return text, ""
-
-        # Ищем разрыв предложения до лимита
-        # Ищем с конца к началу от лимита, чтобы получить максимально большой чанк
-        split_pos = -1
-        # Приоритет разделителей: конец абзаца, потом предложения
-        for sep in ['\n\n', '.\n', '!\n', '?\n', '. ', '! ', '? ']:
-            # Ищем последнее вхождение разделителя в пределах лимита
-            pos = text.rfind(sep, 0, CHUNK_SIZE_LIMIT_CHARS)
-            if pos != -1:
-                split_pos = pos + len(sep)
-                break # Нашли лучший разделитель, выходим
-
-        if split_pos == -1:
-            # Если не нашли хороший разрыв, просто режем по лимиту
-            split_pos = CHUNK_SIZE_LIMIT_CHARS
-
-        chunk = text[:split_pos]
-        remaining_text = text[split_pos:]
-        
-        return chunk, remaining_text
+        return chunks
 
     def translate_text(self, text_to_translate: str, target_language: str = "russian",
                        model_name: str = None, prompt_ext: Optional[str] = None,
                        operation_type: str = 'translate') -> Optional[str]:
         """
         Основная функция для перевода текста с использованием OpenRouter.
-        Обрабатывает разделение на чанки, повторные попытки и ошибки API.
+        Обрабатывает разделение на чанки методом пузырька, повторные попытки и ошибки API.
         """
+        # Получаем лимит контекста для модели в токенах
+        context_token_limit = get_context_length(model_name)
+        
+        # Грубая оценка: 1 токен ~ 3.5-4 символа. Возьмем 3 для запаса.
+        context_chars_limit = context_token_limit * 3
+        
+        # Устанавливаем лимит для чанка, оставляя ~4000 символов для промпта и ответа.
+        CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
+        if CHUNK_SIZE_LIMIT_CHARS <= 0:
+            CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
+        
+        # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ---
+        CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
+        # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
+        
+        # Разбиваем текст на чанки методом пузырька
+        chunks = self._bubble_chunk_text(text_to_translate, CHUNK_SIZE_LIMIT_CHARS)
+        if not chunks:
+            print("[OpenRouter] Нет чанков для перевода.")
+            return None
+        
+        print(f"[OpenRouter] Текст разбит на {len(chunks)} чанков методом пузырька (target_size: {CHUNK_SIZE_LIMIT_CHARS} символов).")
+        
         final_translation = []
-        remaining_text = text_to_translate
         previous_chunk_context = ""
-        MAX_CHUNK_RETRIES = 2 # Повторить чанк до 2 раз в случае ошибки TRUNCATED
-        chunk_retry_count = 0
-
-        while remaining_text.strip() and chunk_retry_count < MAX_CHUNK_RETRIES:
-            # --- Логика определения размера чанка ---
-            chunk, remaining_text = self._get_next_chunk(remaining_text, model_name)
-
-            # --- Вызов API для одного чанка ---
-            print(f"  [OpenRouter] Обработка чанка длиной {len(chunk)} символов...")
-            translated_chunk = self.translate_chunk(
-                model_name=model_name,
-                text=chunk,
-                target_language=target_language,
-                previous_context=previous_chunk_context,
-                prompt_ext=prompt_ext,
-                operation_type=operation_type
-            )
-
-            # --- Обработка результата ---
+        MAX_CHUNK_RETRIES = 2
+        
+        for i, chunk in enumerate(chunks):
+            chunk_stripped = chunk.strip()
+            chunk_length = len(chunk_stripped)
+            print(f"[OpenRouter] Перевод чанка {i+1}/{len(chunks)} (длина: {chunk_length} символов).")
+            
+            max_chunk_retries = MAX_CHUNK_RETRIES
+            attempt = 0
+            translated_chunk = None
+            
+            while attempt <= max_chunk_retries:
+                translated_chunk = self.translate_chunk(
+                    model_name=model_name,
+                    text=chunk,
+                    target_language=target_language,
+                    previous_context=previous_chunk_context,
+                    prompt_ext=prompt_ext,
+                    operation_type=operation_type
+                )
+                
+                if translated_chunk is None:
+                    print(f"[OpenRouter] Ошибка перевода чанка {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
+                    attempt += 1
+                    if attempt > max_chunk_retries:
+                        print(f"[OpenRouter] Ошибка: чанк {i+1} не удалось перевести после {max_chunk_retries+1} попыток.")
+                        break
+                    time.sleep(2)
+                    continue
+                
+                # Проверка на специальные ошибки
+                if translated_chunk == TRUNCATED_RESPONSE_ERROR:
+                    print(f"[OpenRouter] Обнаружена ошибка TRUNCATED_RESPONSE_ERROR для чанка {i+1}. Попытка {attempt+1}/{max_chunk_retries+1}.")
+                    attempt += 1
+                    if attempt > max_chunk_retries:
+                        print(f"[OpenRouter] Ошибка: чанк {i+1} остался обрезанным после {max_chunk_retries+1} попыток.")
+                        break
+                    time.sleep(2)
+                    continue
+                
+                # Проверка на другие ошибки
+                if translated_chunk in [CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR]:
+                    print(f"[OpenRouter] Ошибка обработки чанка {i+1}: {translated_chunk}")
+                    break
+                
+                # Успешный перевод
+                break
+            
+            # Обработка результата
             if translated_chunk and translated_chunk not in [CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR, TRUNCATED_RESPONSE_ERROR]:
                 final_translation.append(translated_chunk)
                 # Обновляем контекст для следующего чанка
-                previous_chunk_context = translated_chunk[-500:] # Последние 500 символов в качестве контекста
-                chunk_retry_count = 0 # Сбрасываем счетчик ретраев при успехе
-            elif translated_chunk == TRUNCATED_RESPONSE_ERROR:
-                print(f"  [OpenRouter] Обнаружено обрезание ответа. Повторная обработка чанка (попытка {chunk_retry_count + 1}/{MAX_CHUNK_RETRIES}).")
-                chunk_retry_count += 1
-                # Не меняем remaining_text, чтобы повторить тот же чанк
-                remaining_text = chunk + remaining_text
+                previous_chunk_context = translated_chunk[-500:]  # Последние 500 символов
             else:
-                # В случае CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR или None
-                print(f"  [OpenRouter] Ошибка обработки чанка ({translated_chunk}). Пропускаем чанк.")
-                # Можно добавить оригинальный текст в перевод с пометкой об ошибке
-                final_translation.append(f"\n\n[ОШИБКА ПЕРЕВОДА: {translated_chunk}]\n{chunk}\n[КОНЕЦ ОШИБКИ]\n\n")
-                chunk_retry_count = 0 # Не повторяем при этих ошибках
-
-        if chunk_retry_count >= MAX_CHUNK_RETRIES:
-             print(f"  [OpenRouter] Достигнут лимит ({MAX_CHUNK_RETRIES}) повторных попыток для обрезанного чанка. Перевод может быть неполным.")
-
+                # Добавляем оригинальный текст с пометкой об ошибке
+                error_msg = translated_chunk if translated_chunk else "None"
+                final_translation.append(f"\n\n[ОШИБКА ПЕРЕВОДА: {error_msg}]\n{chunk}\n[КОНЕЦ ОШИБКИ]\n\n")
+        
         return "".join(final_translation) if final_translation else None
 
     def translate_chunk(

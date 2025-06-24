@@ -488,15 +488,16 @@ class WorkflowTranslator:
                                 finish_reason = choice.get('finish_reason')
                                 print(f"[WorkflowTranslator] finish_reason: {finish_reason}")
                                 
-                                # --- ПРОВЕРКА finish_reason на ошибку ---
-                                if finish_reason == 'error':
-                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула finish_reason='error'. Возвращаем None.")
+                                # --- ПРОВЕРКА finish_reason на успех ---
+                                if finish_reason != 'stop':
+                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула finish_reason='{finish_reason}' вместо 'stop'. Возвращаем None для ретрая.")
                                     return None
                                 # --- КОНЕЦ ПРОВЕРКИ ---
                                 
-                                is_truncated = finish_reason == 'length'
-                                if is_truncated:
-                                    return 'TRUNCATED_RESPONSE_ERROR'
+                                # --- ПРОВЕРКА ДЛИНЫ ТЕКСТА ПОСЛЕ УСПЕШНОГО finish_reason ---
+                                if not output_content.strip() or len(output_content.strip()) < 10:
+                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой или слишком короткий текст (длина: {len(output_content.strip())}). Возвращаем None для ретрая.")
+                                    return None
                                 
                                 # --- ЭВРИСТИКА определения потенциально неполного перевода ---
                                 if operation_type == 'translate' and chunk_text:
@@ -504,8 +505,8 @@ class WorkflowTranslator:
                                     input_char_len = len(chunk_text)
                                     output_char_len = len(output_content)
                                     if output_char_len < input_char_len * 0.8:
-                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<80%). Возвращаем TRUNCATED_RESPONSE_ERROR.")
-                                        return 'TRUNCATED_RESPONSE_ERROR'
+                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<80%). Возвращаем None для ретрая.")
+                                        return None
                                 
                                 print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")
                                 return output_content
@@ -604,8 +605,8 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS <= 0:
                 CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
-            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 60000 символов ---
-            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 60000)
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ---
+            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
             print(f"[WorkflowTranslator] Динамический лимит чанка для перевода: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         elif operation_type in ['summarize', 'analyze']:
@@ -617,8 +618,8 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS <= 0:
                 CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
-            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 60000 символов ---
-            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 60000)
+            # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ---
+            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
             print(f"[WorkflowTranslator] Динамический лимит чанка для {operation_type}: {CHUNK_SIZE_LIMIT_CHARS} символов (модель: {model_name})")
         else:
@@ -670,12 +671,11 @@ class WorkflowTranslator:
                         continue
                     break
                 
-                if result and result not in [CONTEXT_LIMIT_ERROR, EMPTY_RESPONSE_ERROR, 'TRUNCATED_RESPONSE_ERROR']:
+                if result and result != CONTEXT_LIMIT_ERROR:
                     summarized_chunks.append(result)
                 else:
-                    print(f"[WorkflowTranslator] Ошибка {operation_type} чанка {i+1}: {result}")
-                    # Добавляем оригинальный текст с пометкой об ошибке
-                    summarized_chunks.append(f"\n[ОШИБКА {operation_type.upper()}: {result}]\n{chunk}\n[КОНЕЦ ОШИБКИ]\n")
+                    print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не дал валидного результата. Возвращаем None для ретрая.")
+                    return None
             
             if summarized_chunks:
                 full_result = "\n\n".join(summarized_chunks)
