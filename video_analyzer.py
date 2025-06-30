@@ -311,7 +311,7 @@ class VideoAnalyzer:
             model = "deepseek/deepseek-r1-0528:free"
             
             # Retry логика с уменьшением max_tokens
-            max_tokens_options = [16000, 8000, 4000, 2000]
+            max_tokens_options = [64000, 32000, 16000, 8000, 4000, 2000]
             
             for max_tokens in max_tokens_options:
                 try:

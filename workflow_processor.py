@@ -38,7 +38,7 @@ SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free' #'models/gemini-2.5-fla
 SUMMARIZATION_STAGE_NAME = 'summarize'
 
 # --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'deepseek/deepseek-r1-0528:free' # Можно использовать ту же модель или другую
+ANALYSIS_MODEL = 'models/gemini-2.5-flash-preview-05-20' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
 
 # --- Constants for Recursive Reduction Stage ---
