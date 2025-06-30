@@ -49,6 +49,7 @@ import epub_parser
 import workflow_processor
 import workflow_cache_manager
 import html
+import video_analyzer
 
 # --- Настройки ---
 UPLOAD_FOLDER = 'uploads'
@@ -1358,6 +1359,57 @@ def workflow_start_existing_book(book_id):
     except Exception as e:
         current_app.logger.error(f"Ошибка при запуске рабочего процесса для книги {book_id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ---
+
+# --- НОВЫЕ МАРШРУТЫ ДЛЯ АНАЛИЗА ВИДЕО ---
+
+@app.route('/video-analysis', methods=['GET'])
+def video_analysis_page():
+    """Отображает страницу для анализа видео."""
+    return render_template('video_analysis.html')
+
+@app.route('/api/analyze-video', methods=['POST'])
+def api_analyze_video():
+    """API эндпойнт для анализа видео."""
+    try:
+        data = request.get_json()
+        if not data or 'video_url' not in data:
+            return jsonify({'error': 'Не указан URL видео'}), 400
+        
+        video_url = data['video_url'].strip()
+        if not video_url:
+            return jsonify({'error': 'URL видео не может быть пустым'}), 400
+        
+        print(f"[VideoAnalysis] Запрос на анализ видео: {video_url}")
+        
+        # Создаем экземпляр анализатора
+        try:
+            analyzer = video_analyzer.VideoAnalyzer()
+        except ValueError as e:
+            return jsonify({'error': f'Ошибка инициализации: {str(e)}'}), 500
+        
+        # Выполняем анализ
+        result = analyzer.analyze_video(video_url)
+        
+        if result.get('error'):
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+        else:
+            return jsonify({
+                'success': True,
+                'sharing_url': result['sharing_url'],
+                'extracted_text_length': len(result['extracted_text']) if result['extracted_text'] else 0,
+                'analysis': result['analysis']
+            }), 200
+            
+    except Exception as e:
+        print(f"[VideoAnalysis] Непредвиденная ошибка: {e}")
+        return jsonify({'error': f'Непредвиденная ошибка: {str(e)}'}), 500
+
+# --- КОНЕЦ МАРШРУТОВ ДЛЯ АНАЛИЗА ВИДЕО ---
 
 # --- Запуск приложения ---
 if __name__ == '__main__':
