@@ -124,22 +124,30 @@
         }
         
         /* Стили для markdown контента */
-        .analysis-text h1, .analysis-text h2, .analysis-text h3, .analysis-text h4 {
-            margin-top: 5px;
-            margin-bottom: 3px;
+        .analysis-text p,
+        .analysis-text ul,
+        .analysis-text ol,
+        .analysis-text li,
+        .analysis-text h1,
+        .analysis-text h2,
+        .analysis-text h3,
+        .analysis-text h4,
+        .analysis-text h5,
+        .analysis-text h6 {
+            margin: 0;
+            padding: 0;
         }
-        .analysis-text h1:first-child, .analysis-text h2:first-child, .analysis-text h3:first-child {
-            margin-top: 0;
-        }
-        .analysis-text p {
-            margin-bottom: 3px;
-        }
-        .analysis-text ul, .analysis-text ol {
-            margin-bottom: 3px;
-            padding-left: 20px;
-        }
-        .analysis-text li {
-            margin-bottom: 1px;
+        .analysis-text p + p,
+        .analysis-text p + ul,
+        .analysis-text ul + p,
+        .analysis-text li + li,
+        .analysis-text h1,
+        .analysis-text h2,
+        .analysis-text h3,
+        .analysis-text h4,
+        .analysis-text h5,
+        .analysis-text h6 {
+            margin-top: 6px;
         }
         .analysis-text strong {
             font-weight: 600;
@@ -197,6 +205,29 @@
         }
         .nav-links a:hover {
             text-decoration: underline;
+        }
+        .analysis-text h1, .analysis-text h2, .analysis-text h3, .analysis-text h4, .analysis-text h5, .analysis-text h6 {
+            margin-top: 14px;
+            margin-bottom: 6px;
+            font-weight: bold;
+        }
+        .analysis-text p {
+            margin: 6px 0 6px 0;
+        }
+        .analysis-text ul, .analysis-text ol {
+            margin: 6px 0 6px 20px;
+        }
+        .analysis-text li {
+            margin-bottom: 3px;
+        }
+        .analysis-text blockquote {
+            margin: 8px 0;
+            padding-left: 12px;
+            border-left: 2px solid #ccc;
+        }
+        .analysis-text pre {
+            margin: 8px 0;
+            padding: 7px;
         }
     </style>
 </head>
