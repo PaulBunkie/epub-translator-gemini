@@ -308,7 +308,7 @@ class VideoAnalyzer:
             }
             
             # Используем модель по умолчанию
-            model = "deepseek/deepseek-r1-0528:free"
+            model = "microsoft/mai-ds-r1:free"
             
             # Retry логика с уменьшением max_tokens
             max_tokens_options = [64000, 32000, 16000, 8000, 4000, 2000]
