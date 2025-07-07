@@ -320,7 +320,7 @@ class VideoAnalyzer:
                         "messages": [
                             {
                                 "role": "user",
-                                "content": f"{prompt}\n\nТекст для анализа:\n\n{text}"
+                                "content": f"{prompt}{chr(10)}{chr(10)}Текст для анализа:{chr(10)}{chr(10)}{text}"
                             }
                         ],
                         "max_tokens": max_tokens,

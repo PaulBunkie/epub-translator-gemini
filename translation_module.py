@@ -105,7 +105,7 @@ Analysis:"""
 def _format_prompt_section(title: str, content: Optional[str]) -> str:
     """Форматирует дополнительную секцию промпта, если контент существует."""
     if content and content.strip():
-        return f"\n---\n{title}:\n{content}\n---"
+        return f"{chr(10)}---{chr(10)}{title}:{chr(10)}{content}{chr(10)}---"
     return ""
 
 class BaseTranslator(ABC):
@@ -463,7 +463,7 @@ class OpenRouterTranslator(BaseTranslator):
             else:
                 # Добавляем оригинальный текст с пометкой об ошибке
                 error_msg = translated_chunk if translated_chunk else "None"
-                final_translation.append(f"\n\n[ОШИБКА ПЕРЕВОДА: {error_msg}]\n{chunk}\n[КОНЕЦ ОШИБКИ]\n\n")
+                final_translation.append(f"{chr(10)}{chr(10)}[ОШИБКА ПЕРЕВОДА: {error_msg}]{chr(10)}{chunk}{chr(10)}[КОНЕЦ ОШИБКИ]{chr(10)}{chr(10)}")
         
         return "".join(final_translation) if final_translation else None
 

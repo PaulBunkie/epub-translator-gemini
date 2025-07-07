@@ -50,11 +50,13 @@ import workflow_processor
 import workflow_cache_manager
 import html
 import video_analyzer
+import toptube10
+import video_db
 
 # --- Настройки ---
-UPLOAD_FOLDER = 'uploads'
-CACHE_DIR = ".epub_cache"
-FULL_TRANSLATION_DIR = ".translated"
+from config import UPLOADS_DIR, CACHE_DIR, FULL_TRANSLATION_DIR
+
+UPLOAD_FOLDER = str(UPLOADS_DIR)
 ALLOWED_EXTENSIONS = {'epub'}
 
 app = Flask(__name__)
@@ -69,11 +71,8 @@ with app.app_context():
      init_db()
      # Инициализируем новую БД для рабочего процесса
      workflow_db_manager.init_workflow_db()
-
-# --- Создаем необходимые директории ---
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(CACHE_DIR, exist_ok=True)
-os.makedirs(FULL_TRANSLATION_DIR, exist_ok=True)
+     # Инициализируем БД для видео
+     video_db.init_video_db()
 
 # --- Настраиваем API перевода ---
 try:
@@ -122,6 +121,38 @@ if hasattr(location_finder, 'update_locations_for_predefined_persons'):
 else:
     print("[Scheduler] ОШИБКА: Функция 'update_locations_for_predefined_persons' не найдена в location_finder. Задание не добавлено.")
 # --- КОНЕЦ НОВОГО ЗАДАНИЯ ---
+
+# --- ЗАДАНИЯ ДЛЯ TOPTUBE ---
+scheduler.add_job(
+    toptube10.collect_videos_task,
+    trigger='interval',
+    hours=4,  # Сбор видео каждые 4 часа
+    id='toptube_collect_job',
+    replace_existing=True,
+    misfire_grace_time=600
+)
+print("[Scheduler] Задание 'toptube_collect_job' добавлено (сбор видео каждые 4 часа).")
+
+scheduler.add_job(
+    toptube10.analyze_next_video_task,
+    trigger='interval',
+    minutes=5,  # Анализ видео каждые 5 минут
+    id='toptube_analyze_job',
+    replace_existing=True,
+    misfire_grace_time=300
+)
+print("[Scheduler] Задание 'toptube_analyze_job' добавлено (анализ видео каждые 5 минут).")
+
+scheduler.add_job(
+    toptube10.cleanup_videos_task,
+    trigger='cron',
+    hour=2,  # Очистка каждый день в 2:00
+    id='toptube_cleanup_job',
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+print("[Scheduler] Задание 'toptube_cleanup_job' добавлено (очистка старых данных ежедневно в 2:00).")
+# --- КОНЕЦ ЗАДАНИЙ ДЛЯ TOPTUBE ---
 
 try:
     scheduler.start()
@@ -667,9 +698,9 @@ def download_full(book_id):
     # Добавляем предупреждения в начало, если есть пропущенные или ошибочные секции
     warnings = []
     if missing_cache:
-        warnings.append(f"ПРЕДУПРЕЖДЕНИЕ: Нет кэша {target_language} (или ошибка чтения кэша) для секций: {", ".join(missing_cache)}\n")
+        warnings.append(f"ПРЕДУПРЕЖДЕНИЕ: Нет кэша {target_language} (или ошибка чтения кэша) для секций: {', '.join(missing_cache)}\n")
     if errors:
-        warnings.append(f"ПРЕДУПРЕЖДЕНИЕ: Ошибки обработки для секций: {", ".join(errors)}\n")
+        warnings.append(f"ПРЕДУПРЕЖДЕНИЕ: Ошибки обработки для секций: {', '.join(errors)}\n")
 
     full_text = "".join(warnings) + "".join(full_text_parts) # Добавляем предупреждения в начало
 

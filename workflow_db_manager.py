@@ -9,16 +9,9 @@ from flask import g # Используем Flask's g для управления
 from typing import List, Dict, Any
 
 # --- Настройки новой базы данных ---
-DATABASE_FILE = '.epub_workflow.db'
+from config import WORKFLOW_DB_FILE
 
-# Убедимся, что директория для БД существует
-# Используем относительный путь к файлу, os.path.dirname вернет '' если путь текущий
-db_dir = os.path.dirname(DATABASE_FILE)
-if db_dir:
-    os.makedirs(db_dir, exist_ok=True)
-else:
-     # Если DATABASE_FILE в текущей директории, убеждаемся, что текущая директория существует (всегда так)
-     pass
+DATABASE_FILE = str(WORKFLOW_DB_FILE)
 
 def get_workflow_db():
     """Устанавливает соединение с новой базой данных и возвращает его."""

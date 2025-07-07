@@ -296,7 +296,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
             for art_idx, article_item in enumerate(articles):
                 title = article_item.get("title","").strip(); description = article_item.get("description","") # Не strip() здесь, чтобы сохранить None
                 if title: # Берем если есть title
-                     news_summaries.append(f"Article {art_idx+1}:\nTitle: {title}\nDescription: {description if description else ''}\n---")
+                     news_summaries.append(f"Article {art_idx+1}:{chr(10)}Title: {title}{chr(10)}Description: {description if description else ''}{chr(10)}---")
 
             if not news_summaries:
                 person_api_data_fresh = {"location_name": "Error", "lat": None, "lon": None, "error": "No suitable news summaries found"}
@@ -306,7 +306,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
                 summary_preview_len = 1000
                 text_preview = news_text[:summary_preview_len]
                 remaining_chars = len(news_text) - summary_preview_len if len(news_text) > summary_preview_len else 0
-                print(f"\n{LF_PRINT_PREFIX} ---- ТЕКСТ ДЛЯ GEMINI ({person_name_cleaned}) (из {len(news_summaries)} статей, превью) ----\n{text_preview}...\n(Далее еще {remaining_chars} симв.)\n---- КОНЕЦ ТЕКСТА ----\n")
+                print(f"{chr(10)}{LF_PRINT_PREFIX} ---- ТЕКСТ ДЛЯ GEMINI ({person_name_cleaned}) (из {len(news_summaries)} статей, превью) ----{chr(10)}{text_preview}...{chr(10)}(Далее еще {remaining_chars} симв.){chr(10)}---- КОНЕЦ ТЕКСТА ----{chr(10)}")
                 print(f"{LF_PRINT_PREFIX} Сформировано саммари ({len(news_summaries)} статей). Длина: {len(news_text)}.")
                 MAX_CHARS_FOR_GEMINI = 750000
                 if len(news_text) > MAX_CHARS_FOR_GEMINI:

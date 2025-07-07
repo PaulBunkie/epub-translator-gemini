@@ -8,7 +8,7 @@ from epub_parser import get_epub_structure, extract_section_text
 from cache_manager import get_translation_from_cache, save_translation_to_cache, save_translated_chapter # Импортируем функцию сохранения полного файла
 
 # Определим имя папки для полных переводов
-FULL_TRANSLATION_DIR = ".translated"
+from config import FULL_TRANSLATION_DIR
 
 def run_epub_translation_test(epub_filepath, target_language, model_name, save_full_translation=False, max_parts=None):
     """Основная функция для тестирования перевода EPUB."""
@@ -155,7 +155,7 @@ if __name__ == "__main__":
         # Изменяем значение по умолчанию и описание для языка
         parser.add_argument("-l", "--target_language", default="russian", help="Целевой язык перевода (англ. название, по умолчанию: russian).")
         parser.add_argument("-m", "--model_name", default="gemini-1.5-flash", help="Имя используемой модели Gemini (по умолчанию: gemini-1.5-flash).")
-        parser.add_argument("--full", action="store_true", help="Сохранить весь перевод в один файл в папку .translated.")
+        parser.add_argument("--full", action="store_true", help="Сохранить весь перевод в один файл в папку translated.")
         parser.add_argument("--parts", type=int, default=None, help="Остановить перевод после указанного количества разделов.")
 
 

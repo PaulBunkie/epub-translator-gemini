@@ -181,7 +181,7 @@ def create_translated_epub(book_info, target_language):
                                 footnote_lines_html.append(f'<p class="footnote-definition" id="{note_anchor_id}">{marker} {note_text_md}{backlink_html}</p>')
                             else: footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
                         else: footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
-                    if footnote_lines_html: final_content_blocks.append(f'<div class="footnote-block">\n{"\n".join(footnote_lines_html)}\n</div>')
+                    if footnote_lines_html: final_content_blocks.append(f'<div class="footnote-block">\n{chr(10).join(footnote_lines_html)}\n</div>')
                 else:
                     # Обработка обычного параграфа
                     text_normalized = unicodedata.normalize('NFC', para_strip)
@@ -203,7 +203,8 @@ def create_translated_epub(book_info, target_language):
                             current_para_html = current_para_html[:start] + replacement + current_para_html[end:]
                             offset += len(replacement) - (end - start)
                             processed_markers_count += 1
-                    final_para_html = f"<p>{current_para_html.replace('\n', '<br/>')}</p>"
+                    processed_html = current_para_html.replace('\n', '<br/>')
+                    final_para_html = f"<p>{processed_html}</p>"
                     final_content_blocks.append(final_para_html)
 
             # После всех циклов для секции

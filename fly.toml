@@ -1,0 +1,26 @@
+# fly.toml app configuration file generated for aitube on 2025-07-07T06:15:22+03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+# fly.toml
+app = "aitube"
+primary_region = "arn"
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+# Секция для подключения постоянного диска
+[mounts]
+  source = "aitube_data"
+  destination = "/data"
+
+# Секция для указания размера машины
+[machines]
+  size = "shared-cpu-1x"
+  memory = "256mb"

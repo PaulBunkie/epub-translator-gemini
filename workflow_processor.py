@@ -617,8 +617,8 @@ def process_book_analysis(book_id: str):
 
     except Exception as e:
         tb = traceback.format_exc()
-        print(f"[WorkflowProcessor] Необработанная ошибка при анализе книги {book_id}: {e}\n{tb}")
-        workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, f"error_unknown", error_message=f"Необработанная ошибка: {e}\n{tb}")
+        print(f"[WorkflowProcessor] Необработанная ошибка при анализе книги {book_id}: {e}{chr(10)}{tb}")
+        workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, f"error_unknown", error_message=f"Необработанная ошибка: {e}{chr(10)}{tb}")
         update_overall_workflow_book_status(book_id)
         return False
 

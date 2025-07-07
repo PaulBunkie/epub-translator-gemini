@@ -3,7 +3,9 @@ import sqlite3
 import json
 import time # Оставляем time на случай, если понадобится для отладки или будущих функций
 
-DATABASE_FILE = "epub_translator.db"
+from config import MAIN_DB_FILE
+
+DATABASE_FILE = str(MAIN_DB_FILE)
 
 def get_db_connection():
     conn = sqlite3.connect(DATABASE_FILE, check_same_thread=False, timeout=10) 

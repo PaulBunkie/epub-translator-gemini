@@ -3,8 +3,10 @@ import json
 import traceback
 import shutil
 
+from config import CACHE_DIR
+
 # Базовая директория для кэша рабочего процесса
-WORKFLOW_CACHE_BASE_DIR = '.epub_cache/workflow'
+WORKFLOW_CACHE_BASE_DIR = str(CACHE_DIR / "workflow")
 
 # Убедимся, что базовая директория кэша существует при импорте модуля
 os.makedirs(WORKFLOW_CACHE_BASE_DIR, exist_ok=True)

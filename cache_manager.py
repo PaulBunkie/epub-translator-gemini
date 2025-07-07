@@ -4,7 +4,7 @@ import os
 import hashlib
 import shutil # <--- Добавляем импорт shutil для удаления папок
 
-CACHE_DIR = ".epub_cache" # Название папки для кэша
+from config import CACHE_DIR
 
 def _get_epub_id(epub_filepath):
     """Создает уникальный ID для файла EPUB на основе его пути."""
