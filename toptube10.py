@@ -171,8 +171,8 @@ class TopTubeManager:
             
             if result.get('error'):
                 print(f"[TopTube] Ошибка анализа видео {video_data['title']}: {result['error']}")
-                # Сбрасываем статус обратно в "new" для повторной попытки
-                video_db.update_video_status(video_data['id'], 'new')
+                # Переводим статус в 'error', чтобы не брать видео снова
+                video_db.update_video_status(video_data['id'], 'error')
                 return False
             else:
                 print(f"[TopTube] Видео {video_data['title']} успешно проанализировано")
@@ -180,8 +180,8 @@ class TopTubeManager:
                 
         except Exception as e:
             print(f"[TopTube] Ошибка при анализе видео {video_data.get('title', 'unknown')}: {e}")
-            # Сбрасываем статус обратно в "new" для повторной попытки
-            video_db.update_video_status(video_data['id'], 'new')
+            # Переводим статус в 'error', чтобы не брать видео снова
+            video_db.update_video_status(video_data['id'], 'error')
             return False
     
     def _get_channels_info(self, channel_ids: List[str]) -> Dict[str, Any]:
@@ -212,10 +212,13 @@ class TopTubeManager:
     def _should_save_video(self, video: Dict[str, Any], channels_dict: Dict[str, Any]) -> bool:
         """Проверяет, нужно ли сохранять видео."""
         try:
-            # Проверяем длительность (минимум 1 час)
+            # Проверяем длительность (минимум 1 час, максимум 5 часов)
             duration_str = video["contentDetails"]["duration"]
             duration = isodate.parse_duration(duration_str)
             if duration.total_seconds() < 3600:
+                return False
+            if duration.total_seconds() > 18000:
+                print(f"[TopTube] Видео слишком длинное: {duration.total_seconds()//3600}ч {(duration.total_seconds()%3600)//60}м — пропускаем")
                 return False
             
             # Проверяем дату публикации (не старше 3 дней)
