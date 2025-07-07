@@ -287,29 +287,50 @@ def collect_videos_task():
         manager = get_manager()
         count = manager.collect_videos()
         print(f"[TopTube] Задача сбора завершена: {count} видео")
+        return count
     except Exception as e:
         print(f"[TopTube] Ошибка в задаче сбора: {e}")
+        return 0
 
 def analyze_next_video_task():
-    """Задача для планировщика - анализ следующего видео."""
+    """Задача для планировщика - анализ всех необработанных видео."""
     try:
-        # Получаем следующее необработанное видео
-        video = video_db.get_next_unprocessed_video()
-        if not video:
-            print("[TopTube] Нет необработанных видео для анализа")
-            return
-        
-        # Анализируем видео
         manager = get_manager()
-        success = manager.analyze_single_video(video)
+        processed_count = 0
         
-        if success:
-            print(f"[TopTube] Видео '{video['title']}' успешно проанализировано")
-        else:
-            print(f"[TopTube] Ошибка анализа видео '{video['title']}'")
+        # Сначала сбрасываем все зависшие видео со статусом "processing" обратно в "new"
+        stuck_count = video_db.reset_stuck_videos()
+        if stuck_count > 0:
+            print(f"[TopTube] Сброшено {stuck_count} зависших видео перед началом анализа")
+        
+        while True:
+            # Получаем следующее необработанное видео
+            video = video_db.get_next_unprocessed_video()
+            if not video:
+                if processed_count == 0:
+                    print("[TopTube] Нет необработанных видео для анализа")
+                else:
+                    print(f"[TopTube] Обработано {processed_count} видео, больше необработанных нет")
+                break
+            
+            # Анализируем видео
+            success = manager.analyze_single_video(video)
+            processed_count += 1
+            
+            if success:
+                print(f"[TopTube] Видео '{video['title']}' успешно проанализировано (всего: {processed_count})")
+            else:
+                print(f"[TopTube] Ошибка анализа видео '{video['title']}' (всего: {processed_count})")
+            
+            # Небольшая пауза между видео, чтобы не перегружать API
+            import time
+            time.sleep(2)
+        
+        return processed_count
             
     except Exception as e:
         print(f"[TopTube] Ошибка в задаче анализа: {e}")
+        return 0
 
 def cleanup_videos_task():
     """Задача для планировщика - очистка старых данных."""
@@ -317,5 +338,33 @@ def cleanup_videos_task():
         manager = get_manager()
         deleted_count = manager.cleanup_old_data(days=30)
         print(f"[TopTube] Очистка завершена: удалено {deleted_count} старых записей")
+        return deleted_count
     except Exception as e:
         print(f"[TopTube] Ошибка в задаче очистки: {e}")
+        return 0
+
+def full_workflow_task():
+    """Полный рабочий процесс: сбор → анализ → очистка."""
+    try:
+        print("[TopTube] 🚀 Начинаем полный рабочий процесс...")
+        
+        # 1. Сбор видео
+        print("[TopTube] 📥 Этап 1: Сбор видео")
+        collected_count = collect_videos_task()
+        print(f"[TopTube] ✅ Сбор завершен: {collected_count} видео")
+        
+        # 2. Анализ всех необработанных видео
+        print("[TopTube] 🔍 Этап 2: Анализ видео")
+        analyzed_count = analyze_next_video_task()
+        print(f"[TopTube] ✅ Анализ завершен: {analyzed_count} видео")
+        
+        # 3. Очистка старых данных
+        print("[TopTube] 🧹 Этап 3: Очистка старых данных")
+        cleaned_count = cleanup_videos_task()
+        print(f"[TopTube] ✅ Очистка завершена: {cleaned_count} записей удалено")
+        
+        print(f"[TopTube] 🎉 Полный рабочий процесс завершен!")
+        print(f"[TopTube] 📊 Итоги: собрано {collected_count}, проанализировано {analyzed_count}, очищено {cleaned_count}")
+        
+    except Exception as e:
+        print(f"[TopTube] ❌ Ошибка в полном рабочем процессе: {e}")

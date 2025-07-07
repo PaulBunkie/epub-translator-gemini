@@ -121,6 +121,11 @@
                             <i class="fas fa-cogs me-2"></i>Управление
                         </h5>
                         <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-warning btn-action" onclick="runFullWorkflow()">
+                                <i class="fas fa-cogs me-1"></i>
+                                Полный процесс
+                                <span class="spinner-border spinner-border-sm loading-spinner ms-1" id="workflow-spinner"></span>
+                            </button>
                             <button class="btn btn-primary btn-action" onclick="collectVideos()">
                                 <i class="fas fa-download me-1"></i>
                                 Собрать видео
@@ -128,8 +133,13 @@
                             </button>
                             <button class="btn btn-success btn-action" onclick="analyzeNextVideo()">
                                 <i class="fas fa-play me-1"></i>
-                                Анализировать
+                                Анализировать все видео
                                 <span class="spinner-border spinner-border-sm loading-spinner ms-1" id="analyze-spinner"></span>
+                            </button>
+                            <button class="btn btn-danger btn-action" onclick="resetStuckVideos()">
+                                <i class="fas fa-undo me-1"></i>
+                                Сбросить зависшие
+                                <span class="spinner-border spinner-border-sm loading-spinner ms-1" id="reset-spinner"></span>
                             </button>
                             <button class="btn btn-info btn-action" onclick="refreshData()">
                                 <i class="fas fa-sync-alt me-1"></i>
@@ -220,12 +230,18 @@
                 const response = await fetch('/api/toptube/stats');
                 const data = await response.json();
                 
+                console.log('Статистика получена:', data); // Отладочная информация
+                
                 if (data.success) {
                     const stats = data.stats;
+                    console.log('Данные статистики:', stats); // Отладочная информация
+                    
                     document.getElementById('total-videos').textContent = stats.total || 0;
                     document.getElementById('analyzed-videos').textContent = stats.analyzed || 0;
                     document.getElementById('processing-videos').textContent = stats.processing || 0;
                     document.getElementById('error-videos').textContent = stats.error || 0;
+                } else {
+                    console.error('Ошибка в ответе статистики:', data.error);
                 }
             } catch (error) {
                 console.error('Ошибка загрузки статистики:', error);
@@ -432,7 +448,7 @@
             }
         }
 
-        // Анализ следующего видео
+        // Анализ всех необработанных видео
         async function analyzeNextVideo() {
             const spinner = document.getElementById('analyze-spinner');
             spinner.style.display = 'inline-block';
@@ -442,7 +458,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showSuccess('Анализ видео запущен в фоне');
+                    showSuccess('Анализ всех необработанных видео запущен в фоне');
                     setTimeout(() => {
                         loadStats();
                         loadVideos();
@@ -453,6 +469,58 @@
             } catch (error) {
                 console.error('Ошибка анализа видео:', error);
                 showError('Ошибка анализа видео');
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Запуск полного рабочего процесса
+        async function runFullWorkflow() {
+            const spinner = document.getElementById('workflow-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/full-workflow', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess('Полный рабочий процесс запущен в фоне (сбор → анализ → очистка)');
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 5000);
+                } else {
+                    showError('Ошибка запуска полного процесса: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка полного рабочего процесса:', error);
+                showError('Ошибка полного рабочего процесса');
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Сброс зависших видео
+        async function resetStuckVideos() {
+            const spinner = document.getElementById('reset-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/reset-stuck', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 1000);
+                } else {
+                    showError('Ошибка сброса зависших видео: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка сброса зависших видео:', error);
+                showError('Ошибка сброса зависших видео');
             } finally {
                 spinner.style.display = 'none';
             }

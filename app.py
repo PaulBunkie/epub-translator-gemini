@@ -124,34 +124,14 @@ else:
 
 # --- ЗАДАНИЯ ДЛЯ TOPTUBE ---
 scheduler.add_job(
-    toptube10.collect_videos_task,
+    toptube10.full_workflow_task,
     trigger='interval',
-    hours=4,  # Сбор видео каждые 4 часа
-    id='toptube_collect_job',
+    hours=4,  # Полный рабочий процесс каждые 4 часа
+    id='toptube_full_workflow_job',
     replace_existing=True,
-    misfire_grace_time=600
+    misfire_grace_time=1800  # 30 минут grace time для длительного процесса
 )
-print("[Scheduler] Задание 'toptube_collect_job' добавлено (сбор видео каждые 4 часа).")
-
-scheduler.add_job(
-    toptube10.analyze_next_video_task,
-    trigger='interval',
-    minutes=5,  # Анализ видео каждые 5 минут
-    id='toptube_analyze_job',
-    replace_existing=True,
-    misfire_grace_time=300
-)
-print("[Scheduler] Задание 'toptube_analyze_job' добавлено (анализ видео каждые 5 минут).")
-
-scheduler.add_job(
-    toptube10.cleanup_videos_task,
-    trigger='cron',
-    hour=2,  # Очистка каждый день в 2:00
-    id='toptube_cleanup_job',
-    replace_existing=True,
-    misfire_grace_time=3600
-)
-print("[Scheduler] Задание 'toptube_cleanup_job' добавлено (очистка старых данных ежедневно в 2:00).")
+print("[Scheduler] Задание 'toptube_full_workflow_job' добавлено (полный рабочий процесс каждые 4 часа).")
 # --- КОНЕЦ ЗАДАНИЙ ДЛЯ TOPTUBE ---
 
 try:
@@ -1461,6 +1441,9 @@ def api_get_toptube_videos():
         
         if status == 'analyzed':
             videos = video_db.get_analyzed_videos(limit=limit)
+        elif status == 'all':
+            # Для 'all' получаем все видео без фильтра по статусу
+            videos = video_db.get_all_videos(limit=limit)
         else:
             videos = video_db.get_videos_by_status(status, limit=limit)
         
@@ -1512,7 +1495,7 @@ def api_collect_videos():
 
 @app.route('/api/toptube/analyze', methods=['POST'])
 def api_analyze_next_video():
-    """API эндпойнт для анализа следующего видео."""
+    """API эндпойнт для анализа всех необработанных видео."""
     try:
         import toptube10
         
@@ -1521,12 +1504,49 @@ def api_analyze_next_video():
         
         return jsonify({
             'success': True,
-            'message': 'Анализ следующего видео запущен в фоне'
+            'message': 'Анализ всех необработанных видео запущен в фоне'
         }), 202
         
     except Exception as e:
         print(f"[TopTube API] Ошибка запуска анализа: {e}")
         return jsonify({'error': f'Ошибка запуска анализа: {str(e)}'}), 500
+
+@app.route('/api/toptube/full-workflow', methods=['POST'])
+def api_full_workflow():
+    """API эндпойнт для запуска полного рабочего процесса."""
+    try:
+        import toptube10
+        
+        # Запускаем полный рабочий процесс в фоне
+        executor.submit(toptube10.full_workflow_task)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Полный рабочий процесс запущен в фоне (сбор → анализ → очистка)'
+        }), 202
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка запуска полного рабочего процесса: {e}")
+        return jsonify({'error': f'Ошибка запуска полного рабочего процесса: {str(e)}'}), 500
+
+@app.route('/api/toptube/reset-stuck', methods=['POST'])
+def api_reset_stuck_videos():
+    """API эндпойнт для сброса зависших видео."""
+    try:
+        import video_db
+        
+        # Сбрасываем зависшие видео
+        reset_count = video_db.reset_stuck_videos(minutes_threshold=30)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Сброшено {reset_count} зависших видео',
+            'reset_count': reset_count
+        }), 200
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка сброса зависших видео: {e}")
+        return jsonify({'error': f'Ошибка сброса зависших видео: {str(e)}'}), 500
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
 

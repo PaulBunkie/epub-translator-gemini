@@ -226,6 +226,39 @@ def get_analyzed_videos(limit: int = 50) -> List[Dict[str, Any]]:
         if conn:
             conn.close()
 
+def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Получает все видео без фильтра по статусу.
+    
+    Args:
+        limit: Максимальное количество записей
+        
+    Returns:
+        Список всех видео
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.error_message
+            FROM videos v
+            LEFT JOIN analyses a ON v.id = a.video_id
+            ORDER BY v.created_at DESC
+            LIMIT ?
+        """, (limit,))
+        
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to get all videos: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
 def update_video_status(video_id: int, status: str) -> bool:
     """
     Обновляет статус видео.
@@ -287,12 +320,12 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
             video_id,
             analysis_data.get('sharing_url'),
             analysis_data.get('extracted_text'),
-            analysis_data.get('analysis_result'),
+            analysis_data.get('analysis_result') or analysis_data.get('analysis'),
             analysis_data.get('error_message')
         ))
         
         # Обновляем статус видео
-        status = 'analyzed' if analysis_data.get('analysis_result') else 'error'
+        status = 'analyzed' if analysis_data.get('analysis_result') or analysis_data.get('analysis') else 'error'
         cursor.execute("""
             UPDATE videos 
             SET status = ?, updated_at = CURRENT_TIMESTAMP
@@ -337,6 +370,54 @@ def get_next_unprocessed_video() -> Optional[Dict[str, Any]]:
     except sqlite3.Error as e:
         print(f"[VideoDB ERROR] Failed to get next unprocessed video: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+def reset_stuck_videos(minutes_threshold: int = 30) -> int:
+    """
+    Сбрасывает статус видео со статусом 'processing', которые зависли более указанного времени.
+    Это нужно для обработки случаев, когда сервер перезапустился во время анализа.
+    
+    Args:
+        minutes_threshold: Минимальное время в минутах, после которого видео считается зависшим
+        
+    Returns:
+        Количество сброшенных видео
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        # Находим видео со статусом 'processing', которые обновлялись более указанного времени назад
+        cursor.execute("""
+            SELECT COUNT(*) FROM videos 
+            WHERE status = 'processing' 
+            AND updated_at < datetime('now', '-{} minutes')
+        """.format(minutes_threshold))
+        
+        stuck_count = cursor.fetchone()[0]
+        
+        if stuck_count > 0:
+            # Сбрасываем статус на 'new'
+            cursor.execute("""
+                UPDATE videos 
+                SET status = 'new', updated_at = CURRENT_TIMESTAMP
+                WHERE status = 'processing' 
+                AND updated_at < datetime('now', '-{} minutes')
+            """.format(minutes_threshold))
+            
+            conn.commit()
+            print(f"[VideoDB] Сброшено {stuck_count} зависших видео (старше {minutes_threshold} мин) со статуса 'processing' в 'new'")
+            return stuck_count
+        else:
+            print(f"[VideoDB] Зависших видео (старше {minutes_threshold} мин) не найдено")
+            return 0
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to reset stuck videos: {e}")
+        return 0
     finally:
         if conn:
             conn.close()
@@ -412,15 +493,26 @@ def get_video_stats() -> Dict[str, Any]:
         last_update = cursor.fetchone()[0]
         
         return {
-            'total_videos': total_videos,
+            'total': total_videos,
+            'analyzed': analyzed_count,
+            'processing': status_counts.get('processing', 0),
+            'error': status_counts.get('error', 0),
+            'new': status_counts.get('new', 0),
             'status_counts': status_counts,
-            'analyzed_count': analyzed_count,
             'last_update': last_update
         }
         
     except sqlite3.Error as e:
         print(f"[VideoDB ERROR] Failed to get video stats: {e}")
-        return {}
+        return {
+            'total': 0,
+            'analyzed': 0,
+            'processing': 0,
+            'error': 0,
+            'new': 0,
+            'status_counts': {},
+            'last_update': None
+        }
     finally:
         if conn:
             conn.close()
