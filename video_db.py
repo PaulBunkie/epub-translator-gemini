@@ -64,6 +64,14 @@ def init_video_db():
         """)
         conn.commit()
 
+        # --- Проверка и добавление analysis_summary ---
+        cursor.execute("PRAGMA table_info(analyses)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'analysis_summary' not in columns:
+            print("[VideoDB] Adding 'analysis_summary' column to 'analyses' table...")
+            cursor.execute("ALTER TABLE analyses ADD COLUMN analysis_summary TEXT")
+            conn.commit()
+
         # --- Создание индексов для производительности ---
         print("[VideoDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status)")
