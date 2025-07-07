@@ -55,6 +55,7 @@ def init_video_db():
                 sharing_url TEXT,
                 extracted_text TEXT,
                 analysis_result TEXT,
+                analysis_summary TEXT,
                 error_message TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -139,7 +140,7 @@ def get_video_by_youtube_id(youtube_id: str) -> Optional[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.error_message
+            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             WHERE v.video_id = ?
@@ -174,7 +175,7 @@ def get_videos_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.error_message
+            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             WHERE v.status = ?
@@ -208,7 +209,7 @@ def get_analyzed_videos(limit: int = 50) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.error_message
+            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             INNER JOIN analyses a ON v.id = a.video_id
             WHERE v.status = 'analyzed' AND a.analysis_result IS NOT NULL
@@ -242,7 +243,7 @@ def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.error_message
+            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             ORDER BY v.created_at DESC
@@ -314,13 +315,14 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
         # Добавляем новый анализ
         cursor.execute("""
             INSERT INTO analyses 
-            (video_id, sharing_url, extracted_text, analysis_result, error_message)
-            VALUES (?, ?, ?, ?, ?)
+            (video_id, sharing_url, extracted_text, analysis_result, analysis_summary, error_message)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
             video_id,
             analysis_data.get('sharing_url'),
             analysis_data.get('extracted_text'),
             analysis_data.get('analysis_result') or analysis_data.get('analysis'),
+            analysis_data.get('analysis_summary'),
             analysis_data.get('error_message')
         ))
         
@@ -412,11 +414,57 @@ def reset_stuck_videos(minutes_threshold: int = 30) -> int:
             print(f"[VideoDB] Сброшено {stuck_count} зависших видео (старше {minutes_threshold} мин) со статуса 'processing' в 'new'")
             return stuck_count
         else:
-            print(f"[VideoDB] Зависших видео (старше {minutes_threshold} мин) не найдено")
-            return 0
+                    print(f"[VideoDB] Зависших видео (старше {minutes_threshold} мин) не найдено")
+        return 0
         
     except sqlite3.Error as e:
         print(f"[VideoDB ERROR] Failed to reset stuck videos: {e}")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+def reset_error_videos() -> int:
+    """
+    Сбрасывает статус видео со статусом 'error' обратно в 'new' для повторного анализа.
+    
+    Returns:
+        Количество сброшенных видео
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        # Находим количество видео со статусом 'error'
+        cursor.execute("SELECT COUNT(*) FROM videos WHERE status = 'error'")
+        error_count = cursor.fetchone()[0]
+        
+        if error_count > 0:
+            # Сбрасываем статус на 'new' и удаляем старые анализы
+            cursor.execute("""
+                UPDATE videos 
+                SET status = 'new', updated_at = CURRENT_TIMESTAMP
+                WHERE status = 'error'
+            """)
+            
+            # Удаляем связанные анализы для видео со статусом 'error'
+            cursor.execute("""
+                DELETE FROM analyses 
+                WHERE video_id IN (
+                    SELECT id FROM videos WHERE status = 'new'
+                )
+            """)
+            
+            conn.commit()
+            print(f"[VideoDB] Сброшено {error_count} видео со статуса 'error' в 'new' для повторного анализа")
+            return error_count
+        else:
+            print("[VideoDB] Видео со статусом 'error' не найдено")
+            return 0
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to reset error videos: {e}")
         return 0
     finally:
         if conn:

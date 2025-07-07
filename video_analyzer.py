@@ -373,6 +373,69 @@ class VideoAnalyzer:
             print(f"[VideoAnalyzer] Ошибка при анализе текста: {e}")
             return None
     
+    def generate_analysis_summary(self, analysis_text: str) -> Optional[str]:
+        """
+        Генерирует краткую версию анализа.
+        
+        Args:
+            analysis_text: Полный текст анализа
+            
+        Returns:
+            Краткая версия анализа или None в случае ошибки
+        """
+        try:
+            prompt = "Выдели одну максимально интересную или неожиданную деталь и изложи её в одной-двух метких фразах. ОТВЕТ ДОЛЖЕН СОСТОЯТЬ ТОЛЬКО ИЗ ЭТИХ ФРАЗ И БЫТЬ ДИНАМИЧНЫМ."
+
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            
+            # Используем ту же модель
+            model = "google/gemini-2.0-flash-exp:free"
+            
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f"{prompt}{chr(10)}{chr(10)}{analysis_text}"
+                    }
+                ],
+                "max_tokens": 200,  # Небольшое количество токенов для краткого ответа
+                "temperature": 0.8  # Немного выше для креативности
+            }
+            
+            print(f"[VideoAnalyzer] Генерируем краткую версию анализа...")
+            response = requests.post(
+                f"{self.openrouter_api_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    if 'choices' in data and len(data['choices']) > 0:
+                        content = data['choices'][0]['message']['content'].strip()
+                        print(f"[VideoAnalyzer] Сгенерирована краткая версия: {content}")
+                        return content
+                    else:
+                        print("[VideoAnalyzer] Неверный формат ответа для краткой версии")
+                        return None
+                except json.JSONDecodeError as e:
+                    print(f"[VideoAnalyzer] Ошибка парсинга JSON для краткой версии: {e}")
+                    return None
+            else:
+                print(f"[VideoAnalyzer] HTTP ошибка при генерации краткой версии: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            print(f"[VideoAnalyzer] Ошибка при генерации краткой версии: {e}")
+            return None
+    
     def analyze_video(self, video_url: str) -> dict:
         """
         Анализирует видео по URL, получая sharing URL от Yandex API,
@@ -454,6 +517,18 @@ class VideoAnalyzer:
             
             result['analysis'] = analysis
             print("[VideoAnalyzer] Анализ завершен успешно")
+            
+            # Генерируем краткую версию анализа
+            print("[VideoAnalyzer] Генерируем краткую версию анализа...")
+            analysis_summary = self.generate_analysis_summary(analysis)
+            
+            if analysis_summary:
+                result['analysis_summary'] = analysis_summary
+                print("[VideoAnalyzer] Краткая версия сгенерирована успешно")
+            else:
+                print("[VideoAnalyzer] Ошибка генерации краткой версии - падаем в ошибку")
+                result['error'] = 'Не удалось сгенерировать краткую версию анализа'
+                return result
             
         except Exception as e:
             print(f"[VideoAnalyzer] Ошибка при анализе видео: {e}")

@@ -1548,6 +1548,25 @@ def api_reset_stuck_videos():
         print(f"[TopTube API] Ошибка сброса зависших видео: {e}")
         return jsonify({'error': f'Ошибка сброса зависших видео: {str(e)}'}), 500
 
+@app.route('/api/toptube/reset-errors', methods=['POST'])
+def api_reset_error_videos():
+    """API эндпойнт для сброса видео с ошибками."""
+    try:
+        import video_db
+        
+        # Сбрасываем видео с ошибками
+        reset_count = video_db.reset_error_videos()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Сброшено {reset_count} видео с ошибками для повторного анализа',
+            'reset_count': reset_count
+        }), 200
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка сброса видео с ошибками: {e}")
+        return jsonify({'error': f'Ошибка сброса видео с ошибками: {str(e)}'}), 500
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
 
 # --- Запуск приложения ---
