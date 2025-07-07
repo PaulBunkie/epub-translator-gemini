@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TopTube - Анализ популярных видео</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .video-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid #e0e0e0;
+        }
+        .video-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .status-badge {
+            font-size: 0.8rem;
+        }
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .loading-spinner {
+            display: none;
+        }
+        .btn-action {
+            min-width: 120px;
+        }
+        .analysis-text {
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .video-meta {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        .navbar-brand {
+            font-weight: bold;
+        }
+        .main-content {
+            min-height: calc(100vh - 200px);
+        }
+    </style>
+</head>
+<body>
+    <!-- Навигация -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-play-circle me-2"></i>TopTube
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="fas fa-home me-1"></i>Главная</a>
+                <a class="nav-link" href="/workflow"><i class="fas fa-cogs me-1"></i>Workflow</a>
+                <a class="nav-link active" href="/toptube"><i class="fas fa-video me-1"></i>Видео</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-4">
+        <!-- Заголовок и статистика -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1 class="display-6 mb-3">
+                    <i class="fas fa-chart-line text-primary me-2"></i>
+                    Анализ популярных YouTube видео
+                </h1>
+            </div>
+        </div>
+
+        <!-- Статистика -->
+        <div class="row mb-4" id="stats-container">
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-video fa-2x mb-2"></i>
+                        <h5 class="card-title">Всего видео</h5>
+                        <h3 id="total-videos">-</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-check-circle fa-2x mb-2"></i>
+                        <h5 class="card-title">Проанализировано</h5>
+                        <h3 id="analyzed-videos">-</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-clock fa-2x mb-2"></i>
+                        <h5 class="card-title">В обработке</h5>
+                        <h3 id="processing-videos">-</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card stats-card">
+                    <div class="card-body text-center">
+                        <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
+                        <h5 class="card-title">Ошибки</h5>
+                        <h3 id="error-videos">-</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Кнопки управления -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">
+                            <i class="fas fa-cogs me-2"></i>Управление
+                        </h5>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-primary btn-action" onclick="collectVideos()">
+                                <i class="fas fa-download me-1"></i>
+                                Собрать видео
+                                <span class="spinner-border spinner-border-sm loading-spinner ms-1" id="collect-spinner"></span>
+                            </button>
+                            <button class="btn btn-success btn-action" onclick="analyzeNextVideo()">
+                                <i class="fas fa-play me-1"></i>
+                                Анализировать
+                                <span class="spinner-border spinner-border-sm loading-spinner ms-1" id="analyze-spinner"></span>
+                            </button>
+                            <button class="btn btn-info btn-action" onclick="refreshData()">
+                                <i class="fas fa-sync-alt me-1"></i>
+                                Обновить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <label for="status-filter" class="form-label">Статус:</label>
+                                <select class="form-select" id="status-filter" onchange="loadVideos()">
+                                    <option value="analyzed">Проанализированные</option>
+                                    <option value="new">Новые</option>
+                                    <option value="processing">В обработке</option>
+                                    <option value="error">С ошибками</option>
+                                    <option value="all">Все</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="limit-filter" class="form-label">Количество:</label>
+                                <select class="form-select" id="limit-filter" onchange="loadVideos()">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Список видео -->
+        <div class="row" id="videos-container">
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-3">Загрузка видео...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для детального просмотра -->
+    <div class="modal fade" id="videoModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="videoModalTitle">Детали видео</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="videoModalBody">
+                    <!-- Контент будет загружен динамически -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Глобальные переменные
+        let currentVideos = [];
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadVideos();
+        });
+
+        // Загрузка статистики
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/toptube/stats');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const stats = data.stats;
+                    document.getElementById('total-videos').textContent = stats.total || 0;
+                    document.getElementById('analyzed-videos').textContent = stats.analyzed || 0;
+                    document.getElementById('processing-videos').textContent = stats.processing || 0;
+                    document.getElementById('error-videos').textContent = stats.error || 0;
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки статистики:', error);
+            }
+        }
+
+        // Загрузка видео
+        async function loadVideos() {
+            const status = document.getElementById('status-filter').value;
+            const limit = document.getElementById('limit-filter').value;
+            
+            try {
+                const response = await fetch(`/api/toptube/videos?status=${status}&limit=${limit}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentVideos = data.videos;
+                    renderVideos(data.videos);
+                } else {
+                    showError('Ошибка загрузки видео: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки видео:', error);
+                showError('Ошибка загрузки видео');
+            }
+        }
+
+        // Отрисовка видео
+        function renderVideos(videos) {
+            const container = document.getElementById('videos-container');
+            
+            if (videos.length === 0) {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">Видео не найдены</h5>
+                            <p class="text-muted">Попробуйте изменить фильтры или собрать новые видео</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = videos.map(video => createVideoCard(video)).join('');
+        }
+
+        // Создание карточки видео
+        function createVideoCard(video) {
+            const statusBadge = getStatusBadge(video.status);
+            const duration = formatDuration(video.duration);
+            const views = formatNumber(video.views);
+            const subscribers = formatNumber(video.subscribers);
+            const publishedDate = new Date(video.published_at).toLocaleDateString('ru-RU');
+            
+            return `
+                <div class="col-lg-6 col-xl-4 mb-4">
+                    <div class="card video-card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h6 class="card-title mb-0" style="max-width: 70%;">
+                                    <a href="${video.url}" target="_blank" class="text-decoration-none">
+                                        ${video.title}
+                                    </a>
+                                </h6>
+                                ${statusBadge}
+                            </div>
+                            
+                            <p class="text-muted mb-2">${video.channel_title}</p>
+                            
+                            <div class="video-meta mb-3">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small><i class="fas fa-clock me-1"></i>${duration}</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <small><i class="fas fa-eye me-1"></i>${views}</small>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small><i class="fas fa-users me-1"></i>${subscribers}</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <small><i class="fas fa-calendar me-1"></i>${publishedDate}</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            ${video.analysis_result ? `
+                                <div class="analysis-text border rounded p-2 bg-light mb-3">
+                                    <strong>Анализ:</strong><br>
+                                    ${video.analysis_result.substring(0, 200)}${video.analysis_result.length > 200 ? '...' : ''}
+                                </div>
+                            ` : ''}
+                            
+                            <button class="btn btn-outline-primary btn-sm" onclick="showVideoDetails('${video.video_id}')">
+                                <i class="fas fa-info-circle me-1"></i>Детали
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Получение бейджа статуса
+        function getStatusBadge(status) {
+            const badges = {
+                'new': '<span class="badge bg-secondary status-badge">Новое</span>',
+                'processing': '<span class="badge bg-warning status-badge">Обработка</span>',
+                'analyzed': '<span class="badge bg-success status-badge">Проанализировано</span>',
+                'error': '<span class="badge bg-danger status-badge">Ошибка</span>'
+            };
+            return badges[status] || '<span class="badge bg-secondary status-badge">' + status + '</span>';
+        }
+
+        // Форматирование длительности
+        function formatDuration(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return hours > 0 ? `${hours}ч ${minutes}м` : `${minutes}м`;
+        }
+
+        // Форматирование чисел
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toString();
+        }
+
+        // Показать детали видео
+        function showVideoDetails(videoId) {
+            const video = currentVideos.find(v => v.video_id === videoId);
+            if (!video) return;
+
+            const modalTitle = document.getElementById('videoModalTitle');
+            const modalBody = document.getElementById('videoModalBody');
+            
+            modalTitle.textContent = video.title;
+            
+            modalBody.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Информация о видео</h6>
+                        <ul class="list-unstyled">
+                            <li><strong>Канал:</strong> ${video.channel_title}</li>
+                            <li><strong>Длительность:</strong> ${formatDuration(video.duration)}</li>
+                            <li><strong>Просмотры:</strong> ${formatNumber(video.views)}</li>
+                            <li><strong>Подписчики:</strong> ${formatNumber(video.subscribers)}</li>
+                            <li><strong>Дата публикации:</strong> ${new Date(video.published_at).toLocaleDateString('ru-RU')}</li>
+                            <li><strong>Статус:</strong> ${getStatusBadge(video.status)}</li>
+                        </ul>
+                        <a href="${video.url}" target="_blank" class="btn btn-primary">
+                            <i class="fas fa-external-link-alt me-1"></i>Открыть на YouTube
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Анализ</h6>
+                        ${video.analysis_result ? `
+                            <div class="analysis-text border rounded p-2 bg-light">
+                                ${video.analysis_result}
+                            </div>
+                        ` : '<p class="text-muted">Анализ недоступен</p>'}
+                        
+                        ${video.error_message ? `
+                            <div class="mt-3">
+                                <h6 class="text-danger">Ошибка</h6>
+                                <div class="text-danger small">${video.error_message}</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            new bootstrap.Modal(document.getElementById('videoModal')).show();
+        }
+
+        // Сбор видео
+        async function collectVideos() {
+            const spinner = document.getElementById('collect-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/collect', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess('Сбор видео запущен в фоне');
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 5000);
+                } else {
+                    showError('Ошибка запуска сбора: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка сбора видео:', error);
+                showError('Ошибка сбора видео');
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Анализ следующего видео
+        async function analyzeNextVideo() {
+            const spinner = document.getElementById('analyze-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/analyze', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess('Анализ видео запущен в фоне');
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 3000);
+                } else {
+                    showError('Ошибка запуска анализа: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка анализа видео:', error);
+                showError('Ошибка анализа видео');
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Обновление данных
+        function refreshData() {
+            loadStats();
+            loadVideos();
+        }
+
+        // Показать уведомление об успехе
+        function showSuccess(message) {
+            // Можно добавить toast уведомления
+            alert('✅ ' + message);
+        }
+
+        // Показать уведомление об ошибке
+        function showError(message) {
+            // Можно добавить toast уведомления
+            alert('❌ ' + message);
+        }
+    </script>
+</body>
+</html> 

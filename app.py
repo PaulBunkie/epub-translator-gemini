@@ -1442,6 +1442,94 @@ def api_analyze_video():
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ АНАЛИЗА ВИДЕО ---
 
+# --- НОВЫЕ МАРШРУТЫ ДЛЯ TOPTUBE ---
+
+@app.route('/toptube', methods=['GET'])
+def toptube_page():
+    """Отображает страницу с проанализированными видео."""
+    return render_template('toptube.html')
+
+@app.route('/api/toptube/videos', methods=['GET'])
+def api_get_toptube_videos():
+    """API эндпойнт для получения списка видео."""
+    try:
+        import video_db
+        
+        # Получаем параметры
+        status = request.args.get('status', 'analyzed')  # По умолчанию показываем проанализированные
+        limit = int(request.args.get('limit', 50))
+        
+        if status == 'analyzed':
+            videos = video_db.get_analyzed_videos(limit=limit)
+        else:
+            videos = video_db.get_videos_by_status(status, limit=limit)
+        
+        return jsonify({
+            'success': True,
+            'videos': videos,
+            'count': len(videos)
+        }), 200
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка получения видео: {e}")
+        return jsonify({'error': f'Ошибка получения видео: {str(e)}'}), 500
+
+@app.route('/api/toptube/stats', methods=['GET'])
+def api_get_toptube_stats():
+    """API эндпойнт для получения статистики."""
+    try:
+        import toptube10
+        
+        manager = toptube10.get_manager()
+        stats = manager.get_stats()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
+        }), 200
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка получения статистики: {e}")
+        return jsonify({'error': f'Ошибка получения статистики: {str(e)}'}), 500
+
+@app.route('/api/toptube/collect', methods=['POST'])
+def api_collect_videos():
+    """API эндпойнт для запуска сбора видео."""
+    try:
+        import toptube10
+        
+        # Запускаем сбор в фоне
+        executor.submit(toptube10.collect_videos_task)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Сбор видео запущен в фоне'
+        }), 202
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка запуска сбора: {e}")
+        return jsonify({'error': f'Ошибка запуска сбора: {str(e)}'}), 500
+
+@app.route('/api/toptube/analyze', methods=['POST'])
+def api_analyze_next_video():
+    """API эндпойнт для анализа следующего видео."""
+    try:
+        import toptube10
+        
+        # Запускаем анализ в фоне
+        executor.submit(toptube10.analyze_next_video_task)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Анализ следующего видео запущен в фоне'
+        }), 202
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка запуска анализа: {e}")
+        return jsonify({'error': f'Ошибка запуска анализа: {str(e)}'}), 500
+
+# --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
