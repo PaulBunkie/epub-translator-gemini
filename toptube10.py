@@ -10,8 +10,9 @@ import video_db
 import video_analyzer
 
 # Константы
-DAYS = 5
-Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|joe rogan|tucker carlson"
+DAYS = 1
+Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|Редакция"
+#"interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|joe rogan|tucker carlson|Tim Ferriss|Elon Musk|The Diary Of A CEO|Редакция"
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
@@ -212,13 +213,11 @@ class TopTubeManager:
     def _should_save_video(self, video: Dict[str, Any], channels_dict: Dict[str, Any]) -> bool:
         """Проверяет, нужно ли сохранять видео."""
         try:
-            # Проверяем длительность (минимум 1 час, максимум 5 часов)
+            # Проверяем длительность (минимум 50 минут)
             duration_str = video["contentDetails"]["duration"]
             duration = isodate.parse_duration(duration_str)
-            if duration.total_seconds() < 3600:
-                return False
-            if duration.total_seconds() > 18000:
-                print(f"[TopTube] Видео слишком длинное: {duration.total_seconds()//3600}ч {(duration.total_seconds()%3600)//60}м — пропускаем")
+            if duration.total_seconds() < 3000:
+                print(f"[TopTube] Видео слишком короткое: {duration.total_seconds()//60} мин — пропускаем")
                 return False
             
             # Проверяем дату публикации (не старше 3 дней)
