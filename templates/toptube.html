@@ -134,13 +134,54 @@
             border-radius: 10px;
             padding: 12px;
             border-left: 4px solid #ffc107;
+            min-height: 80px;
+            max-height: 100px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+        }
+        
+        .video-title {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: normal;
+            max-height: 2.8em;
+            font-weight: 600;
+            color: #2c3e50;
+            line-height: 1.4;
+            margin-bottom: 0.5rem;
+        }
+        
+        .video-title-highlight {
+            background: linear-gradient(135deg, #e3f0ff 0%, #d0ebff 100%);
+            border-radius: 8px;
+            padding: 6px 10px;
+            display: block;
+            width: 100%;
+            font-weight: 600;
+            color: #2563eb;
+            box-shadow: 0 2px 8px rgba(80, 140, 255, 0.07);
+            margin-bottom: 0.3em;
+            min-height: 4.2em;
+            display: flex;
+            align-items: center;
+        }
+        .video-title-highlight a {
+            display: block;
+            width: 100%;
+            color: inherit;
+            text-decoration: none;
         }
         
         .analysis-summary-content {
-            font-size: 0.9rem;
-            line-height: 1.4;
-            color: #856404;
-            font-weight: 500;
+            width: 100%;
+            white-space: normal;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
         }
         
         .video-meta {
@@ -170,7 +211,10 @@
         }
         
         .card-body {
-            padding: 1.5rem;
+            padding: 1rem;
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
         }
         
         .form-select, .form-control {
@@ -184,17 +228,43 @@
             box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
         }
         
-        .video-title {
-            font-weight: 600;
-            color: #2c3e50;
-            line-height: 1.3;
-            margin-bottom: 0.5rem;
+        .meta-inline {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.2em;
+            font-size: 0.95em;
+            color: #666;
+            margin-bottom: 0.5em;
+        }
+        
+        .meta-inline .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 0.3em;
+        }
+        
+        .video-meta-col, .video-summary-col {
+            display: unset;
+            align-items: unset;
+            gap: unset;
+            min-height: unset;
+        }
+        
+        .analysis-summary {
+            width: 100%;
+            margin-bottom: 0;
+        }
+        
+        .card-footer-fixed {
+            margin-top: auto;
         }
         
         .channel-title {
-            color: #667eea;
-            font-weight: 500;
+            font-size: 0.95em;
+            color: #b23c17;
+            font-weight: 600;
             margin-bottom: 1rem;
+            letter-spacing: 0.01em;
         }
         
         .meta-grid {
@@ -256,6 +326,24 @@
         .video-card:nth-child(4) { animation-delay: 0.4s; }
         .video-card:nth-child(5) { animation-delay: 0.5s; }
         .video-card:nth-child(6) { animation-delay: 0.6s; }
+        
+        .card.video-card {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .card-body {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .analysis-summary,
+        .analysis-text {
+            flex-shrink: 0;
+        }
+        .card-footer-fixed {
+            margin-top: auto;
+        }
     </style>
 </head>
 <body>
@@ -516,8 +604,8 @@
             const thumbnailUrl = `https://img.youtube.com/vi/${video.video_id}/maxresdefault.jpg`;
             
             return `
-                <div class="col-lg-6 col-xl-4 mb-4">
-                    <div class="card video-card h-100">
+                <div class="col-md-6 col-lg-4 col-xxl-3 mb-4">
+                    <div class="card video-card h-100 d-flex flex-column">
                         <div class="video-thumbnail">
                             <img src="${thumbnailUrl}" alt="${video.title}" 
                                  onerror="this.src='https://img.youtube.com/vi/${video.video_id}/hqdefault.jpg'"
@@ -530,37 +618,19 @@
                             <div class="duration-badge">${duration}</div>
                         </div>
                         
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start mb-2">
-                                <h6 class="video-title">
-                                    <a href="${video.url}" target="_blank" class="text-decoration-none">
-                                        ${video.title}
-                                    </a>
-                                </h6>
-                                ${statusBadge}
+                        <div class="card-body d-flex flex-column">
+                            <h6 class="video-title mb-2">
+                                <a href="${video.url}" target="_blank" class="text-decoration-none">
+                                    ${video.title}
+                                </a>
+                            </h6>
+                            <p class="channel-title mb-2">${video.channel_title}</p>
+                            <div class="meta-inline mb-2">
+                                <div class="meta-item"><i class="fas fa-eye me-1"></i> ${views}</div>
+                                <div class="meta-item"><i class="fas fa-users me-1"></i> ${subscribers}</div>
+                                <div class="meta-item"><i class="fas fa-calendar me-1"></i> ${publishedDate}</div>
+                                <div class="meta-item"><i class="fas fa-clock me-1"></i> ${duration}</div>
                             </div>
-                            
-                            <p class="channel-title">${video.channel_title}</p>
-                            
-                            <div class="meta-grid">
-                                <div class="meta-item">
-                                    <i class="fas fa-eye"></i>
-                                    <span>${views}</span>
-                                </div>
-                                <div class="meta-item">
-                                    <i class="fas fa-users"></i>
-                                    <span>${subscribers}</span>
-                                </div>
-                                <div class="meta-item">
-                                    <i class="fas fa-calendar"></i>
-                                    <span>${publishedDate}</span>
-                                </div>
-                                <div class="meta-item">
-                                    <i class="fas fa-clock"></i>
-                                    <span>${duration}</span>
-                                </div>
-                            </div>
-                            
                             ${video.analysis_summary ? `
                                 <div class="analysis-summary mb-3">
                                     <div class="analysis-summary-content">
@@ -574,10 +644,12 @@
                                     ${video.analysis_result.substring(0, 200)}${video.analysis_result.length > 200 ? '...' : ''}
                                 </div>
                             ` : ''}
-                            
-                            <button class="btn btn-outline-primary btn-sm w-100" onclick="showVideoDetails('${video.video_id}')">
-                                <i class="fas fa-info-circle me-1"></i>Детали
-                            </button>
+                            <div class="d-flex justify-content-between align-items-center mt-auto">
+                                <span>${statusBadge}</span>
+                                <button class="btn btn-outline-primary btn-sm" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
+                                    <i class="fas fa-info-circle me-1"></i>Детали
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
