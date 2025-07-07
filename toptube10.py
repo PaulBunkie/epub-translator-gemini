@@ -10,7 +10,7 @@ import video_db
 import video_analyzer
 
 # Константы
-DAYS = 1
+DAYS = 3
 Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|Редакция"
 #"interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|joe rogan|tucker carlson|Tim Ferriss|Elon Musk|The Diary Of A CEO|Редакция"
 load_dotenv()
