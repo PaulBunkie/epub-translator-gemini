@@ -521,6 +521,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         // Глобальные переменные
         let currentVideos = [];
@@ -697,47 +698,30 @@
             
             modalTitle.textContent = video.title;
             
+            // Уменьшаем превью и левую колонку
             modalBody.innerHTML = `
                 <div class="row">
-                    <div class="col-md-6">
-                        <div class="text-center mb-3">
+                    <div class="col-md-4">
+                        <div class="text-center mb-2">
                             <img src="${thumbnailUrl}" alt="${video.title}" 
-                                 class="img-fluid rounded" style="max-width: 100%;"
+                                 class="img-fluid rounded" style="max-width: 180px; max-height: 110px; object-fit:cover;"
                                  onerror="this.src='https://img.youtube.com/vi/${video.video_id}/hqdefault.jpg'">
                         </div>
-                        <h6>Информация о видео</h6>
-                        <ul class="list-unstyled">
-                            <li><strong>Канал:</strong> ${video.channel_title}</li>
-                            <li><strong>Длительность:</strong> ${formatDuration(video.duration)}</li>
-                            <li><strong>Просмотры:</strong> ${formatNumber(video.views)}</li>
-                            <li><strong>Подписчики:</strong> ${formatNumber(video.subscribers)}</li>
-                            <li><strong>Дата публикации:</strong> ${new Date(video.published_at).toLocaleDateString('ru-RU')}</li>
-                            <li><strong>Статус:</strong> ${getStatusBadge(video.status)}</li>
-                        </ul>
-                        <a href="${video.url}" target="_blank" class="btn btn-primary w-100">
-                            <i class="fas fa-external-link-alt me-1"></i>Открыть на YouTube
+                        <div style="font-size:0.95em;">
+                          <div><strong>Канал:</strong> ${video.channel_title}</div>
+                          <div><strong>Длительность:</strong> ${formatDuration(video.duration)}</div>
+                          <div><strong>Просмотры:</strong> ${formatNumber(video.views)}</div>
+                          <div><strong>Подписчики:</strong> ${formatNumber(video.subscribers)}</div>
+                          <div><strong>Дата публикации:</strong> ${new Date(video.published_at).toLocaleDateString('ru-RU')}</div>
+                          <div><strong>Статус:</strong> ${getStatusBadge(video.status)}</div>
+                        </div>
+                        <a href="${video.url}" target="_blank" class="btn btn-primary btn-sm w-100 mt-2">
+                            <i class="fas fa-external-link-alt me-1"></i> YouTube
                         </a>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-8">
                         <h6>Анализ</h6>
-                        ${video.analysis_summary ? `
-                            <div class="analysis-summary mb-3">
-                                <h6 class="text-warning mb-2">
-                                    <i class="fas fa-lightbulb me-1"></i>Ключевой инсайт
-                                </h6>
-                                <div class="analysis-summary-content">
-                                    ${video.analysis_summary}
-                                </div>
-                            </div>
-                        ` : ''}
-                        
-                        ${video.analysis_result ? `
-                            <div class="analysis-text">
-                                <h6 class="mb-2">Полный анализ</h6>
-                                ${video.analysis_result}
-                            </div>
-                        ` : '<p class="text-muted">Анализ недоступен</p>'}
-                        
+                        <div id="modal-analysis-markdown"></div>
                         ${video.error_message ? `
                             <div class="mt-3">
                                 <h6 class="text-danger">Ошибка</h6>
@@ -747,7 +731,19 @@
                     </div>
                 </div>
             `;
-            
+            // Рендерим анализ как markdown
+            setTimeout(() => {
+                const analysisDiv = document.getElementById('modal-analysis-markdown');
+                if (video.analysis_result) {
+                    if (window.marked) {
+                        analysisDiv.innerHTML = window.marked.parse(video.analysis_result);
+                    } else {
+                        analysisDiv.textContent = video.analysis_result;
+                    }
+                } else {
+                    analysisDiv.innerHTML = '<p class="text-muted">Анализ недоступен</p>';
+                }
+            }, 0);
             new bootstrap.Modal(document.getElementById('videoModal')).show();
         }
 
