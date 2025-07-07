@@ -309,22 +309,42 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
         conn = get_video_db_connection()
         cursor = conn.cursor()
         
-        # Удаляем существующий анализ, если есть
-        cursor.execute("DELETE FROM analyses WHERE video_id = ?", (video_id,))
+        # Проверяем, есть ли уже анализ для этого видео
+        cursor.execute("SELECT * FROM analyses WHERE video_id = ?", (video_id,))
+        existing_analysis = cursor.fetchone()
         
-        # Добавляем новый анализ
-        cursor.execute("""
-            INSERT INTO analyses 
-            (video_id, sharing_url, extracted_text, analysis_result, analysis_summary, error_message)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            video_id,
-            analysis_data.get('sharing_url'),
-            analysis_data.get('extracted_text'),
-            analysis_data.get('analysis_result') or analysis_data.get('analysis'),
-            analysis_data.get('analysis_summary'),
-            analysis_data.get('error_message')
-        ))
+        if existing_analysis:
+            # Обновляем существующий анализ, сохраняя извлеченный текст если новый не предоставлен
+            existing_data = dict(existing_analysis)
+            extracted_text = analysis_data.get('extracted_text') or existing_data.get('extracted_text')
+            sharing_url = analysis_data.get('sharing_url') or existing_data.get('sharing_url')
+            
+            cursor.execute("""
+                UPDATE analyses 
+                SET sharing_url = ?, extracted_text = ?, analysis_result = ?, analysis_summary = ?, error_message = ?
+                WHERE video_id = ?
+            """, (
+                sharing_url,
+                extracted_text,
+                analysis_data.get('analysis_result') or analysis_data.get('analysis'),
+                analysis_data.get('analysis_summary'),
+                analysis_data.get('error_message'),
+                video_id
+            ))
+        else:
+            # Добавляем новый анализ
+            cursor.execute("""
+                INSERT INTO analyses 
+                (video_id, sharing_url, extracted_text, analysis_result, analysis_summary, error_message)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                video_id,
+                analysis_data.get('sharing_url'),
+                analysis_data.get('extracted_text'),
+                analysis_data.get('analysis_result') or analysis_data.get('analysis'),
+                analysis_data.get('analysis_summary'),
+                analysis_data.get('error_message')
+            ))
         
         # Обновляем статус видео
         has_analysis = analysis_data.get('analysis_result') or analysis_data.get('analysis')
@@ -347,6 +367,38 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
     except sqlite3.Error as e:
         print(f"[VideoDB ERROR] Failed to save analysis: {e}")
         return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_analysis_by_video_id(video_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Получает существующий анализ для видео.
+    
+    Args:
+        video_id: ID видео
+        
+    Returns:
+        Данные анализа или None, если анализа нет
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT * FROM analyses 
+            WHERE video_id = ?
+        """, (video_id,))
+        
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to get analysis for video {video_id}: {e}")
+        return None
     finally:
         if conn:
             conn.close()

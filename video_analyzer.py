@@ -384,7 +384,7 @@ class VideoAnalyzer:
             Краткая версия анализа или None в случае ошибки
         """
         try:
-            prompt = "Выдели одну максимально интересную или неожиданную деталь и изложи её в одной-двух метких фразах. ОТВЕТ ДОЛЖЕН СОСТОЯТЬ ТОЛЬКО ИЗ ЭТИХ ФРАЗ И БЫТЬ ДИНАМИЧНЫМ."
+            prompt = "Выдели одну максимально интересную или неожиданную деталь и изложи её в одной-двух метких фразах. ОТВЕТ ДОЛЖЕН СОСТОЯТЬ ТОЛЬКО ИЗ ЭТИХ ФРАЗ И БЫТЬ ДИНАМИЧНЫМ. Ответ не должен содержать никакого форматирования или тегов, только текст."
 
             headers = {
                 "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -393,7 +393,7 @@ class VideoAnalyzer:
             }
             
             # Используем ту же модель
-            model = "google/gemini-2.0-flash-exp:free"
+            model = "microsoft/mai-ds-r1:free"
             
             payload = {
                 "model": model,
@@ -403,11 +403,14 @@ class VideoAnalyzer:
                         "content": f"{prompt}{chr(10)}{chr(10)}{analysis_text}"
                     }
                 ],
-                "max_tokens": 200,  # Небольшое количество токенов для краткого ответа
+#                "max_tokens": 200,  # Небольшое количество токенов для краткого ответа
                 "temperature": 0.8  # Немного выше для креативности
             }
             
             print(f"[VideoAnalyzer] Генерируем краткую версию анализа...")
+            
+            # Простой запрос без retry логики
+            print(f"[VideoAnalyzer] Отправляем запрос к OpenRouter для краткой версии...")
             response = requests.post(
                 f"{self.openrouter_api_url}/chat/completions",
                 headers=headers,
@@ -418,31 +421,45 @@ class VideoAnalyzer:
             if response.status_code == 200:
                 try:
                     data = response.json()
+                    print(f"[VideoAnalyzer] Ответ API для краткой версии: {data}")
                     if 'choices' in data and len(data['choices']) > 0:
                         content = data['choices'][0]['message']['content'].strip()
-                        print(f"[VideoAnalyzer] Сгенерирована краткая версия: {content}")
-                        return content
+                        print(f"[VideoAnalyzer] Сырой content: '{content}'")
+                        
+                        if content:  # Проверяем, что контент не пустой
+                            print(f"[VideoAnalyzer] Сгенерирована краткая версия: {content}")
+                            return content
+                        else:
+                            print("[VideoAnalyzer] API вернул пустой ответ для краткой версии")
+                            return None
                     else:
                         print("[VideoAnalyzer] Неверный формат ответа для краткой версии")
                         return None
                 except json.JSONDecodeError as e:
                     print(f"[VideoAnalyzer] Ошибка парсинга JSON для краткой версии: {e}")
+                    print(f"[VideoAnalyzer] Текст ответа: {response.text[:500]}...")
                     return None
             else:
                 print(f"[VideoAnalyzer] HTTP ошибка при генерации краткой версии: {response.status_code}")
+                try:
+                    error_details = response.json()
+                    print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
+                except:
+                    print(f"[VideoAnalyzer] Текст ошибки: {response.text[:500]}...")
                 return None
                 
         except Exception as e:
             print(f"[VideoAnalyzer] Ошибка при генерации краткой версии: {e}")
             return None
     
-    def analyze_video(self, video_url: str) -> dict:
+    def analyze_video(self, video_url: str, existing_data: dict = None) -> dict:
         """
         Анализирует видео по URL, получая sharing URL от Yandex API,
         извлекая текст из страницы и анализируя его через OpenRouter.
         
         Args:
             video_url: URL видео для анализа
+            existing_data: Существующие данные анализа (если есть)
             
         Returns:
             Словарь с результатами анализа
@@ -456,56 +473,62 @@ class VideoAnalyzer:
         }
         
         try:
-            # Гибридный подход: сначала официальный API, потом fallback
-            print(f"[VideoAnalyzer] Начинаем анализ видео: {video_url}")
-            
-            # Попытка 1: Официальный API через OAuth токен
-            if self.yandex_token:
-                print("[VideoAnalyzer] Попытка через официальный API...")
-                sharing_url = self.get_sharing_url_official(video_url)
-                if sharing_url:
-                    result['sharing_url'] = sharing_url
-                    print(f"[VideoAnalyzer] Успешно получен sharing URL через официальный API: {sharing_url}")
-                else:
-                    print("[VideoAnalyzer] Официальный API не сработал, пробуем fallback...")
+            # Проверяем, есть ли уже извлеченный текст
+            if existing_data and existing_data.get('extracted_text'):
+                print(f"[VideoAnalyzer] Используем уже извлеченный текст ({len(existing_data['extracted_text'])} символов)")
+                result['extracted_text'] = existing_data['extracted_text']
+                result['sharing_url'] = existing_data.get('sharing_url')
             else:
-                print("[VideoAnalyzer] Официальный API недоступен (не установлен YANDEX_API_TOKEN)")
-            
-            # Попытка 2: Fallback через сессию
-            if not result['sharing_url']:
-                if self.session_id:
-                    print("[VideoAnalyzer] Попытка через fallback (сессия)...")
-                    sharing_url = self.get_sharing_url_session(video_url)
+                # Гибридный подход: сначала официальный API, потом fallback
+                print(f"[VideoAnalyzer] Начинаем анализ видео: {video_url}")
+                
+                # Попытка 1: Официальный API через OAuth токен
+                if self.yandex_token:
+                    print("[VideoAnalyzer] Попытка через официальный API...")
+                    sharing_url = self.get_sharing_url_official(video_url)
                     if sharing_url:
                         result['sharing_url'] = sharing_url
-                        print(f"[VideoAnalyzer] Успешно получен sharing URL через fallback: {sharing_url}")
+                        print(f"[VideoAnalyzer] Успешно получен sharing URL через официальный API: {sharing_url}")
                     else:
-                        print("[VideoAnalyzer] Fallback тоже не сработал")
+                        print("[VideoAnalyzer] Официальный API не сработал, пробуем fallback...")
                 else:
-                    print("[VideoAnalyzer] Fallback недоступен (не установлен YANDEX_SESSION_ID)")
-            
-            # Если не удалось получить sharing URL
-            if not result['sharing_url']:
-                error_msg = "Не удалось получить sharing URL"
-                if not self.yandex_token and not self.session_id:
-                    error_msg += " (не установлены ни YANDEX_API_TOKEN, ни YANDEX_SESSION_ID)"
-                elif not self.yandex_token:
-                    error_msg += " (не установлен YANDEX_API_TOKEN)"
-                elif not self.session_id:
-                    error_msg += " (не установлен YANDEX_SESSION_ID)"
-                result['error'] = error_msg
-                return result
-            
-            # Извлекаем текст из sharing URL
-            print(f"[VideoAnalyzer] Извлекаем текст из: {result['sharing_url']}")
-            extracted_text = self.extract_text_from_sharing_url(result['sharing_url'])
-            
-            if not extracted_text:
-                result['error'] = 'Не удалось извлечь текст из sharing URL'
-                return result
-            
-            result['extracted_text'] = extracted_text
-            print(f"[VideoAnalyzer] Извлечено {len(extracted_text)} символов текста")
+                    print("[VideoAnalyzer] Официальный API недоступен (не установлен YANDEX_API_TOKEN)")
+                
+                # Попытка 2: Fallback через сессию
+                if not result['sharing_url']:
+                    if self.session_id:
+                        print("[VideoAnalyzer] Попытка через fallback (сессия)...")
+                        sharing_url = self.get_sharing_url_session(video_url)
+                        if sharing_url:
+                            result['sharing_url'] = sharing_url
+                            print(f"[VideoAnalyzer] Успешно получен sharing URL через fallback: {sharing_url}")
+                        else:
+                            print("[VideoAnalyzer] Fallback тоже не сработал")
+                    else:
+                        print("[VideoAnalyzer] Fallback недоступен (не установлен YANDEX_SESSION_ID)")
+                
+                # Если не удалось получить sharing URL
+                if not result['sharing_url']:
+                    error_msg = "Не удалось получить sharing URL"
+                    if not self.yandex_token and not self.session_id:
+                        error_msg += " (не установлены ни YANDEX_API_TOKEN, ни YANDEX_SESSION_ID)"
+                    elif not self.yandex_token:
+                        error_msg += " (не установлен YANDEX_API_TOKEN)"
+                    elif not self.session_id:
+                        error_msg += " (не установлен YANDEX_SESSION_ID)"
+                    result['error'] = error_msg
+                    return result
+                
+                # Извлекаем текст из sharing URL
+                print(f"[VideoAnalyzer] Извлекаем текст из: {result['sharing_url']}")
+                extracted_text = self.extract_text_from_sharing_url(result['sharing_url'])
+                
+                if not extracted_text:
+                    result['error'] = 'Не удалось извлечь текст из sharing URL'
+                    return result
+                
+                result['extracted_text'] = extracted_text
+                print(f"[VideoAnalyzer] Извлечено {len(extracted_text)} символов текста")
             
             # Анализируем текст через OpenRouter
             print("[VideoAnalyzer] Отправляем текст на анализ в OpenRouter...")
@@ -518,8 +541,11 @@ class VideoAnalyzer:
             result['analysis'] = analysis
             print("[VideoAnalyzer] Анализ завершен успешно")
             
+            # Пауза перед генерацией краткой версии для избежания rate limit
+            print("[VideoAnalyzer] Пауза 3 секунды перед генерацией краткой версии...")
+            time.sleep(3)
+            
             # Генерируем краткую версию анализа
-            print("[VideoAnalyzer] Генерируем краткую версию анализа...")
             analysis_summary = self.generate_analysis_summary(analysis)
             
             if analysis_summary:

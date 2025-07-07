@@ -159,9 +159,12 @@ class TopTubeManager:
             # Обновляем статус на "processing"
             video_db.update_video_status(video_data['id'], 'processing')
             
+            # Получаем существующие данные анализа из базы
+            existing_analysis = video_db.get_analysis_by_video_id(video_data['id'])
+            
             # Анализируем видео
             analyzer = video_analyzer.VideoAnalyzer()
-            result = analyzer.analyze_video(video_data['url'])
+            result = analyzer.analyze_video(video_data['url'], existing_analysis)
             
             # Сохраняем результат
             success = video_db.save_analysis(video_data['id'], result)
