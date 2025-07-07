@@ -327,7 +327,13 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
         ))
         
         # Обновляем статус видео
-        status = 'analyzed' if analysis_data.get('analysis_result') or analysis_data.get('analysis') else 'error'
+        has_analysis = analysis_data.get('analysis_result') or analysis_data.get('analysis')
+        has_summary = analysis_data.get('analysis_summary')
+        if has_analysis and has_summary:
+            status = 'analyzed'
+        else:
+            status = 'error'
+            
         cursor.execute("""
             UPDATE videos 
             SET status = ?, updated_at = CURRENT_TIMESTAMP
@@ -441,19 +447,11 @@ def reset_error_videos() -> int:
         error_count = cursor.fetchone()[0]
         
         if error_count > 0:
-            # Сбрасываем статус на 'new' и удаляем старые анализы
+            # Сбрасываем статус на 'new'
             cursor.execute("""
                 UPDATE videos 
                 SET status = 'new', updated_at = CURRENT_TIMESTAMP
                 WHERE status = 'error'
-            """)
-            
-            # Удаляем связанные анализы для видео со статусом 'error'
-            cursor.execute("""
-                DELETE FROM analyses 
-                WHERE video_id IN (
-                    SELECT id FROM videos WHERE status = 'new'
-                )
             """)
             
             conn.commit()

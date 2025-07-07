@@ -526,9 +526,8 @@ class VideoAnalyzer:
                 result['analysis_summary'] = analysis_summary
                 print("[VideoAnalyzer] Краткая версия сгенерирована успешно")
             else:
-                print("[VideoAnalyzer] Ошибка генерации краткой версии - падаем в ошибку")
-                result['error'] = 'Не удалось сгенерировать краткую версию анализа'
-                return result
+                print("[VideoAnalyzer] Краткая версия не сгенерирована, но анализ сохранен")
+                # Не падаем в ошибку, просто не добавляем краткую версию
             
         except Exception as e:
             print(f"[VideoAnalyzer] Ошибка при анализе видео: {e}")
