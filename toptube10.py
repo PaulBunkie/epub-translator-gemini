@@ -10,7 +10,7 @@ import video_db
 import video_analyzer
 
 # Константы
-DAYS = 3
+DAYS = 5
 Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж"
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
