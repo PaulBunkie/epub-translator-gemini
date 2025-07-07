@@ -103,6 +103,17 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
     try:
         conn = get_video_db_connection()
         cursor = conn.cursor()
+
+        # Проверяем, есть ли уже такое видео
+        cursor.execute("SELECT status FROM videos WHERE video_id = ?", (video_data['video_id'],))
+        row = cursor.fetchone()
+        if row:
+            current_status = row[0]
+        else:
+            current_status = 'new'
+
+        # Если явно передан статус — используем его, иначе сохраняем старый
+        status = video_data.get('status', current_status)
         
         cursor.execute("""
             INSERT OR REPLACE INTO videos 
@@ -117,7 +128,7 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
             video_data['published_at'],
             video_data['subscribers'],
             video_data['url'],
-            video_data.get('status', 'new')
+            status
         ))
         
         video_db_id = cursor.lastrowid
