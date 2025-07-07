@@ -171,6 +171,8 @@ class TopTubeManager:
             
             if result.get('error'):
                 print(f"[TopTube] Ошибка анализа видео {video_data['title']}: {result['error']}")
+                # Сбрасываем статус обратно в "new" для повторной попытки
+                video_db.update_video_status(video_data['id'], 'new')
                 return False
             else:
                 print(f"[TopTube] Видео {video_data['title']} успешно проанализировано")
@@ -178,6 +180,8 @@ class TopTubeManager:
                 
         except Exception as e:
             print(f"[TopTube] Ошибка при анализе видео {video_data.get('title', 'unknown')}: {e}")
+            # Сбрасываем статус обратно в "new" для повторной попытки
+            video_db.update_video_status(video_data['id'], 'new')
             return False
     
     def _get_channels_info(self, channel_ids: List[str]) -> Dict[str, Any]:
@@ -260,8 +264,8 @@ class TopTubeManager:
             'views': views,
             'published_at': video["snippet"]["publishedAt"],
             'subscribers': subs,
-            'url': f"https://www.youtube.com/watch?v={video['id']}",
-            'status': 'new'
+            'url': f"https://www.youtube.com/watch?v={video['id']}"
+            # НЕ устанавливаем статус здесь - он будет сохранен из БД если видео уже существует
         }
     
     def get_stats(self) -> Dict[str, Any]:
@@ -305,6 +309,11 @@ def analyze_next_video_task():
         stuck_count = video_db.reset_stuck_videos()
         if stuck_count > 0:
             print(f"[TopTube] Сброшено {stuck_count} зависших видео перед началом анализа")
+        
+        # Также сбрасываем видео со статусом "error" обратно в "new" для повторной попытки
+        error_count = video_db.reset_error_videos()
+        if error_count > 0:
+            print(f"[TopTube] Сброшено {error_count} видео с ошибками для повторного анализа")
         
         while True:
             # Получаем следующее необработанное видео
