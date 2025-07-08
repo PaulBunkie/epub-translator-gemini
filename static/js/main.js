@@ -768,7 +768,12 @@ document.addEventListener('DOMContentLoaded', () => {
     adminElements.forEach(id => {
         const element = document.getElementById(id);
         if (element) {
-            element.style.display = isAdminMode ? 'flex' : 'none';
+            // Для stats-container и management-container делаем одинаково: display: '' (по умолчанию)
+            if (id === 'stats-container' || id === 'management-container') {
+                element.style.display = isAdminMode ? '' : 'none';
+            } else {
+                element.style.display = isAdminMode ? 'block' : 'none';
+            }
         }
     });
     // ... существующий код ...
