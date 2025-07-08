@@ -755,11 +755,7 @@
                 loadStats();
             }
             loadVideos();
-            const params = new URLSearchParams(window.location.search);
-            const videoId = params.get('video');
-            if (videoId) {
-                setTimeout(() => showVideoDetails(videoId), 300);
-            }
+            tryOpenModalByParam();
         });
 
         // Загрузка статистики
@@ -924,7 +920,7 @@
                                 </div>
                             ` : ''}
                             <div class="d-flex align-items-center mt-auto card-footer-row">
-                                <span>${statusBadge}</span>
+                                ${isAdminMode ? `<span>${statusBadge}</span>` : ''}
                                 <button class="btn btn-outline-primary btn-sm rounded-pill flex-grow-1 mx-2" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
                                     <i class="fas fa-info-circle me-1"></i>Подробно
                                 </button>
@@ -1033,6 +1029,19 @@
             navigator.clipboard.writeText(url).then(() => {
                 alert('Ссылка скопирована!');
             });
+        }
+
+        function tryOpenModalByParam() {
+            const params = new URLSearchParams(window.location.search);
+            const videoId = params.get('video');
+            if (videoId) {
+                const video = currentVideos.find(v => v.video_id === videoId);
+                if (video) {
+                    showVideoDetails(videoId);
+                } else {
+                    setTimeout(tryOpenModalByParam, 300);
+                }
+            }
         }
     </script>
 </body>
