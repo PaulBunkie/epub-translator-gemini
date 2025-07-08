@@ -158,6 +158,10 @@ class TopTubeManager:
                 print(f"[TopTube] Ошибка при обработке видео {video.get('id', 'unknown')}: {e}")
         
         print(f"[TopTube] Сохранено в БД: {saved_count} видео")
+        
+        # Сохраняем информацию о сборе
+        video_db.save_collection_info(saved_count, 'manual')
+        
         return saved_count
     
     def analyze_single_video(self, video_data: Dict[str, Any]) -> bool:

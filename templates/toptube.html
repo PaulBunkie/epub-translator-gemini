@@ -584,6 +584,16 @@
                         <div class="stat-label">Ошибки</div>
                         <div class="stat-value" id="error-videos">-</div>
                     </button>
+                    <button type="button" class="btn btn-secondary btn-sm stat-btn">
+                        <i class="fas fa-clock"></i>
+                        <div class="stat-label">Последний сбор</div>
+                        <div class="stat-value" id="last-collection">-</div>
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm stat-btn">
+                        <i class="fas fa-database"></i>
+                        <div class="stat-label">Добавлено</div>
+                        <div class="stat-value" id="added-count">-</div>
+                    </button>
                 </div>
                 <div class="card">
                     <div class="card-body">
@@ -619,6 +629,11 @@
                             <button class="btn btn-info btn-action" onclick="refreshData()">
                                 <i class="fas fa-sync-alt me-1"></i>
                                 Обновить
+                            </button>
+                            <button class="btn btn-dark btn-action" onclick="deleteNonAnalyzedVideos()">
+                                <i class="fas fa-trash me-1"></i>
+                                Удалить неуспешные
+                                <span class="spinner-border spinner-border-sm loading-spinner ms-1" id="delete-spinner"></span>
                             </button>
                         </div>
                     </div>
@@ -753,6 +768,38 @@
                     document.getElementById('analyzed-videos').textContent = stats.analyzed || 0;
                     document.getElementById('processing-videos').textContent = stats.processing || 0;
                     document.getElementById('error-videos').textContent = stats.error || 0;
+                    
+                    // Информация о последнем сборе
+                    if (stats.last_collection_time) {
+                        console.log('Raw last_collection_time:', stats.last_collection_time);
+                        
+                        // Парсим время из SQLite формата (UTC)
+                        const lastCollection = new Date(stats.last_collection_time + 'Z'); // Добавляем Z для явного указания UTC
+                        const now = new Date();
+                        
+                        console.log('Parsed lastCollection:', lastCollection.toISOString());
+                        console.log('Current time:', now.toISOString());
+                        
+                        const diffMs = now - lastCollection;
+                        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                        const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                        
+                        console.log('Time difference (ms):', diffMs);
+                        console.log('Hours:', diffHours, 'Minutes:', diffMinutes);
+                        
+                        let timeText;
+                        if (diffHours > 0) {
+                            timeText = `${diffHours}ч ${diffMinutes}м назад`;
+                        } else {
+                            timeText = `${diffMinutes}м назад`;
+                        }
+                        
+                        document.getElementById('last-collection').textContent = timeText;
+                    } else {
+                        document.getElementById('last-collection').textContent = 'Нет данных';
+                    }
+                    
+                    document.getElementById('added-count').textContent = stats.last_collection_added || 0;
                 } else {
                     console.error('Ошибка в ответе статистики:', data.error);
                 }
@@ -1086,6 +1133,36 @@
             } catch (error) {
                 console.error('Ошибка сброса видео с ошибками:', error);
                 showError('Ошибка сброса видео с ошибками');
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Удаление неанализированных видео
+        async function deleteNonAnalyzedVideos() {
+            if (!confirm('Вы уверены, что хотите удалить все неуспешные видео? Это действие нельзя отменить.')) {
+                return;
+            }
+            
+            const spinner = document.getElementById('delete-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/delete-non-analyzed', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(data.message);
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 1000);
+                } else {
+                    showError('Ошибка удаления неуспешных видео: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка удаления неуспешных видео:', error);
+                showError('Ошибка удаления неуспешных видео');
             } finally {
                 spinner.style.display = 'none';
             }

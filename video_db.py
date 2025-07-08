@@ -72,6 +72,19 @@ def init_video_db():
             cursor.execute("ALTER TABLE analyses ADD COLUMN analysis_summary TEXT")
             conn.commit()
 
+        # --- Создание таблицы для информации о сборе ---
+        print("[VideoDB] Checking/Creating 'collection_info' table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS collection_info (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                last_collection_time DATETIME DEFAULT (datetime('now', 'utc')),
+                videos_added INTEGER DEFAULT 0,
+                collection_type TEXT DEFAULT 'manual',
+                created_at DATETIME DEFAULT (datetime('now', 'utc'))
+            )
+        """)
+        conn.commit()
+
         # --- Создание индексов для производительности ---
         print("[VideoDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status)")
@@ -256,9 +269,8 @@ def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
         
         cursor.execute("""
             SELECT 
-                v.id, v.youtube_id, v.title, v.description, v.thumbnail_url, 
-                v.duration, v.view_count, v.like_count, v.comment_count, 
-                v.status, v.created_at, v.updated_at,
+                v.id, v.video_id, v.title, v.channel_title, v.duration, v.views, 
+                v.published_at, v.subscribers, v.url, v.status, v.created_at, v.updated_at,
                 a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
@@ -570,6 +582,119 @@ def cleanup_old_videos(days: int = 30) -> int:
         if conn:
             conn.close()
 
+def delete_videos_by_status_not_analyzed() -> int:
+    """
+    Удаляет все видео со статусом, отличным от 'analyzed'.
+    
+    Returns:
+        Количество удаленных видео
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        # Сначала получаем количество видео для удаления
+        cursor.execute("SELECT COUNT(*) FROM videos WHERE status != 'analyzed'")
+        count_to_delete = cursor.fetchone()[0]
+        
+        if count_to_delete > 0:
+            # Удаляем видео со статусом, отличным от 'analyzed'
+            # CASCADE автоматически удалит связанные записи из analyses
+            cursor.execute("DELETE FROM videos WHERE status != 'analyzed'")
+            
+            conn.commit()
+            print(f"[VideoDB] Удалено {count_to_delete} неанализированных видео")
+            return count_to_delete
+        else:
+            print("[VideoDB] Неанализированных видео для удаления не найдено")
+            return 0
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to delete non-analyzed videos: {e}")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+def save_collection_info(videos_added: int, collection_type: str = 'manual') -> bool:
+    """
+    Сохраняет информацию о последнем сборе видео.
+    
+    Args:
+        videos_added: Количество добавленных видео
+        collection_type: Тип сбора ('manual', 'scheduled', 'api')
+        
+    Returns:
+        True в случае успеха, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO collection_info 
+            (last_collection_time, videos_added, collection_type)
+            VALUES (datetime('now', 'utc'), ?, ?)
+        """, (videos_added, collection_type))
+        
+        conn.commit()
+        print(f"[VideoDB] Сохранена информация о сборе: {videos_added} видео, тип: {collection_type}")
+        return True
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to save collection info: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_last_collection_info() -> Dict[str, Any]:
+    """
+    Получает информацию о последнем сборе видео.
+    
+    Returns:
+        Словарь с информацией о последнем сборе
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT last_collection_time, videos_added, collection_type
+            FROM collection_info
+            ORDER BY last_collection_time DESC
+            LIMIT 1
+        """)
+        
+        row = cursor.fetchone()
+        if row:
+            print(f"[VideoDB DEBUG] Raw last_collection_time from DB: {row[0]}")
+            return {
+                'last_collection_time': row[0],
+                'videos_added': row[1],
+                'collection_type': row[2]
+            }
+        else:
+            return {
+                'last_collection_time': None,
+                'videos_added': 0,
+                'collection_type': None
+            }
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to get last collection info: {e}")
+        return {
+            'last_collection_time': None,
+            'videos_added': 0,
+            'collection_type': None
+        }
+    finally:
+        if conn:
+            conn.close()
+
 def get_video_stats() -> Dict[str, Any]:
     """
     Получает статистику по видео.
@@ -606,6 +731,9 @@ def get_video_stats() -> Dict[str, Any]:
         cursor.execute("SELECT MAX(updated_at) FROM videos")
         last_update = cursor.fetchone()[0]
         
+        # Информация о последнем сборе
+        collection_info = get_last_collection_info()
+        
         return {
             'total': total_videos,
             'analyzed': analyzed_count,
@@ -613,7 +741,9 @@ def get_video_stats() -> Dict[str, Any]:
             'error': status_counts.get('error', 0),
             'new': status_counts.get('new', 0),
             'status_counts': status_counts,
-            'last_update': last_update
+            'last_update': last_update,
+            'last_collection_time': collection_info['last_collection_time'],
+            'last_collection_added': collection_info['videos_added']
         }
         
     except sqlite3.Error as e:
@@ -625,7 +755,9 @@ def get_video_stats() -> Dict[str, Any]:
             'error': 0,
             'new': 0,
             'status_counts': {},
-            'last_update': None
+            'last_update': None,
+            'last_collection_time': None,
+            'last_collection_added': 0
         }
     finally:
         if conn:

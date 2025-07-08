@@ -1447,6 +1447,8 @@ def api_get_toptube_videos():
         else:
             videos = video_db.get_videos_by_status(status, limit=limit)
         
+        print(f"[TopTube API] Запрошено видео со статусом '{status}', получено {len(videos)} видео")
+        
         return jsonify({
             'success': True,
             'videos': videos,
@@ -1566,6 +1568,25 @@ def api_reset_error_videos():
     except Exception as e:
         print(f"[TopTube API] Ошибка сброса видео с ошибками: {e}")
         return jsonify({'error': f'Ошибка сброса видео с ошибками: {str(e)}'}), 500
+
+@app.route('/api/toptube/delete-non-analyzed', methods=['POST'])
+def api_delete_non_analyzed_videos():
+    """API эндпойнт для удаления всех видео со статусом, отличным от analyzed."""
+    try:
+        import video_db
+        
+        # Удаляем видео со статусом, отличным от analyzed
+        deleted_count = video_db.delete_videos_by_status_not_analyzed()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Удалено {deleted_count} неуспешных видео',
+            'deleted_count': deleted_count
+        }), 200
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка удаления неуспешных видео: {e}")
+        return jsonify({'error': f'Ошибка удаления неуспешных видео: {str(e)}'}), 500
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
 
