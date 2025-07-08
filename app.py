@@ -246,7 +246,7 @@ def run_single_section_translation(task_id, epub_filepath, book_id, section_id, 
 
 
 # --- Маршруты Flask ---
-@app.route('/', methods=['GET'])
+@app.route('/translate', methods=['GET'])
 def index():
     """ Отображает главную страницу со списком книг. """
     # --- НОВОЕ: Проверка и установка режима администратора ---
@@ -1424,7 +1424,7 @@ def api_analyze_video():
 
 # --- НОВЫЕ МАРШРУТЫ ДЛЯ TOPTUBE ---
 
-@app.route('/toptube', methods=['GET'])
+@app.route('/', methods=['GET'])
 def toptube_page():
     """Отображает страницу с проанализированными видео."""
     return render_template('toptube.html')
