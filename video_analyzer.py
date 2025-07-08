@@ -482,16 +482,16 @@ class VideoAnalyzer:
                 print(f"[VideoAnalyzer] Начинаем анализ видео: {video_url}")
                 
                 # Попытка 1: Официальный API через OAuth токен
-                if self.yandex_token:
-                    print("[VideoAnalyzer] Попытка через официальный API...")
-                    sharing_url = self.get_sharing_url_official(video_url)
-                    if sharing_url:
-                        result['sharing_url'] = sharing_url
-                        print(f"[VideoAnalyzer] Успешно получен sharing URL через официальный API: {sharing_url}")
-                    else:
-                        print("[VideoAnalyzer] Официальный API не сработал, пробуем fallback...")
-                else:
-                    print("[VideoAnalyzer] Официальный API недоступен (не установлен YANDEX_API_TOKEN)")
+                # if self.yandex_token:
+                #     print("[VideoAnalyzer] Попытка через официальный API...")
+                #     sharing_url = self.get_sharing_url_official(video_url)
+                #     if sharing_url:
+                #         result['sharing_url'] = sharing_url
+                #         print(f"[VideoAnalyzer] Успешно получен sharing URL через официальный API: {sharing_url}")
+                #     else:
+                #         print("[VideoAnalyzer] Официальный API не сработал, пробуем fallback...")
+                # else:
+                #     print("[VideoAnalyzer] Официальный API недоступен (не установлен YANDEX_API_TOKEN)")
                 
                 # Попытка 2: Fallback через сессию
                 if not result['sharing_url']:

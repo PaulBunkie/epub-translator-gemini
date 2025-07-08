@@ -11,8 +11,7 @@ import video_analyzer
 
 # Константы
 DAYS = 3
-Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|Редакция"
-#"interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|joe rogan|tucker carlson|Tim Ferriss|Elon Musk|The Diary Of A CEO|Редакция"
+Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция"
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
@@ -213,14 +212,20 @@ class TopTubeManager:
     def _should_save_video(self, video: Dict[str, Any], channels_dict: Dict[str, Any]) -> bool:
         """Проверяет, нужно ли сохранять видео."""
         try:
-            # Проверяем длительность (минимум 50 минут)
+            # Проверяем длительность (минимум 50 минут, максимум 4 часа)
             duration_str = video["contentDetails"]["duration"]
             duration = isodate.parse_duration(duration_str)
-            if duration.total_seconds() < 3000:
-                print(f"[TopTube] Видео слишком короткое: {duration.total_seconds()//60} мин — пропускаем")
+            duration_seconds = duration.total_seconds()
+            
+            if duration_seconds < 3000:  # 50 минут = 3000 секунд
+                print(f"[TopTube] Видео слишком короткое: {duration_seconds//60} мин — пропускаем")
                 return False
             
-            # Проверяем дату публикации (не старше 3 дней)
+            if duration_seconds > 14400:  # 4 часа = 14400 секунд
+                print(f"[TopTube] Видео слишком длинное: {duration_seconds//60} мин — пропускаем (Яндекс не справляется)")
+                return False
+            
+            # Проверяем дату публикации (не старше 30 дней)
             published = video["snippet"]["publishedAt"]
             published_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
             if published_dt <= datetime.now().astimezone() - timedelta(days=DAYS):
