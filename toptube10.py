@@ -11,7 +11,7 @@ import video_analyzer
 
 # Константы
 DAYS = 3
-Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция|TheDiaryOfACEO"
+Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|вдудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция|TheDiaryOfACEO"
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
@@ -89,7 +89,7 @@ class TopTubeManager:
         
         search_page_token = None
         search_page_num = 1
-        max_search_pages = 2  # Максимум 2 страницы поиска (было 5)
+        max_search_pages = 5  # Максимум 2 страницы поиска (было 5)
         
         while search_page_num <= max_search_pages:
             try:
