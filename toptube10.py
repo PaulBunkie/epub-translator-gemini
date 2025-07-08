@@ -87,41 +87,58 @@ class TopTubeManager:
         # Сбор через search.list по ключевым словам
         print(f"[TopTube] Сбор через search.list с q='{Q_TEMPLATE}'")
         
-        try:
-            search_params = {
-                "part": "snippet",
-                "type": "video",
-                "publishedAfter": published_after,
-                "q": Q_TEMPLATE,
-                "order": "viewCount",
-                "videoDuration": "long",
-                "maxResults": 50,
-                "key": self.api_key
-            }
-            
-            search_resp = requests.get(search_url, params=search_params, timeout=30)
-            search_resp.raise_for_status()
-            search_data = search_resp.json()
-            search_items = search_data.get("items", [])
-            
-            print(f"[TopTube] search.list: получено {len(search_items)} видео")
-            
-            # Для search.list нужно получить детали видео
-            search_video_ids = [item["id"]["videoId"] for item in search_items if "videoId" in item["id"]]
-            if search_video_ids:
-                details_params = {
-                    "part": "snippet,contentDetails,statistics",
-                    "id": ",".join(search_video_ids),
+        search_page_token = None
+        search_page_num = 1
+        max_search_pages = 2  # Максимум 2 страницы поиска (было 5)
+        
+        while search_page_num <= max_search_pages:
+            try:
+                search_params = {
+                    "part": "snippet",
+                    "type": "video",
+                    "publishedAfter": published_after,
+                    "q": Q_TEMPLATE,
+                    "order": "viewCount",
+                    "videoDuration": "long",
+                    "maxResults": 100,
                     "key": self.api_key
                 }
-                details_resp = requests.get(videos_url, params=details_params, timeout=30)
-                details_resp.raise_for_status()
-                details_data = details_resp.json()
-                details_items = details_data.get("items", [])
-                all_videos.extend(details_items)
                 
-        except Exception as e:
-            print(f"[TopTube] Ошибка при поиске по ключевым словам: {e}")
+                if search_page_token:
+                    search_params["pageToken"] = search_page_token
+                
+                search_resp = requests.get(search_url, params=search_params, timeout=30)
+                search_resp.raise_for_status()
+                search_data = search_resp.json()
+                search_items = search_data.get("items", [])
+                
+                print(f"[TopTube] search.list страница {search_page_num}: получено {len(search_items)} видео")
+                
+                # Для search.list нужно получить детали видео
+                search_video_ids = [item["id"]["videoId"] for item in search_items if "videoId" in item["id"]]
+                if search_video_ids:
+                    details_params = {
+                        "part": "snippet,contentDetails,statistics",
+                        "id": ",".join(search_video_ids),
+                        "key": self.api_key
+                    }
+                    details_resp = requests.get(videos_url, params=details_params, timeout=30)
+                    details_resp.raise_for_status()
+                    details_data = details_resp.json()
+                    details_items = details_data.get("items", [])
+                    all_videos.extend(details_items)
+                
+                # Проверяем, есть ли следующая страница
+                search_page_token = search_data.get("nextPageToken")
+                if not search_page_token:
+                    print(f"[TopTube] search.list: достигнут конец выдачи")
+                    break
+                
+                search_page_num += 1
+                
+            except Exception as e:
+                print(f"[TopTube] Ошибка при поиске по ключевым словам страница {search_page_num}: {e}")
+                break
         
         print(f"[TopTube] Всего получено видео: {len(all_videos)}")
         
