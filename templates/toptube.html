@@ -355,6 +355,22 @@
             .main-content .row:first-child {
                 margin-top: 0;
             }
+            
+            /* Белый заголовок с уменьшенным шрифтом */
+            .main-content h1 {
+                color: white !important;
+                font-size: 1.5rem !important;
+            }
+        }
+        
+        /* Скрываем навигацию для не-админов */
+        .navbar {
+            display: none;
+        }
+        
+        /* Показываем навигацию только для админов */
+        .admin-mode .navbar {
+            display: block;
         }
     </style>
 </head>
@@ -378,7 +394,8 @@
         <div class="row mb-4">
             <div class="col-12">
                 <h1 class="display-6 mb-3 text-center">
-                    <i class="fas fa-chart-line text-primary me-2"></i>
+                    <i class="fas fa-play-circle text-primary me-2"></i>TopTube
+                    <i class="fas fa-chart-line text-primary me-2 ms-3"></i>
                     Анализ популярных YouTube видео
                 </h1>
             </div>
@@ -541,6 +558,13 @@
         function checkAdminMode() {
             const urlParams = new URLSearchParams(window.location.search);
             isAdminMode = urlParams.has('admin');
+            
+            // Добавляем класс admin-mode к body для показа навигации
+            if (isAdminMode) {
+                document.body.classList.add('admin-mode');
+            } else {
+                document.body.classList.remove('admin-mode');
+            }
             
             // Скрываем/показываем элементы в зависимости от режима
             const adminElements = [
