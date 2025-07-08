@@ -126,12 +126,12 @@ else:
 scheduler.add_job(
     toptube10.full_workflow_task,
     trigger='interval',
-    hours=4,  # Полный рабочий процесс каждые 4 часа
+    hours=2,  # Полный рабочий процесс каждые 2 часа
     id='toptube_full_workflow_job',
     replace_existing=True,
     misfire_grace_time=1800  # 30 минут grace time для длительного процесса
 )
-print("[Scheduler] Задание 'toptube_full_workflow_job' добавлено (полный рабочий процесс каждые 4 часа).")
+print("[Scheduler] Задание 'toptube_full_workflow_job' добавлено (полный рабочий процесс каждые 2 часа).")
 # --- КОНЕЦ ЗАДАНИЙ ДЛЯ TOPTUBE ---
 
 try:
