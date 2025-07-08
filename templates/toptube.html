@@ -475,7 +475,7 @@
             justify-content: center;
             align-items: center;
             margin-bottom: 1.5rem;
-            max-width: 700px;
+            max-width: 800px;
             margin-left: auto;
             margin-right: auto;
             flex-wrap: nowrap;
@@ -593,6 +593,11 @@
                         <i class="fas fa-database"></i>
                         <div class="stat-label">Добавлено</div>
                         <div class="stat-value" id="added-count">-</div>
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm stat-btn">
+                        <i class="fas fa-calendar-alt"></i>
+                        <div class="stat-label">Следующий запуск</div>
+                        <div class="stat-value" id="next-run">-</div>
                     </button>
                 </div>
                 <div class="card">
@@ -800,6 +805,11 @@
                     }
                     
                     document.getElementById('added-count').textContent = stats.last_collection_added || 0;
+                    if (data.time_until_next) {
+                        document.getElementById('next-run').textContent = data.time_until_next;
+                    } else {
+                        document.getElementById('next-run').textContent = '-';
+                    }
                 } else {
                     console.error('Ошибка в ответе статистики:', data.error);
                 }

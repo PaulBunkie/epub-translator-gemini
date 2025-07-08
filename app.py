@@ -11,6 +11,7 @@ import time
 import traceback # Для вывода ошибок
 import atexit
 import threading
+import datetime
 
 # Flask и связанные утилиты
 from flask import (
@@ -1464,15 +1465,31 @@ def api_get_toptube_stats():
     """API эндпойнт для получения статистики."""
     try:
         import toptube10
-        
         manager = toptube10.get_manager()
         stats = manager.get_stats()
-        
+
+        # Добавляем безопасно: время до следующего запуска планировщика
+        time_until_next = None
+        toptube_job = scheduler.get_job('toptube_full_workflow_job')
+        if toptube_job and toptube_job.next_run_time:
+            next_run = toptube_job.next_run_time
+            now = datetime.datetime.now(next_run.tzinfo)
+            delta = next_run - now
+            # Форматируем как HH:MM:SS
+            total_seconds = int(delta.total_seconds())
+            if total_seconds > 0:
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                time_until_next = f"{hours:02}:{minutes:02}:{seconds:02}"
+            else:
+                time_until_next = "00:00:00"
+
         return jsonify({
             'success': True,
-            'stats': stats
+            'stats': stats,
+            'time_until_next': time_until_next
         }), 200
-        
     except Exception as e:
         print(f"[TopTube API] Ошибка получения статистики: {e}")
         return jsonify({'error': f'Ошибка получения статистики: {str(e)}'}), 500
