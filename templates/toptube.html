@@ -755,6 +755,11 @@
                 loadStats();
             }
             loadVideos();
+            const params = new URLSearchParams(window.location.search);
+            const videoId = params.get('video');
+            if (videoId) {
+                setTimeout(() => showVideoDetails(videoId), 300);
+            }
         });
 
         // Загрузка статистики
@@ -920,7 +925,10 @@
                             ` : ''}
                             <div class="d-flex justify-content-between align-items-center mt-auto">
                                 <span>${statusBadge}</span>
-                                <button class="btn btn-outline-primary btn-sm rounded-pill" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
+                                <button class="btn btn-outline-secondary btn-sm rounded-pill ms-2" onclick="shareVideo('${video.video_id}')">
+                                    <i class="fas fa-share-alt"></i> Поделиться
+                                </button>
+                                <button class="btn btn-outline-primary btn-sm rounded-pill ms-2" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
                                     <i class="fas fa-info-circle me-1"></i>Детали
                                 </button>
                             </div>
@@ -933,12 +941,12 @@
         // Получение бейджа статуса
         function getStatusBadge(status) {
             const badges = {
-                'new': '<span class="badge bg-secondary status-badge">Новое</span>',
-                'processing': '<span class="badge bg-warning status-badge">Обработка</span>',
-                'analyzed': '<span class="badge bg-success status-badge">Проанализировано</span>',
-                'error': '<span class="badge bg-danger status-badge">Ошибка</span>'
+                'new': '<span class="badge bg-secondary status-badge">Н</span>',
+                'processing': '<span class="badge bg-warning status-badge">П</span>',
+                'analyzed': '<span class="badge bg-success status-badge"><i class=\"fas fa-check\"></i></span>',
+                'error': '<span class="badge bg-danger status-badge">О</span>'
             };
-            return badges[status] || '<span class="badge bg-secondary status-badge">' + status + '</span>';
+            return badges[status] || '<span class="badge bg-secondary status-badge">?</span>';
         }
 
         // Форматирование длительности
@@ -989,6 +997,9 @@
                         <a href="${video.url}" target="_blank" class="btn btn-primary btn-sm w-100 mt-2">
                             <i class="fas fa-external-link-alt me-1"></i> YouTube
                         </a>
+                        <button class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="shareVideo('${video.video_id}')">
+                            <i class="fas fa-share-alt"></i> Поделиться
+                        </button>
                     </div>
                     <div class="col-md-8">
                         <!--<h6>Анализ</h6>-->
@@ -999,6 +1010,11 @@
                                 <div class="text-danger small">${video.error_message}</div>
                             </div>
                         ` : ''}
+                        <div class="d-flex gap-2 mt-3">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="shareVideo('${video.video_id}')">
+                                <i class="fas fa-share-alt"></i> Поделиться
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1196,6 +1212,14 @@
         function showError(message) {
             // Можно добавить toast уведомления
             alert('❌ ' + message);
+        }
+
+        // Общая функция для копирования ссылки
+        function shareVideo(videoId) {
+            const url = `${window.location.origin}/?video=${videoId}`;
+            navigator.clipboard.writeText(url).then(() => {
+                alert('Ссылка скопирована!');
+            });
         }
     </script>
 </body>

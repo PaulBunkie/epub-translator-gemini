@@ -1669,4 +1669,12 @@ if __name__ == '__main__':
         # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
         exit(1)
 
+@app.route('/video/<video_id>')
+def video_redirect(video_id):
+    # Сохраняем все остальные параметры, если есть
+    args = request.args.to_dict()
+    args['video'] = video_id
+    query = '&'.join(f'{k}={v}' for k, v in args.items())
+    return redirect(f'/?{query}')
+
 # --- END OF FILE app.py ---
