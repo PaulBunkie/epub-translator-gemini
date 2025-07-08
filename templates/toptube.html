@@ -712,8 +712,8 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         // Глобальные переменные
-        let currentVideos = [];
-        let isAdminMode = false;
+        var currentVideos = [];
+        var isAdminMode = false;
 
         // Проверяем режим при загрузке страницы
         function checkAdminMode() {
@@ -877,7 +877,10 @@
             const subscribers = formatNumber(video.subscribers);
             const publishedDate = new Date(video.published_at).toLocaleDateString('ru-RU');
             const thumbnailUrl = `https://img.youtube.com/vi/${video.video_id}/maxresdefault.jpg`;
-            
+            let statusHtml = '';
+            if (isAdminMode) {
+                statusHtml = `<span>${statusBadge}</span>`;
+            }
             return `
                 <div class="col-md-6 col-lg-4 col-xxl-3 mb-4">
                     <div class="card video-card h-100 d-flex flex-column">
@@ -920,7 +923,7 @@
                                 </div>
                             ` : ''}
                             <div class="d-flex align-items-center mt-auto card-footer-row">
-                                ${isAdminMode ? `<span>${statusBadge}</span>` : ''}
+                                ${statusHtml}
                                 <button class="btn btn-outline-primary btn-sm rounded-pill flex-grow-1 mx-2" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
                                     <i class="fas fa-info-circle me-1"></i>Подробно
                                 </button>
@@ -1042,6 +1045,206 @@
                     setTimeout(tryOpenModalByParam, 300);
                 }
             }
+        }
+
+        // Функции для управления видео
+        async function collectVideos() {
+            const spinner = document.getElementById('collect-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/collect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Сбор видео запущен в фоне');
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 2000);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка сбора видео:', error);
+                alert('Ошибка сбора видео: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function runFullWorkflow() {
+            const spinner = document.getElementById('workflow-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/full-workflow', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Полный рабочий процесс запущен в фоне');
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 2000);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка запуска полного процесса:', error);
+                alert('Ошибка запуска полного процесса: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function analyzeNextVideo() {
+            const spinner = document.getElementById('analyze-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Анализ всех необработанных видео запущен в фоне');
+                    setTimeout(() => {
+                        loadStats();
+                        loadVideos();
+                    }, 2000);
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка анализа видео:', error);
+                alert('Ошибка анализа видео: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function resetStuckVideos() {
+            const spinner = document.getElementById('reset-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/reset-stuck', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`Сброшено ${data.reset_count} зависших видео`);
+                    loadStats();
+                    loadVideos();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка сброса зависших видео:', error);
+                alert('Ошибка сброса зависших видео: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function resetErrorVideos() {
+            const spinner = document.getElementById('reset-errors-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/reset-errors', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`Сброшено ${data.reset_count} видео с ошибками`);
+                    loadStats();
+                    loadVideos();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка сброса видео с ошибками:', error);
+                alert('Ошибка сброса видео с ошибками: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function refreshData() {
+            try {
+                await loadStats();
+                await loadVideos();
+                alert('Данные обновлены');
+            } catch (error) {
+                console.error('Ошибка обновления данных:', error);
+                alert('Ошибка обновления данных: ' + error.message);
+            }
+        }
+
+        async function deleteNonAnalyzedVideos() {
+            if (!confirm('Вы уверены, что хотите удалить все неуспешные видео? Это действие нельзя отменить.')) {
+                return;
+            }
+            
+            const spinner = document.getElementById('delete-spinner');
+            spinner.style.display = 'inline-block';
+            
+            try {
+                const response = await fetch('/api/toptube/delete-non-analyzed', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`Удалено ${data.deleted_count} неуспешных видео`);
+                    loadStats();
+                    loadVideos();
+                } else {
+                    alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                }
+            } catch (error) {
+                console.error('Ошибка удаления неуспешных видео:', error);
+                alert('Ошибка удаления неуспешных видео: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        function showError(message) {
+            alert('Ошибка: ' + message);
         }
     </script>
 </body>
