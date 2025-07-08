@@ -361,6 +361,16 @@
                 color: white !important;
                 font-size: 1.5rem !important;
             }
+            
+            /* Белая иконка Play для мобилы */
+            .main-content h1 .fas {
+                color: white !important;
+            }
+            
+            /* Белый подзаголовок для мобилы */
+            .main-content p.text-muted {
+                color: rgba(255, 255, 255, 0.8) !important;
+            }
         }
         
         /* Скрываем навигацию для не-админов */
@@ -379,7 +389,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand" href="/">
-                <i class="fas fa-play-circle me-2"></i>TopTube
+                <i class="fas fa-play-circle me-2"></i>aiTube
             </a>
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="/"><i class="fas fa-home me-1"></i>Главная</a>
@@ -393,11 +403,12 @@
         <!-- Заголовок и статистика -->
         <div class="row mb-4">
             <div class="col-12">
-                <h1 class="display-6 mb-3 text-center">
-                    <i class="fas fa-play-circle text-primary me-2"></i>TopTube
-                    <i class="fas fa-chart-line text-primary me-2 ms-3"></i>
-                    Анализ популярных YouTube видео
+                <h1 class="display-6 mb-1 text-center" style="font-weight: bold;">
+                    <i class="fas fa-play-circle text-primary me-2"></i><span style="color: #ff0000;">a</span>iTube
                 </h1>
+                <p class="text-muted mb-0 text-center" style="font-size: 0.9rem;">
+                    ИИ-анализ популярных YouTube видео
+                </p>
             </div>
         </div>
 
