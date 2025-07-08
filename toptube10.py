@@ -11,7 +11,7 @@ import video_analyzer
 
 # Константы
 DAYS = 3
-Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция"
+Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция|TheDiaryOfACEO"
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
