@@ -118,7 +118,7 @@
         {# Кнопка "Открыть другую книгу" #}
         <p>
             <button onclick="document.getElementById('upload-redirect-form').submit();">Открыть другую книгу</button>
-            <form id="upload-redirect-form" action="{{ url_for('index') }}" method="get" style="display: none;"></form>
+            <form id="upload-redirect-form" action="{{ url_for('books') }}" method="get" style="display: none;"></form>
         </p>
 
         {# --- Блок управления книгой --- #}
@@ -264,7 +264,7 @@
         const currentBookId = "{{ book_id | default('None') | escape }}";
         const initialTargetLanguage = "{{ target_language | default('russian') | escape }}";
         const initialSelectedModel = "{{ selected_model | default('meta-llama/llama-4-maverick:free') | escape }}";
-        const isAdminMode = {{ is_admin_mode | tojson }};
+        const isAdminMode = "{{ is_admin_mode | tojson }}" === "true";
     </script>
 
     <script> // Скрипт сохранения prompt_ext
