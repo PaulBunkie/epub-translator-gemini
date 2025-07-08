@@ -329,6 +329,33 @@
         .video-card:nth-child(3) { animation-delay: 0.3s; }
         .video-card:nth-child(4) { animation-delay: 0.4s; }
         .video-card:nth-child(5) { animation-delay: 0.5s; }
+        
+        /* Мобильные устройства */
+        @media (max-width: 768px) {
+            /* Убираем навигационную панель */
+            .navbar {
+                display: none !important;
+            }
+            
+            /* Убираем сиреневый фон */
+            body {
+                background: white !important;
+            }
+            
+            /* Минимизируем отступы белой подложки */
+            .main-content {
+                background: transparent !important;
+                margin: 5px !important;
+                padding: 10px !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+            }
+            
+            /* Убираем отступ сверху */
+            .main-content .row:first-child {
+                margin-top: 0;
+            }
+        }
     </style>
 </head>
 <body>
