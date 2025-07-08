@@ -764,4 +764,13 @@ document.addEventListener('DOMContentLoaded', () => {
           if(downloadEpubLink) downloadEpubLink.classList.add('hidden'); 
     }
 
+    // ... существующий код ...
+    adminElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.display = isAdminMode ? 'flex' : 'none';
+        }
+    });
+    // ... существующий код ...
+
 }); // Конец DOMContentLoaded

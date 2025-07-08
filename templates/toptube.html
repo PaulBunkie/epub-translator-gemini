@@ -522,6 +522,15 @@
                 padding: 6px 0 4px 0;
             }
         }
+        /* Цвет иконки Play в заголовке для десктопа */
+        .main-content h1 .fa-play-circle {
+            color: #4b3fa7 !important;
+        }
+        @media (max-width: 768px) {
+            .main-content h1 .fa-play-circle {
+                color: white !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -553,7 +562,7 @@
         </div>
 
         <!-- Статистика -->
-        <div class="d-flex flex-wrap gap-2 justify-content-center mb-4">
+        <div id="stats-container" class="d-flex flex-wrap gap-2 justify-content-center mb-4 admin-only">
             <button type="button" class="btn btn-primary btn-sm stat-btn">
                 <i class="fas fa-video"></i>
                 <div class="stat-label">Всего</div>
@@ -857,7 +866,7 @@
                             ` : ''}
                             <div class="d-flex justify-content-between align-items-center mt-auto">
                                 <span>${statusBadge}</span>
-                                <button class="btn btn-outline-primary btn-sm" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
+                                <button class="btn btn-outline-primary btn-sm rounded-pill" style="min-width:120px" onclick="showVideoDetails('${video.video_id}')">
                                     <i class="fas fa-info-circle me-1"></i>Детали
                                 </button>
                             </div>
