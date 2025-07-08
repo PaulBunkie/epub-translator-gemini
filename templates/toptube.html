@@ -96,11 +96,33 @@
             border: none;
             border-radius: 15px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            padding: 0.7rem 0.5rem;
+            min-width: 120px;
+            max-width: 180px;
         }
         
         .stats-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        
+        .stats-card .card-body {
+            padding: 0.7rem 0.5rem;
+        }
+        
+        .stats-card h5 {
+            font-size: 1rem;
+            margin-bottom: 0.2rem;
+        }
+        
+        .stats-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 0;
+        }
+        
+        .stats-card i {
+            font-size: 1.5rem;
+            margin-bottom: 0.2rem;
         }
         
         .loading-spinner {
@@ -396,6 +418,110 @@
         .ai-logo-itube {
             color: #4b3fa7;
         }
+        @media (min-width: 768px) {
+            #stats-container {
+                display: flex;
+                flex-direction: row;
+                flex-wrap: nowrap;
+                gap: 16px;
+                justify-content: center;
+                align-items: stretch;
+            }
+        }
+        @media (max-width: 767.98px) {
+            #stats-container {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                align-items: center;
+            }
+        }
+        .stats-block {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-radius: 16px;
+            width: 150px;
+            min-width: 0;
+            min-height: 80px;
+            flex: 0 0 150px;
+            padding: 10px 8px 8px 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            font-weight: 500;
+            box-shadow: 0 2px 10px rgba(80, 80, 160, 0.10);
+            margin: 0;
+        }
+        .stats-block i {
+            font-size: 1.5rem;
+            margin-bottom: 0.2em;
+        }
+        .stats-label {
+            font-size: 0.95em;
+            margin-bottom: 0.2em;
+            font-weight: 400;
+        }
+        .stats-value {
+            font-size: 1.4em;
+            font-weight: 700;
+            margin-bottom: 0;
+        }
+        #stats-container {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            flex-wrap: nowrap;
+        }
+        .stat-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-radius: 999px;
+            min-width: 80px;
+            min-height: 48px;
+            padding: 6px 12px 4px 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+            font-weight: 500;
+            border: none;
+            box-shadow: 0 1px 4px rgba(80, 80, 160, 0.10);
+            transition: background 0.2s;
+        }
+        .stat-btn i {
+            font-size: 1.1rem;
+            margin-bottom: 0.1em;
+        }
+        .stat-label {
+            font-size: 0.85em;
+            margin-bottom: 0.1em;
+            font-weight: 400;
+        }
+        .stat-value {
+            font-size: 1.1em;
+            font-weight: 700;
+            margin-bottom: 0;
+        }
+        @media (max-width: 767.98px) {
+            #stats-container {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+            .stat-btn {
+                min-width: 44vw;
+                font-size: 0.95rem;
+                padding: 6px 0 4px 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -427,43 +553,27 @@
         </div>
 
         <!-- Статистика -->
-        <div class="row mb-4" id="stats-container">
-            <div class="col-md-3 mb-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <i class="fas fa-video fa-2x mb-2"></i>
-                        <h5 class="card-title">Всего видео</h5>
-                        <h3 id="total-videos">-</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <i class="fas fa-check-circle fa-2x mb-2"></i>
-                        <h5 class="card-title">Проанализировано</h5>
-                        <h3 id="analyzed-videos">-</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <i class="fas fa-clock fa-2x mb-2"></i>
-                        <h5 class="card-title">В обработке</h5>
-                        <h3 id="processing-videos">-</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card stats-card">
-                    <div class="card-body text-center">
-                        <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
-                        <h5 class="card-title">Ошибки</h5>
-                        <h3 id="error-videos">-</h3>
-                    </div>
-                </div>
-            </div>
+        <div class="d-flex flex-wrap gap-2 justify-content-center mb-4">
+            <button type="button" class="btn btn-primary btn-sm stat-btn">
+                <i class="fas fa-video"></i>
+                <div class="stat-label">Всего</div>
+                <div class="stat-value" id="total-videos">-</div>
+            </button>
+            <button type="button" class="btn btn-primary btn-sm stat-btn">
+                <i class="fas fa-check-circle"></i>
+                <div class="stat-label">Анализ</div>
+                <div class="stat-value" id="analyzed-videos">-</div>
+            </button>
+            <button type="button" class="btn btn-primary btn-sm stat-btn">
+                <i class="fas fa-clock"></i>
+                <div class="stat-label">В обр.</div>
+                <div class="stat-value" id="processing-videos">-</div>
+            </button>
+            <button type="button" class="btn btn-primary btn-sm stat-btn">
+                <i class="fas fa-exclamation-triangle"></i>
+                <div class="stat-label">Ошибки</div>
+                <div class="stat-value" id="error-videos">-</div>
+            </button>
         </div>
 
         <!-- Кнопки управления -->
