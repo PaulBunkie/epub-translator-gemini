@@ -152,7 +152,7 @@ def get_video_by_youtube_id(youtube_id: str) -> Optional[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
+            SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             WHERE v.video_id = ?
@@ -187,7 +187,7 @@ def get_videos_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
+            SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             WHERE v.status = ?
@@ -221,7 +221,7 @@ def get_analyzed_videos(limit: int = 50) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
+            SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             INNER JOIN analyses a ON v.id = a.video_id
             WHERE v.status = 'analyzed' AND a.analysis_result IS NOT NULL
@@ -255,7 +255,11 @@ def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT v.*, a.sharing_url, a.extracted_text, a.analysis_result, a.analysis_summary, a.error_message
+            SELECT 
+                v.id, v.youtube_id, v.title, v.description, v.thumbnail_url, 
+                v.duration, v.view_count, v.like_count, v.comment_count, 
+                v.status, v.created_at, v.updated_at,
+                a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             ORDER BY v.created_at DESC

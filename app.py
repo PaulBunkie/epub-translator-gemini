@@ -1569,6 +1569,53 @@ def api_reset_error_videos():
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
 
+@app.route('/books', methods=['GET'])
+def books():
+    admin_param = request.args.get('admin')
+    if admin_param == 'true':
+        session['admin_mode'] = True
+        print("Включен режим администратора (показ всех моделей).")
+    elif admin_param == 'false':
+        session.pop('admin_mode', None)
+        print("Выключен режим администратора.")
+
+    print("Загрузка страницы /books...")
+    default_language = session.get('target_language', 'russian')
+    selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
+    print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
+    is_admin_mode = session.get('admin_mode', False)
+    available_models = get_models_list(show_all_models=is_admin_mode)
+    if not available_models:
+        available_models = [
+            {
+                'name': 'meta-llama/llama-4-maverick:free',
+                'display_name': 'Meta Llama 4 Maverick (Free)',
+                'description': 'Default Meta Llama model'
+            }
+        ]
+        print("  WARN: Не удалось получить список моделей от API.")
+    active_ids = [(info['book_id'], info['section_id']) for info in active_tasks.values() if info.get('status') in ['queued', 'extracting', 'translating', 'caching']]
+    reset_stuck_processing_sections(active_processing_sections=active_ids)
+    uploaded_books = []
+    try:
+        db_books = get_all_books()
+        for book_data in db_books:
+            uploaded_books.append({
+                'book_id': book_data['book_id'],
+                'display_name': book_data['filename'],
+                'status': book_data['status'],
+                'total_sections': get_section_count_for_book(book_data['book_id']),
+                'target_language': book_data.get('target_language')
+            })
+        uploaded_books.sort(key=lambda x: x['display_name'].lower())
+        print(f"  Найдено книг в БД: {len(uploaded_books)}")
+    except Exception as e: print(f"ОШИБКА при получении списка книг: {e}"); traceback.print_exc()
+
+    resp = make_response(render_template('book_list.html', uploaded_books=uploaded_books, default_language=default_language, selected_model=selected_model, available_models=available_models, is_admin_mode=is_admin_mode))
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    resp.headers['Content-Security-Policy'] = csp_policy
+    return resp
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
