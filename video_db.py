@@ -392,18 +392,25 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
                 analysis_data.get('error_message')
             ))
         
-        # Обновляем статус видео через функцию update_video_status для правильного подсчета попыток
+        # Обновляем статус видео с подсчетом попыток
         has_analysis = analysis_data.get('analysis_result') or analysis_data.get('analysis')
         has_summary = analysis_data.get('analysis_summary')
         if has_analysis and has_summary:
             status = 'analyzed'
+            # Успешный анализ - не увеличиваем счетчик попыток
+            cursor.execute("""
+                UPDATE videos 
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (status, video_id))
         else:
             status = 'error'
-            
-        # Используем update_video_status вместо прямого SQL для правильного подсчета попыток
-        if not update_video_status(video_id, status):
-            print(f"[VideoDB ERROR] Failed to update video status to {status} for video {video_id}")
-            return False
+            # Ошибка - увеличиваем счетчик попыток
+            cursor.execute("""
+                UPDATE videos 
+                SET status = ?, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (status, video_id))
         
         conn.commit()
         print(f"[VideoDB] Analysis saved for video {video_id}")
