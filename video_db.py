@@ -40,6 +40,7 @@ def init_video_db():
                 subscribers INTEGER NOT NULL,
                 url TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'new',
+                attempts INTEGER DEFAULT 0,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -70,6 +71,14 @@ def init_video_db():
         if 'analysis_summary' not in columns:
             print("[VideoDB] Adding 'analysis_summary' column to 'analyses' table...")
             cursor.execute("ALTER TABLE analyses ADD COLUMN analysis_summary TEXT")
+            conn.commit()
+
+        # --- Проверка и добавление поля attempts ---
+        cursor.execute("PRAGMA table_info(videos)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'attempts' not in columns:
+            print("[VideoDB] Adding 'attempts' column to 'videos' table...")
+            cursor.execute("ALTER TABLE videos ADD COLUMN attempts INTEGER DEFAULT 0")
             conn.commit()
 
         # --- Создание таблицы для информации о сборе ---
@@ -304,11 +313,20 @@ def update_video_status(video_id: int, status: str) -> bool:
         conn = get_video_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("""
-            UPDATE videos 
-            SET status = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (status, video_id))
+        if status == 'error':
+            # При ошибке увеличиваем счетчик попыток
+            cursor.execute("""
+                UPDATE videos 
+                SET status = ?, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (status, video_id))
+        else:
+            # Для других статусов просто обновляем статус
+            cursor.execute("""
+                UPDATE videos 
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (status, video_id))
         
         conn.commit()
         print(f"[VideoDB] Video {video_id} status updated to '{status}'")
@@ -374,7 +392,7 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
                 analysis_data.get('error_message')
             ))
         
-        # Обновляем статус видео
+        # Обновляем статус видео через функцию update_video_status для правильного подсчета попыток
         has_analysis = analysis_data.get('analysis_result') or analysis_data.get('analysis')
         has_summary = analysis_data.get('analysis_summary')
         if has_analysis and has_summary:
@@ -382,11 +400,10 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
         else:
             status = 'error'
             
-        cursor.execute("""
-            UPDATE videos 
-            SET status = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (status, video_id))
+        # Используем update_video_status вместо прямого SQL для правильного подсчета попыток
+        if not update_video_status(video_id, status):
+            print(f"[VideoDB ERROR] Failed to update video status to {status} for video {video_id}")
+            return False
         
         conn.commit()
         print(f"[VideoDB] Analysis saved for video {video_id}")
@@ -513,6 +530,7 @@ def reset_stuck_videos(minutes_threshold: int = 30) -> int:
 def reset_error_videos() -> int:
     """
     Сбрасывает статус видео со статусом 'error' обратно в 'new' для повторного анализа.
+    Сбрасывает только видео с количеством попыток < 3.
     
     Returns:
         Количество сброшенных видео
@@ -522,24 +540,23 @@ def reset_error_videos() -> int:
         conn = get_video_db_connection()
         cursor = conn.cursor()
         
-        # Находим количество видео со статусом 'error'
-        cursor.execute("SELECT COUNT(*) FROM videos WHERE status = 'error'")
-        error_count = cursor.fetchone()[0]
+        # Сбрасываем только видео с попытками < 3
+        cursor.execute("""
+            UPDATE videos 
+            SET status = 'new', updated_at = CURRENT_TIMESTAMP
+            WHERE status = 'error' AND attempts < 3
+        """)
         
-        if error_count > 0:
-            # Сбрасываем статус на 'new'
-            cursor.execute("""
-                UPDATE videos 
-                SET status = 'new', updated_at = CURRENT_TIMESTAMP
-                WHERE status = 'error'
-            """)
-            
-            conn.commit()
-            print(f"[VideoDB] Сброшено {error_count} видео со статуса 'error' в 'new' для повторного анализа")
-            return error_count
+        reset_count = cursor.rowcount
+        
+        conn.commit()
+        
+        if reset_count > 0:
+            print(f"[VideoDB] Сброшено {reset_count} видео со статуса 'error' в 'new' для повторного анализа (попыток < 3)")
         else:
-            print("[VideoDB] Видео со статусом 'error' не найдено")
-            return 0
+            print("[VideoDB] Видео со статусом 'error' и попытками < 3 не найдено")
+        
+        return reset_count
         
     except sqlite3.Error as e:
         print(f"[VideoDB ERROR] Failed to reset error videos: {e}")
