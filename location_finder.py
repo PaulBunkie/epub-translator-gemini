@@ -223,14 +223,8 @@ Location:"""
         Анализирует локацию с fallback логикой.
         Сначала пробует основную модель, затем резервные.
         """
-        # Список моделей для попыток (основная + несколько резервных)
-        models_to_try = [
-            self.primary_model, 
-            self.fallback_model,
-            "meta-llama/llama-4-scout:free",  # Альтернативная модель
-            "anthropic/claude-3.5-sonnet:free",  # Claude как запасной вариант
-            "openai/gpt-4o-mini:free"  # GPT-4o mini как последний вариант
-        ]
+        # Список моделей для попыток (основная + резервная)
+        models_to_try = [self.primary_model, self.fallback_model]
         
         for model in models_to_try:
             print(f"{LF_PRINT_PREFIX} Пробуем модель: {model}")
