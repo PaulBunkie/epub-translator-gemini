@@ -91,12 +91,6 @@ class TelegramBotHandler:
         elif command == "/status":
             return self.cmd_status()
         
-        elif command == "/cache_info":
-            return self.cmd_cache_info()
-        
-        elif command == "/clear_cache":
-            return self.cmd_clear_cache()
-        
         elif command == "/test_yandex":
             return self.cmd_test_yandex()
         
@@ -122,8 +116,6 @@ class TelegramBotHandler:
 📋 <b>Доступные команды:</b>
 /help - Список всех команд
 /status - Статус системы
-/cache_info - Информация о кэше
-/clear_cache - Очистить кэш
 /test_yandex - Тест Yandex API
 /system_info - Информация о системе
 /logs - Последние логи
@@ -140,10 +132,6 @@ class TelegramBotHandler:
 🔍 <b>Мониторинг:</b>
 /status - Показывает статус всех компонентов системы
 /system_info - Информация о сервере, памяти, диске
-
-🗄️ <b>Кэш:</b>
-/cache_info - Статистика кэша (размер, количество записей)
-/clear_cache - Очищает все кэши системы
 
 🔧 <b>Тестирование:</b>
 /test_yandex - Проверяет работоспособность Yandex API
@@ -213,73 +201,6 @@ class TelegramBotHandler:
             
         except Exception as e:
             return f"❌ Ошибка получения статуса: {e}"
-    
-    def cmd_cache_info(self) -> str:
-        """Команда /cache_info - информация о кэше"""
-        try:
-            cache_info = []
-            
-            # Проверяем кэш EPUB
-            epub_cache_dir = ".epub_cache"
-            if os.path.exists(epub_cache_dir):
-                cache_files = [f for f in os.listdir(epub_cache_dir) if f.endswith('.json')]
-                cache_size = sum(os.path.getsize(os.path.join(epub_cache_dir, f)) for f in cache_files)
-                cache_info.append(f"EPUB кэш: {len(cache_files)} файлов, {cache_size / 1024:.1f} KB")
-            else:
-                cache_info.append("EPUB кэш: не найден")
-            
-            # Проверяем кэш workflow
-            workflow_cache_dir = ".epub_workflow.db"
-            if os.path.exists(workflow_cache_dir):
-                size = os.path.getsize(workflow_cache_dir)
-                cache_info.append(f"Workflow кэш: {size / (1024 * 1024):.1f} MB")
-            else:
-                cache_info.append("Workflow кэш: не найден")
-            
-            return f"""
-🗄️ <b>Информация о кэше</b>
-
-{chr(10).join(cache_info)}
-
-💡 Используйте /clear_cache для очистки кэша
-            """.strip()
-            
-        except Exception as e:
-            return f"❌ Ошибка получения информации о кэше: {e}"
-    
-    def cmd_clear_cache(self) -> str:
-        """Команда /clear_cache - очищает кэш"""
-        try:
-            cleared_items = []
-            
-            # Очищаем EPUB кэш
-            epub_cache_dir = ".epub_cache"
-            if os.path.exists(epub_cache_dir):
-                cache_files = [f for f in os.listdir(epub_cache_dir) if f.endswith('.json')]
-                for file in cache_files:
-                    os.remove(os.path.join(epub_cache_dir, file))
-                cleared_items.append(f"EPUB кэш: {len(cache_files)} файлов")
-            
-            # Очищаем workflow кэш
-            workflow_cache_file = ".epub_workflow.db"
-            if os.path.exists(workflow_cache_file):
-                os.remove(workflow_cache_file)
-                cleared_items.append("Workflow кэш")
-            
-            if cleared_items:
-                return f"""
-🧹 <b>Кэш очищен</b>
-
-✅ Удалено:
-{chr(10).join(f"• {item}" for item in cleared_items)}
-
-🔄 Система готова к работе
-                """.strip()
-            else:
-                return "ℹ️ Кэш уже пуст"
-                
-        except Exception as e:
-            return f"❌ Ошибка очистки кэша: {e}"
     
     def cmd_test_yandex(self) -> str:
         """Команда /test_yandex - тестирует Yandex API"""
