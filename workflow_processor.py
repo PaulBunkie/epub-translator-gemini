@@ -51,6 +51,14 @@ MAX_RETRIES = 2 # Number of additional retries for model calls
 # --- Хардкодим модель для перевода, как для summarize/analyze ---
 TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free'
 
+# --- Резервные модели для автоматического переключения при ошибках ---
+FALLBACK_MODELS = {
+    'summarize': 'meta-llama/llama-3.3-70b-instruct:free',
+    'analyze': 'microsoft/mai-ds-r1:free',
+    'translate': 'microsoft/mai-ds-r1:free',
+    'reduce': 'meta-llama/llama-3.3-70b-instruct:free'
+}
+
 def process_section_summarization(book_id: str, section_id: int):
     """
     Процессит суммаризацию одной секции.
@@ -693,17 +701,15 @@ def process_section_translate(book_id: str, section_id: int):
         model_name = TRANSLATION_MODEL  # <-- теперь всегда используем хардкод
 
         # 5. Вызываем перевод
-        print(f"[WorkflowProcessor] ВРЕМЕННО ЗАКОММЕНТИРОВАНО: Вызов translate_text для секции {section_id} ({model_name} -> {target_language})")
-        # translated_text = workflow_translation_module.translate_text(
-        #     text_to_translate=section_text,
-        #     target_language=target_language,
-        #     model_name=model_name,
-        #     prompt_ext=TRANSLATION_PROMPT_EXT,
-        #     operation_type='translate',
-        #     dict_data=dict_data
-        # )
-        # ВРЕМЕННАЯ ЗАГЛУШКА для отладки анализа
-        translated_text = f"[ЗАГЛУШКА ПЕРЕВОДА] Секция {section_id}: {section_text[:100]}..."
+        print(f"[WorkflowProcessor] Вызов translate_text для секции {section_id} ({model_name} -> {target_language})")
+        translated_text = workflow_translation_module.translate_text(
+            text_to_translate=section_text,
+            target_language=target_language,
+            model_name=model_name,
+            prompt_ext=TRANSLATION_PROMPT_EXT,
+            operation_type='translate',
+            dict_data=dict_data
+        )
         print(f"[WorkflowProcessor] Результат translate_text: {translated_text[:100] if translated_text else 'None'}... (длина {len(translated_text) if translated_text is not None else 'None'})")
 
         # 6. Сохраняем результат и обновляем статус

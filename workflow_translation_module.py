@@ -176,13 +176,8 @@ class WorkflowTranslator:
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
     # TODO: Добавить URL для Google API, если будем его реализовывать здесь же
     
-    # Резервные модели для автоматического переключения при ошибках
-    FALLBACK_MODELS = {
-        'summarize': 'meta-llama/llama-3.3-70b-instruct:free',
-        'analyze': 'microsoft/mai-ds-r1:free',
-        'translate': 'meta-llama/llama-3.3-70b-instruct:free',  # Можно добавить резервную для перевода
-        'reduce': 'meta-llama/llama-3.3-70b-instruct:free'      # Для сокращения текста
-    }
+    # Резервные модели импортируются из workflow_processor
+    # FALLBACK_MODELS теперь определены в workflow_processor.py
 
     def __init__(self):
          # Инициализация API ключа OpenRouter
@@ -202,10 +197,14 @@ class WorkflowTranslator:
         """
         Возвращает резервную модель для указанной операции, если она отличается от текущей.
         """
-        fallback_model = self.FALLBACK_MODELS.get(operation_type)
-        if fallback_model and fallback_model != current_model:
-            print(f"[WorkflowTranslator] Переключение на резервную модель для {operation_type}: {current_model} -> {fallback_model}")
-            return fallback_model
+        try:
+            import workflow_processor
+            fallback_model = workflow_processor.FALLBACK_MODELS.get(operation_type)
+            if fallback_model and fallback_model != current_model:
+                print(f"[WorkflowTranslator] Переключение на резервную модель для {operation_type}: {current_model} -> {fallback_model}")
+                return fallback_model
+        except ImportError:
+            print(f"[WorkflowTranslator] Предупреждение: Не удалось импортировать FALLBACK_MODELS из workflow_processor")
         return None
 
     def get_system_instruction(self, operation_type: str, target_language: str) -> str:
@@ -705,6 +704,17 @@ class WorkflowTranslator:
                         try:
                             error_details = response.json()
                             print(f"[OpenRouterTranslator] Детали ошибки: {error_details}")
+                            
+                            # Специальная обработка для 503 "No instances available"
+                            if response.status_code == 503:
+                                error_message = error_details.get('error', {}).get('message', '')
+                                if "No instances available" in error_message:
+                                    print("[OpenRouterTranslator] Обнаружена ошибка недоступности модели. Немедленное переключение на резервную.")
+                                    fallback_model = self._get_fallback_model(operation_type, model_name)
+                                    if fallback_model:
+                                        return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1)
+                                    return None
+                            
                             # Проверка на ошибку контекстного лимита по содержимому ответа
                             if isinstance(error_details, dict) and 'error' in error_details and 'message' in error_details['error']:
                                 if "context window" in error_details['error']['message'].lower():
