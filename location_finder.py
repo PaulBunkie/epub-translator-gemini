@@ -6,20 +6,266 @@ import traceback
 import time
 import json
 import datetime
+from typing import Optional
 
 from db_manager import get_cached_location, save_cached_location
 
 NEWS_API_KEY = "2126e6e18adb478fb9ade262cb1102af"
 NEWS_API_URL = 'https://newsapi.org/v2/everything'
-GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "gemini-2.5-flash-preview-05-20")
 REQUEST_TIMEOUT_SECONDS = 20
 NEWS_FETCH_DAYS_AGO = 3
 LOCATION_CACHE_TTL_SECONDS = 4000
 USER_REQUEST_CACHE_TTL_SECONDS = 86400  # 24 часа для пользовательских запросов
 
+# Модели для анализа локаций (как в video_analyzer.py)
+PRIMARY_MODEL = os.getenv("LOCATION_FINDER_PRIMARY_MODEL", "gemini-2.5-flash-preview-05-20")
+FALLBACK_MODEL = os.getenv("LOCATION_FINDER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+
 _gemini_model_instance = None
 _is_gemini_api_configured = False
 LF_PRINT_PREFIX = "[LF]"
+
+class LocationFinderAI:
+    """
+    Класс для анализа локаций с fallback на разные AI модели.
+    Поддерживает Google Gemini и OpenRouter API.
+    """
+    
+    def __init__(self):
+        # Google API
+        self.google_api_key = os.getenv("GOOGLE_API_KEY")
+        
+        # OpenRouter API
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        
+        # Модели для анализа
+        self.primary_model = PRIMARY_MODEL
+        self.fallback_model = FALLBACK_MODEL
+        
+        if not self.google_api_key and not self.openrouter_api_key:
+            raise ValueError("Необходимо установить GOOGLE_API_KEY или OPENROUTER_API_KEY")
+    
+    def _get_api_source(self, model_name: str) -> str:
+        """
+        Определяет источник API по имени модели.
+        Аналогично translation_module.py
+        """
+        if model_name.startswith("gemini-"):
+            return "google"
+        elif "/" in model_name:  # OpenRouter модели содержат "/"
+            return "openrouter"
+        else:
+            return "google"  # По умолчанию считаем Google
+    
+    def _analyze_with_google(self, person_name: str, news_summaries_text: str, model_name: str) -> Optional[dict]:
+        """
+        Анализирует локацию с помощью Google Gemini API.
+        """
+        try:
+            if not self.google_api_key:
+                print(f"{LF_PRINT_PREFIX} Google API ключ не установлен")
+                return None
+            
+            # Инициализация Gemini
+            genai.configure(api_key=self.google_api_key)
+            model = genai.GenerativeModel(model_name)
+            
+            # Промпт
+            prompt = self._get_location_prompt_template(person_name, news_summaries_text)
+            print(f"{LF_PRINT_PREFIX} [Google] Отправка запроса к {model_name} для '{person_name}'...")
+            
+            response = model.generate_content(prompt)
+            
+            if response.text:
+                location_text_raw = response.text.strip()
+                print(f"{LF_PRINT_PREFIX} [Google] Ответ от {model_name}: '{location_text_raw}'")
+                return self._parse_location_response(location_text_raw, person_name)
+            else:
+                print(f"{LF_PRINT_PREFIX} [Google] Пустой ответ от {model_name}")
+                return None
+                
+        except Exception as e:
+            print(f"{LF_PRINT_PREFIX} [Google] Ошибка при анализе с {model_name}: {e}")
+            return None
+    
+    def _analyze_with_openrouter(self, person_name: str, news_summaries_text: str, model_name: str) -> Optional[dict]:
+        """
+        Анализирует локацию с помощью OpenRouter API.
+        """
+        try:
+            if not self.openrouter_api_key:
+                print(f"{LF_PRINT_PREFIX} OpenRouter API ключ не установлен")
+                return None
+            
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            prompt = self._get_location_prompt_template(person_name, news_summaries_text)
+            
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": 200,
+                "temperature": 0.1
+            }
+            
+            print(f"{LF_PRINT_PREFIX} [OpenRouter] Отправка запроса к {model_name} для '{person_name}'...")
+            
+            response = requests.post(
+                f"{self.openrouter_api_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            
+            print(f"{LF_PRINT_PREFIX} [OpenRouter] Получен ответ: Статус {response.status_code}")
+            
+            # Проверка заголовков лимитов
+            if 'X-Ratelimit-Remaining' in response.headers:
+                print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Remaining: {response.headers['X-Ratelimit-Remaining']}")
+            if 'X-Ratelimit-Limit' in response.headers:
+                print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Limit: {response.headers['X-Ratelimit-Limit']}")
+            if 'X-Ratelimit-Reset' in response.headers:
+                print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Reset: {response.headers['X-Ratelimit-Reset']}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if 'choices' in data and len(data['choices']) > 0:
+                    content = data['choices'][0]['message']['content'].strip()
+                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Ответ от {model_name}: '{content}'")
+                    return self._parse_location_response(content, person_name)
+                else:
+                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Неверный формат ответа от {model_name}")
+                    return None
+            else:
+                print(f"{LF_PRINT_PREFIX} [OpenRouter] HTTP ошибка {response.status_code} от {model_name}")
+                try:
+                    error_details = response.json()
+                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Детали ошибки: {error_details}")
+                except:
+                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Текст ошибки: {response.text[:500]}...")
+                return None
+                
+        except Exception as e:
+            print(f"{LF_PRINT_PREFIX} [OpenRouter] Ошибка при анализе с {model_name}: {e}")
+            return None
+    
+    def _get_location_prompt_template(self, person_name: str, news_summaries_text: str) -> str:
+        """
+        Формирует промпт для анализа локации.
+        """
+        return f"""Analyze the following news summaries about {person_name}.
+Your primary goal is to identify a specific geographic location (city and country) where {person_name} has demonstrably been physically present or performed a significant action very recently (e.g., within the last 1-2 days).
+Consider actions like: - Explicitly stated arrivals, visits, or current presence. - Making official statements or appearances from a specified location. - Reports of them being seen or engaging in activities at a particular place.
+De-prioritize or ignore: - Planned future visits, upcoming meetings, or speculative travel. - General discussions about locations without confirmed recent presence. - Locations mentioned only in the context of other people interacting with {person_name} unless {person_name}'s presence there is also confirmed. - Vague locations like "on a plane" unless a specific destination of arrival is mentioned in conjunction.
+If a credible recent physical location (city and country) can be determined, provide it in the format: "Country, City".
+Examples: "Russia, Moscow", "USA, Washington D.C.", "Qatar, Doha".
+If multiple recent locations are mentioned, try to determine the most current one.
+If {person_name} is reported to be in their primary country of operation (e.g., their capital city) making official statements or performing duties, and no more recent international travel is clearly confirmed, this can be considered.
+If, after careful analysis, no such specific, recent, and confirmed physical location can be reasonably determined from the provided texts, respond with "Unknown".
+Your entire response MUST BE ONLY "Country, City" OR "Unknown". Do not add any explanations, apologies, or other text.
+News summaries for {person_name}:
+{news_summaries_text}
+Location:"""
+    
+    def _parse_location_response(self, location_text_raw: str, person_name: str) -> dict:
+        """
+        Парсит ответ AI и возвращает структурированные данные.
+        """
+        location_name_for_geocoding = "Unknown"
+        geocoding_error_message = None
+        
+        if not location_text_raw:
+            print(f"{LF_PRINT_PREFIX} Пустой ответ -> 'Unknown'.")
+        elif location_text_raw == "Unknown":
+            print(f"{LF_PRINT_PREFIX} -> 'Unknown'.")
+        else:
+            parts = location_text_raw.split(',')
+            if len(parts) >= 2:
+                country = parts[0].strip()
+                city = ",".join(parts[1:]).strip()
+                if country and city and len(location_text_raw) < 150:
+                    location_name_for_geocoding = f"{country}, {city}"
+                else:
+                    geocoding_error_message = f"Format error: {location_text_raw}"
+                    location_name_for_geocoding = "Unknown"
+            else:
+                geocoding_error_message = f"Unexpected format: {location_text_raw}"
+                location_name_for_geocoding = "Unknown"
+
+        lat, lon = None, None
+        final_name_to_return = location_name_for_geocoding if location_name_for_geocoding != "Unknown" else location_text_raw
+        
+        if location_name_for_geocoding != "Unknown":
+            lat, lon = _geocode_location(location_name_for_geocoding)
+            if lat is None or lon is None:
+                geocoding_error_message = (geocoding_error_message + "; " if geocoding_error_message else "") + f"Geocoding failed for '{location_name_for_geocoding}'"
+        elif geocoding_error_message is None and location_text_raw == "Unknown":
+            geocoding_error_message = "Location is Unknown"
+
+        return {
+            "location_name": final_name_to_return,
+            "lat": lat,
+            "lon": lon,
+            "error": geocoding_error_message
+        }
+    
+    def analyze_location(self, person_name: str, news_summaries_text: str) -> Optional[dict]:
+        """
+        Анализирует локацию с fallback логикой.
+        Сначала пробует основную модель, затем резервные.
+        """
+        # Список моделей для попыток (основная + несколько резервных)
+        models_to_try = [
+            self.primary_model, 
+            self.fallback_model,
+            "meta-llama/llama-4-scout:free",  # Альтернативная модель
+            "anthropic/claude-3.5-sonnet:free",  # Claude как запасной вариант
+            "openai/gpt-4o-mini:free"  # GPT-4o mini как последний вариант
+        ]
+        
+        for model in models_to_try:
+            print(f"{LF_PRINT_PREFIX} Пробуем модель: {model}")
+            
+            # Определяем источник API
+            api_source = self._get_api_source(model)
+            
+            if api_source == "google":
+                result = self._analyze_with_google(person_name, news_summaries_text, model)
+            elif api_source == "openrouter":
+                result = self._analyze_with_openrouter(person_name, news_summaries_text, model)
+            else:
+                print(f"{LF_PRINT_PREFIX} Неизвестный источник API для модели {model}")
+                continue
+            
+            if result:
+                print(f"{LF_PRINT_PREFIX} Успешный анализ с моделью {model}")
+                return result
+            else:
+                print(f"{LF_PRINT_PREFIX} Модель {model} не дала результата, пробуем следующую")
+        
+        print(f"{LF_PRINT_PREFIX} Все модели не сработали")
+        return None
+
+# Глобальный экземпляр LocationFinderAI
+_location_finder_ai = None
+
+def _get_location_finder_ai() -> LocationFinderAI:
+    """
+    Возвращает глобальный экземпляр LocationFinderAI.
+    """
+    global _location_finder_ai
+    if _location_finder_ai is None:
+        _location_finder_ai = LocationFinderAI()
+    return _location_finder_ai
 
 def _initialize_gemini():
     global _is_gemini_api_configured, _gemini_model_instance
@@ -127,86 +373,24 @@ def _geocode_location(location_name: str):
     except Exception as e: print(f"{LF_PRINT_PREFIX} ОШИБКА геокодинга '{location_name}': {e}")
     return None, None
 
-def _get_gemini_prompt_template(person_name: str):
-    return f"""Analyze the following news summaries about {person_name}.
-Your primary goal is to identify a specific geographic location (city and country) where {person_name} has demonstrably been physically present or performed a significant action very recently (e.g., within the last 1-2 days).
-Consider actions like: - Explicitly stated arrivals, visits, or current presence. - Making official statements or appearances from a specified location. - Reports of them being seen or engaging in activities at a particular place.
-De-prioritize or ignore: - Planned future visits, upcoming meetings, or speculative travel. - General discussions about locations without confirmed recent presence. - Locations mentioned only in the context of other people interacting with {person_name} unless {person_name}'s presence there is also confirmed. - Vague locations like "on a plane" unless a specific destination of arrival is mentioned in conjunction.
-If a credible recent physical location (city and country) can be determined, provide it in the format: "Country, City".
-Examples: "Russia, Moscow", "USA, Washington D.C.", "Qatar, Doha".
-If multiple recent locations are mentioned, try to determine the most current one.
-If {person_name} is reported to be in their primary country of operation (e.g., their capital city) making official statements or performing duties, and no more recent international travel is clearly confirmed, this can be considered.
-If, after careful analysis, no such specific, recent, and confirmed physical location can be reasonably determined from the provided texts, respond with "Unknown".
-Your entire response MUST BE ONLY "Country, City" OR "Unknown". Do not add any explanations, apologies, or other text.
-News summaries for {person_name}:
-{{news_summaries_text}}
-Location:"""
 
-def _get_location_from_gemini(person_name: str, news_summaries_text: str):
-    global _gemini_model_instance
-    if not _gemini_model_instance:
-        if not _initialize_gemini():
-             return {"location_name": "Error", "lat": None, "lon": None, "error": "Gemini model not available (initialization failed)"}
 
-    model_to_use = _gemini_model_instance
-    prompt_template = _get_gemini_prompt_template(person_name)
-    full_prompt = prompt_template.format(news_summaries_text=news_summaries_text)
-    print(f"{LF_PRINT_PREFIX} Подготовлен промпт для Gemini для '{person_name}'. Длина: {len(full_prompt)}.")
-
-    max_retries = 2
-    for attempt in range(max_retries):
-        try:
-            print(f"{LF_PRINT_PREFIX} Запрос к Gemini ({model_to_use.model_name}) для '{person_name}' (попытка {attempt + 1}/{max_retries})...")
-            start_time = time.time()
-            response = model_to_use.generate_content(full_prompt)
-            end_time = time.time()
-            print(f"{LF_PRINT_PREFIX} Gemini ответил для '{person_name}' за {end_time - start_time:.2f} сек.")
-
-            if response.parts:
-                location_text_raw = response.text.strip()
-                print(f"{LF_PRINT_PREFIX} Сырой ответ Gemini для '{person_name}': '{location_text_raw}'")
-                location_name_for_geocoding = "Unknown"; geocoding_error_message = None
-                if not location_text_raw: print(f"{LF_PRINT_PREFIX} Gemini пустой ответ -> 'Unknown'.")
-                elif location_text_raw == "Unknown": print(f"{LF_PRINT_PREFIX} Gemini -> 'Unknown'.")
-                else:
-                    parts = location_text_raw.split(',');
-                    if len(parts) >= 2:
-                        country = parts[0].strip(); city = ",".join(parts[1:]).strip()
-                        if country and city and len(location_text_raw) < 150:
-                            location_name_for_geocoding = f"{country}, {city}"
-                        else:
-                            geocoding_error_message = f"Gemini format error: {location_text_raw}"
-                            location_name_for_geocoding = "Unknown"
-                    else:
-                        geocoding_error_message = f"Gemini unexpected format: {location_text_raw}"
-                        location_name_for_geocoding = "Unknown"
-
-                lat, lon = None, None
-                final_name_to_return = location_name_for_geocoding if location_name_for_geocoding != "Unknown" else location_text_raw
-                if location_name_for_geocoding != "Unknown":
-                    lat, lon = _geocode_location(location_name_for_geocoding)
-                    if lat is None or lon is None:
-                        geocoding_error_message = (geocoding_error_message + "; " if geocoding_error_message else "") + f"Geocoding failed for '{location_name_for_geocoding}'"
-                elif geocoding_error_message is None and location_text_raw == "Unknown":
-                    geocoding_error_message = "Location is Unknown (from Gemini)"
-
-                # last_updated будет добавлен в find_persons_locations
-                return {"location_name": final_name_to_return, "lat": lat, "lon": lon, "error": geocoding_error_message}
-
-            elif response.prompt_feedback and response.prompt_feedback.block_reason:
-                return {"location_name": "Blocked by Gemini", "lat": None, "lon": None, "error": f"Gemini request blocked ({response.prompt_feedback.block_reason})"}
-            else:
-                return {"location_name": "Error", "lat": None, "lon": None, "error": "Unexpected Gemini response structure"}
-        except genai.types.generation_types.BlockedPromptException as bpe:
-            print(f"{LF_PRINT_PREFIX} КРИТИКА: Промпт для '{person_name}' заблокирован Gemini: {bpe}")
-            return {"location_name": "Error", "lat": None, "lon": None, "error": "Gemini prompt blocked"}
-        except Exception as e:
-            print(f"{LF_PRINT_PREFIX} ОШИБКА при запросе к Gemini для '{person_name}' (попытка {attempt + 1}): {e}")
-            traceback.print_exc()
-            if attempt == max_retries - 1:
-                return {"location_name": "Error", "lat": None, "lon": None, "error": f"Gemini API failure after {max_retries} retries"}
-            time.sleep(1.5)
-    return {"location_name": "Error", "lat": None, "lon": None, "error": "Max retries exceeded for Gemini"}
+def _get_location_from_ai(person_name: str, news_summaries_text: str):
+    """
+    Получает локацию с помощью AI (с fallback логикой).
+    """
+    try:
+        location_finder_ai = _get_location_finder_ai()
+        result = location_finder_ai.analyze_location(person_name, news_summaries_text)
+        
+        if result:
+            return result
+        else:
+            return {"location_name": "Error", "lat": None, "lon": None, "error": "AI analysis failed"}
+            
+    except Exception as e:
+        print(f"{LF_PRINT_PREFIX} Ошибка при анализе локации: {e}")
+        return {"location_name": "Error", "lat": None, "lon": None, "error": f"AI analysis error: {e}"}
 
 
 def find_persons_locations(person_names: list, test_mode: bool = False, force_fresh: bool = False):
@@ -218,12 +402,15 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
         return {"error": "No person names provided"}
 
     if not test_mode:
-        if not _gemini_model_instance and not _initialize_gemini():
-            print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать Gemini. Прерывание.")
+        # Проверяем доступность AI через LocationFinderAI
+        try:
+            _get_location_finder_ai()
+        except Exception as e:
+            print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать AI. Прерывание: {e}")
             for name_original in person_names:
                  results[name_original if isinstance(name_original, str) else str(name_original)] = {
                      "location_name": "Error", "lat": None, "lon": None,
-                     "error": "Gemini initialization failed"
+                     "error": f"AI initialization failed: {e}"
                  }
             return results
 
@@ -259,6 +446,14 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
 
         if cached_entry and not force_fresh:
             cache_age = current_time_unix - cached_entry["last_updated"]
+            
+            # Добавляем отладочную информацию
+            print(f"{LF_PRINT_PREFIX} Детали кэша для '{person_name_key}':")
+            print(f"{LF_PRINT_PREFIX}   - location_name: '{cached_entry.get('location_name')}'")
+            print(f"{LF_PRINT_PREFIX}   - lat: {cached_entry.get('lat')}")
+            print(f"{LF_PRINT_PREFIX}   - lon: {cached_entry.get('lon')}")
+            print(f"{LF_PRINT_PREFIX}   - error: '{cached_entry.get('error')}'")
+            
             is_good_cache_entry = (
                 cached_entry.get("lat") is not None and
                 cached_entry.get("lon") is not None and
@@ -279,17 +474,22 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                 else:
                     print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' устарел (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Попытаемся обновить.")
                     had_good_stale_cache = True
+                    use_fresh_data = True  # Запрашиваем свежие данные для устаревшего кэша
             else:
                 print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' 'плохой' (Unknown/ошибка/нет координат). Запрашиваем свежие данные.")
+                use_fresh_data = True  # Запрашиваем свежие данные для плохого кэша
         elif force_fresh:
             print(f"{LF_PRINT_PREFIX} Принудительное обновление для '{person_name_key}'. Игнорируем кэш.")
+            use_fresh_data = True  # Принудительное обновление
         else:
             print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' не найден в БД. Запрашиваем свежие данные.")
+            use_fresh_data = True  # Запрашиваем свежие данные если кэша нет
 
         if not use_fresh_data:
+            print(f"{LF_PRINT_PREFIX} Пропускаем получение свежих данных для '{person_name_cleaned}' (use_fresh_data=False)")
             continue
 
-        print(f"{LF_PRINT_PREFIX} Получение свежих данных для '{person_name_cleaned}'...")
+        print(f"{LF_PRINT_PREFIX} Получение свежих данных для '{person_name_cleaned}' (use_fresh_data=True)...")
         articles = _fetch_news(person_name_cleaned, num_articles=100, days_ago=NEWS_FETCH_DAYS_AGO)
 
         person_api_data_fresh = {}
@@ -317,7 +517,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                 MAX_CHARS_FOR_GEMINI = 750000
                 if len(news_text) > MAX_CHARS_FOR_GEMINI:
                     news_text = news_text[:MAX_CHARS_FOR_GEMINI] + "\n...(truncated)"
-                person_api_data_fresh = _get_location_from_gemini(person_name_cleaned, news_text)
+                person_api_data_fresh = _get_location_from_ai(person_name_cleaned, news_text)
 
         person_api_data_fresh["last_updated"] = int(current_time_unix)
 
@@ -363,9 +563,6 @@ PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE = [
 def update_locations_for_predefined_persons():
     print(f"\n{LF_PRINT_PREFIX} === ЗАПУСК ФОНОВОГО ОБНОВЛЕНИЯ ЛОКАЦИЙ ===")
     print(f"{LF_PRINT_PREFIX} Персоны: {PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE}")
-    if not _gemini_model_instance and not _initialize_gemini():
-        print(f"{LF_PRINT_PREFIX} ФОН: ОШИБКА Gemini init. Обновление отменено.")
-        return
     try:
         # Фоновое обновление всегда принудительное
         find_persons_locations(PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE, test_mode=False, force_fresh=True)

@@ -498,6 +498,7 @@ def get_cached_location(person_name_key: str):
         
         if row:
             print(f"{CACHE_PRINT_PREFIX} Найден кэш для '{person_name_key}': last_updated={row['last_updated']}")
+            print(f"{CACHE_PRINT_PREFIX} Детали из БД: location_name='{row['location_name']}', lat={row['latitude']}, lon={row['longitude']}, error='{row['error_message']}'")
             return {
                 "location_name": row["location_name"],
                 "lat": row["latitude"],
@@ -588,6 +589,23 @@ def has_error_sections(book_id) -> bool:
         if conn:
             conn.close()
     return has_errors
+
+def clear_location_cache():
+    """Очищает весь кэш локаций."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM location_cache")
+        conn.commit()
+        print(f"{CACHE_PRINT_PREFIX} Кэш локаций полностью очищен.")
+        return True
+    except sqlite3.Error as e:
+        print(f"{CACHE_PRINT_PREFIX} ОШИБКА при очистке кэша локаций: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 # --- Блок для тестирования модуля ---
 if __name__ == '__main__':

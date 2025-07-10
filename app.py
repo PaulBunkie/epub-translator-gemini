@@ -828,6 +828,21 @@ def api_find_persons_locations():
         error_response = {name: f"Server error processing request for this person ({type(e).__name__})" for name in valid_names}
         print(f"{APP_PRINT_PREFIX}  Отправка JSON с общей ошибкой сервера: {json.dumps(error_response, ensure_ascii=False)}")
         return jsonify(error_response), 500
+
+@app.route('/api/locations/clear-cache', methods=['POST'])
+def api_clear_location_cache():
+    """Очищает кэш локаций."""
+    print(f"{APP_PRINT_PREFIX} Запрос на очистку кэша локаций")
+    try:
+        from db_manager import clear_location_cache
+        if clear_location_cache():
+            return jsonify({"status": "success", "message": "Кэш локаций очищен"}), 200
+        else:
+            return jsonify({"status": "error", "message": "Ошибка при очистке кэша"}), 500
+    except Exception as e:
+        print(f"{APP_PRINT_PREFIX} Ошибка при очистке кэша: {e}")
+        return jsonify({"status": "error", "message": f"Ошибка сервера: {e}"}), 500
+
 # --- КОНЕЦ НОВЫХ МАРШРУТОВ ---
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ЗАГРУЗКИ И ЗАПУСКА РАБОЧЕГО ПРОЦЕССА ---
@@ -1654,6 +1669,14 @@ def books():
     resp.headers['Content-Security-Policy'] = csp_policy
     return resp
 
+@app.route('/video/<video_id>')
+def video_redirect(video_id):
+    # Сохраняем все остальные параметры, если есть
+    args = request.args.to_dict()
+    args['video'] = video_id
+    query = '&'.join(f'{k}={v}' for k, v in args.items())
+    return redirect(f'/?{query}')
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
@@ -1668,13 +1691,5 @@ if __name__ == '__main__':
         print(f"Ошибка конфигурации API: {e}")
         # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
         exit(1)
-
-@app.route('/video/<video_id>')
-def video_redirect(video_id):
-    # Сохраняем все остальные параметры, если есть
-    args = request.args.to_dict()
-    args['video'] = video_id
-    query = '&'.join(f'{k}={v}' for k, v in args.items())
-    return redirect(f'/?{query}')
 
 # --- END OF FILE app.py ---
