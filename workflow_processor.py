@@ -454,10 +454,10 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
                     workflow_translation_module.analyze_with_summarization(
                         text_to_analyze=collected_summary_text,
                         target_language=book_info['target_language'],
-                        model_name=None,
+                        model_name=ANALYSIS_MODEL,
                         prompt_ext=None,
                         dict_data=None,
-                        summarization_model=None,
+                        summarization_model=ANALYSIS_MODEL,
                         book_id=book_id
                     )
             # Можно добавить другие этапы по аналогии
