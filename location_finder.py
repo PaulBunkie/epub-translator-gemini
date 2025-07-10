@@ -15,6 +15,7 @@ GEMINI_MODEL_NAME = os.getenv("LOCATION_FINDER_MODEL_NAME", "gemini-2.5-flash-pr
 REQUEST_TIMEOUT_SECONDS = 20
 NEWS_FETCH_DAYS_AGO = 3
 LOCATION_CACHE_TTL_SECONDS = 4000
+USER_REQUEST_CACHE_TTL_SECONDS = 86400  # 24 часа для пользовательских запросов
 
 _gemini_model_instance = None
 _is_gemini_api_configured = False
@@ -208,9 +209,9 @@ def _get_location_from_gemini(person_name: str, news_summaries_text: str):
     return {"location_name": "Error", "lat": None, "lon": None, "error": "Max retries exceeded for Gemini"}
 
 
-def find_persons_locations(person_names: list, test_mode: bool = False):
+def find_persons_locations(person_names: list, test_mode: bool = False, force_fresh: bool = False):
     results = {}
-    print(f"\n{LF_PRINT_PREFIX} Запуск find_persons_locations для: {person_names}. Тестовый режим: {test_mode}")
+    print(f"\n{LF_PRINT_PREFIX} Запуск find_persons_locations для: {person_names}. Тестовый режим: {test_mode}, Принудительное обновление: {force_fresh}")
 
     if not person_names:
         print(f"{LF_PRINT_PREFIX} Список person_names пуст.")
@@ -249,11 +250,14 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
             }
             time.sleep(0.1); continue
 
-        use_fresh_data = True
+        # Определяем TTL в зависимости от режима
+        cache_ttl = USER_REQUEST_CACHE_TTL_SECONDS if not force_fresh else LOCATION_CACHE_TTL_SECONDS
+        
+        use_fresh_data = force_fresh  # Если force_fresh=True, всегда запрашиваем свежие данные
         cached_entry = get_cached_location(person_name_key)
         had_good_stale_cache = False
 
-        if cached_entry:
+        if cached_entry and not force_fresh:
             cache_age = current_time_unix - cached_entry["last_updated"]
             is_good_cache_entry = (
                 cached_entry.get("lat") is not None and
@@ -264,8 +268,8 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
             )
 
             if is_good_cache_entry:
-                if cache_age < LOCATION_CACHE_TTL_SECONDS:
-                    print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' актуален (возраст: {int(cache_age)} сек). Используем его.")
+                if cache_age < cache_ttl:
+                    print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' актуален (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Используем его.")
                     results[person_name_cleaned] = {
                         "location_name": cached_entry["location_name"], "lat": cached_entry["lat"],
                         "lon": cached_entry["lon"], "error": cached_entry["error"],
@@ -273,10 +277,12 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
                     }
                     use_fresh_data = False
                 else:
-                    print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' устарел (возраст: {int(cache_age)} сек). Попытаемся обновить.")
+                    print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' устарел (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Попытаемся обновить.")
                     had_good_stale_cache = True
             else:
                 print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' 'плохой' (Unknown/ошибка/нет координат). Запрашиваем свежие данные.")
+        elif force_fresh:
+            print(f"{LF_PRINT_PREFIX} Принудительное обновление для '{person_name_key}'. Игнорируем кэш.")
         else:
             print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' не найден в БД. Запрашиваем свежие данные.")
 
@@ -328,7 +334,8 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
             print(f"{LF_PRINT_PREFIX} Получены 'хорошие' свежие данные для '{person_name_cleaned}'.")
             final_data_for_person = person_api_data_fresh
             save_cached_location(person_name_key, final_data_for_person, source_summary=news_summaries_text_for_cache)
-        elif had_good_stale_cache and cached_entry:
+        elif had_good_stale_cache and cached_entry and not force_fresh:
+            # Используем старый кэш только если НЕ принудительное обновление
             print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие'. Используем старый 'хороший' кэш для '{person_name_cleaned}'.")
             final_data_for_person = {
                 "location_name": cached_entry["location_name"],
@@ -337,7 +344,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False):
                 "last_updated": cached_entry["last_updated"]
             }
         else:
-            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет. Используем/сохраняем 'плохие' свежие для '{person_name_cleaned}'.")
+            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет или принудительное обновление. Используем/сохраняем 'плохие' свежие для '{person_name_cleaned}'.")
             final_data_for_person = person_api_data_fresh
             save_cached_location(person_name_key, final_data_for_person, source_summary=news_summaries_text_for_cache)
 
@@ -360,11 +367,20 @@ def update_locations_for_predefined_persons():
         print(f"{LF_PRINT_PREFIX} ФОН: ОШИБКА Gemini init. Обновление отменено.")
         return
     try:
-        find_persons_locations(PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE, test_mode=False)
+        # Фоновое обновление всегда принудительное
+        find_persons_locations(PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE, test_mode=False, force_fresh=True)
         print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ УСПЕШНО ЗАВЕРШЕНО ===")
     except Exception as e:
         print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ ОШИБКА: {e} ===")
         traceback.print_exc()
+
+def find_persons_locations_for_user(person_names: list, test_mode: bool = False):
+    """
+    Функция для пользовательских запросов - в основном использует кэш.
+    Запрашивает свежие данные только если в БД нет данных за последние сутки.
+    """
+    print(f"{LF_PRINT_PREFIX} Пользовательский запрос для: {person_names}")
+    return find_persons_locations(person_names, test_mode=test_mode, force_fresh=False)
 
 if __name__ == '__main__':
     print(f"{LF_PRINT_PREFIX} --- Тестирование location_finder.py (локальный запуск) ---")
@@ -375,10 +391,16 @@ if __name__ == '__main__':
     except ImportError:
         print(f"{LF_PRINT_PREFIX} Не удалось импортировать db_manager для инициализации БД в тесте.")
 
-    print(f"{LF_PRINT_PREFIX} --- Тест в РЕАЛЬНОМ режиме ---")
-    real_test_persons = ["Trump", "Biden"]
-    real_locations_data = find_persons_locations(real_test_persons, test_mode=False)
-    print(f"{LF_PRINT_PREFIX}\n--- Результаты РЕАЛЬНОГО поиска локаций ---")
-    for person, data in real_locations_data.items():
+    print(f"{LF_PRINT_PREFIX} --- Тест пользовательского запроса (кэш-приоритет) ---")
+    user_test_persons = ["Trump", "Biden"]
+    user_locations_data = find_persons_locations_for_user(user_test_persons, test_mode=False)
+    print(f"{LF_PRINT_PREFIX}\n--- Результаты пользовательского запроса ---")
+    for person, data in user_locations_data.items():
+        print(f"{LF_PRINT_PREFIX} {person}: Name='{data.get('location_name')}', Lat={data.get('lat')}, Lon={data.get('lon')}, Error='{data.get('error')}', UpdatedTS={data.get('last_updated')}")
+    
+    print(f"{LF_PRINT_PREFIX} --- Тест фонового обновления (принудительное) ---")
+    background_locations_data = find_persons_locations(user_test_persons, test_mode=False, force_fresh=True)
+    print(f"{LF_PRINT_PREFIX}\n--- Результаты фонового обновления ---")
+    for person, data in background_locations_data.items():
         print(f"{LF_PRINT_PREFIX} {person}: Name='{data.get('location_name')}', Lat={data.get('lat')}, Lon={data.get('lon')}, Error='{data.get('error')}', UpdatedTS={data.get('last_updated')}")
 # --- END OF location_finder.py ---

@@ -767,9 +767,9 @@ def alice_smart_webhook():
 # --- НОВЫЕ МАРШРУТЫ ДЛЯ ПОИСКА ЛОКАЦИЙ (вставляются в конец секции маршрутов) ---
 APP_PRINT_PREFIX = "[AppLF]"
 
-@app.route('/find-locations-form', methods=['GET'])
+@app.route('/trump', methods=['GET'])
 def find_locations_form_page():
-    print(f"{APP_PRINT_PREFIX} Запрос страницы /find-locations-form (GET)")
+    print(f"{APP_PRINT_PREFIX} Запрос страницы /trump (GET)")
     return render_template('find_locations_form.html')
 
 @app.route('/api/locations', methods=['POST'])
@@ -813,9 +813,9 @@ def api_find_persons_locations():
     print(f"{APP_PRINT_PREFIX}  Валидные имена для поиска: {valid_names}")
 
     try:
-        print(f"{APP_PRINT_PREFIX}  Вызов location_finder.find_persons_locations с {valid_names}, test_mode={test_mode_flag}...")
-        # Передаем флаг test_mode
-        locations_map_with_coords = location_finder.find_persons_locations(valid_names, test_mode=test_mode_flag)
+        print(f"{APP_PRINT_PREFIX}  Вызов location_finder.find_persons_locations_for_user с {valid_names}, test_mode={test_mode_flag}...")
+        # Используем функцию для пользовательских запросов (кэш-приоритет)
+        locations_map_with_coords = location_finder.find_persons_locations_for_user(valid_names, test_mode=test_mode_flag)
 
         print(f"{APP_PRINT_PREFIX}  Результат от location_finder: {json.dumps(locations_map_with_coords, ensure_ascii=False, indent=2)}")
         print(f"{APP_PRINT_PREFIX}  Отправка JSON ответа клиенту.")
