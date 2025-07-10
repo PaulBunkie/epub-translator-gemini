@@ -276,19 +276,37 @@ class WorkflowTranslator:
             else:
                 end_pos = current_pos + chunk_size
             
-            # Ищем ближайший разрыв абзаца в пределах ±10% от идеальной позиции
+            # Ищем ближайший разрыв в пределах ±10% от идеальной позиции
             ideal_pos = (current_pos + end_pos) // 2
             search_start = max(current_pos, ideal_pos - chunk_size // 10)
             search_end = min(end_pos, ideal_pos + chunk_size // 10)
             
-            # Ищем разрыв абзаца (двойной перенос строки)
+            # Приоритет разбиения:
+            # 1. Двойной перенос строки (граница абзаца)
+            # 2. Одинарный перенос строки
+            # 3. Граница предложения (точка, восклицательный знак, вопросительный знак)
+            # 4. Идеальная позиция
+            
+            split_point = -1
+            
+            # 1. Ищем разрыв абзаца (двойной перенос строки)
             split_point = text.rfind('\n\n', search_start, search_end)
+            
             if split_point == -1:
-                # Если нет двойного переноса, ищем одинарный
+                # 2. Если нет двойного переноса, ищем одинарный
                 split_point = text.rfind('\n', search_start, search_end)
             
             if split_point == -1:
-                # Если нет переносов строк, используем идеальную позицию
+                # 3. Если нет переносов строк, ищем границу предложения
+                for i in range(search_end, search_start, -1):
+                    if text[i-1] in '.!?':
+                        # Проверяем, что после знака препинания есть пробел или конец строки
+                        if i >= len(text) or text[i] in ' \n':
+                            split_point = i
+                            break
+            
+            if split_point == -1:
+                # 4. Если ничего не найдено, используем идеальную позицию
                 split_point = ideal_pos
             
             # Создаем чанк
@@ -307,7 +325,7 @@ class WorkflowTranslator:
 
     def _bubble_chunk_text(self, text: str, target_chunk_size: int = CHUNK_SIZE_LIMIT_CHARS) -> List[str]:
         """
-        Метод пузырька: делим текст пополам по абзацам, пока чанки не станут < target_chunk_size
+        Метод пузырька: делим текст пополам по границам предложений и абзацев, пока чанки не станут < target_chunk_size
         """
         if not text.strip():
             return []
@@ -323,14 +341,33 @@ class WorkflowTranslator:
                     # Ищем середину текста
                     mid = len(chunk) // 2
                     
-                    # Ищем ближайший разрыв абзаца (двойной перенос строки) до середины
+                    # Приоритет разбиения:
+                    # 1. Двойной перенос строки (граница абзаца)
+                    # 2. Одинарный перенос строки
+                    # 3. Граница предложения (точка, восклицательный знак, вопросительный знак)
+                    # 4. Середина текста
+                    
+                    split_point = -1
+                    
+                    # 1. Ищем ближайший разрыв абзаца (двойной перенос строки) до середины
                     split_point = chunk.rfind('\n\n', 0, mid)
+                    
                     if split_point == -1:
-                        # Если нет двойного переноса, ищем одинарный
+                        # 2. Если нет двойного переноса, ищем одинарный
                         split_point = chunk.rfind('\n', 0, mid)
                     
                     if split_point == -1:
-                        # Если нет переносов строк, используем середину
+                        # 3. Если нет переносов строк, ищем границу предложения
+                        # Ищем последнюю точку, восклицательный или вопросительный знак до середины
+                        for i in range(mid, 0, -1):
+                            if chunk[i-1] in '.!?':
+                                # Проверяем, что после знака препинания есть пробел или конец строки
+                                if i >= len(chunk) or chunk[i] in ' \n':
+                                    split_point = i
+                                    break
+                    
+                    if split_point == -1:
+                        # 4. Если ничего не найдено, используем середину
                         split_point = mid
                     
                     # Убираем лишние пробелы в начале второго чанка
@@ -871,7 +908,11 @@ class WorkflowTranslator:
                         continue
                     break
                 translated_chunks.append(translated_chunk)
-            full_translated_text = "".join(translated_chunks)
+            if not translated_chunks:
+                full_translated_text = ""
+            else:
+                # Объединяем чанки с двойным переносом строки для сохранения структуры параграфов
+                full_translated_text = "\n\n".join(translated_chunks)
             print(f"[WorkflowTranslator] Перевод завершен. Общая длина: {len(full_translated_text)} симв.")
             return full_translated_text
         else:

@@ -330,7 +330,7 @@ class OpenRouterTranslator(BaseTranslator):
 
     def _bubble_chunk_text(self, text: str, target_chunk_size: int = 30000) -> List[str]:
         """
-        Метод пузырька: делим текст пополам по абзацам, пока чанки не станут < target_chunk_size
+        Метод пузырька: делим текст пополам по границам предложений и абзацев, пока чанки не станут < target_chunk_size
         """
         if not text.strip():
             return []
@@ -346,14 +346,33 @@ class OpenRouterTranslator(BaseTranslator):
                     # Ищем середину текста
                     mid = len(chunk) // 2
                     
-                    # Ищем ближайший разрыв абзаца (двойной перенос строки) до середины
+                    # Приоритет разбиения:
+                    # 1. Двойной перенос строки (граница абзаца)
+                    # 2. Одинарный перенос строки
+                    # 3. Граница предложения (точка, восклицательный знак, вопросительный знак)
+                    # 4. Середина текста
+                    
+                    split_point = -1
+                    
+                    # 1. Ищем ближайший разрыв абзаца (двойной перенос строки) до середины
                     split_point = chunk.rfind('\n\n', 0, mid)
+                    
                     if split_point == -1:
-                        # Если нет двойного переноса, ищем одинарный
+                        # 2. Если нет двойного переноса, ищем одинарный
                         split_point = chunk.rfind('\n', 0, mid)
                     
                     if split_point == -1:
-                        # Если нет переносов строк, используем середину
+                        # 3. Если нет переносов строк, ищем границу предложения
+                        # Ищем последнюю точку, восклицательный или вопросительный знак до середины
+                        for i in range(mid, 0, -1):
+                            if chunk[i-1] in '.!?':
+                                # Проверяем, что после знака препинания есть пробел или конец строки
+                                if i >= len(chunk) or chunk[i] in ' \n':
+                                    split_point = i
+                                    break
+                    
+                    if split_point == -1:
+                        # 4. Если ничего не найдено, используем середину
                         split_point = mid
                     
                     # Убираем лишние пробелы в начале второго чанка
@@ -465,7 +484,11 @@ class OpenRouterTranslator(BaseTranslator):
                 error_msg = translated_chunk if translated_chunk else "None"
                 final_translation.append(f"{chr(10)}{chr(10)}[ОШИБКА ПЕРЕВОДА: {error_msg}]{chr(10)}{chunk}{chr(10)}[КОНЕЦ ОШИБКИ]{chr(10)}{chr(10)}")
         
-        return "".join(final_translation) if final_translation else None
+        if not final_translation:
+            return None
+        
+        # Объединяем чанки с двойным переносом строки для сохранения структуры параграфов
+        return "\n\n".join(final_translation)
 
     def translate_chunk(
         self,
