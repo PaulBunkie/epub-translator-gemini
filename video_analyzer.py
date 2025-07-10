@@ -5,6 +5,7 @@ import re
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, Any
 import time
+from telegram_notifier import telegram_notifier
 
 class VideoAnalyzer:
     """
@@ -85,8 +86,31 @@ class VideoAnalyzer:
                 try:
                     error_data = response.json()
                     print(f"[VideoAnalyzer] Детали ошибки API: {error_data}")
+                    
+                    # Проверяем на ошибки токена и отправляем уведомления
+                    if response.status_code in [401, 403]:
+                        error_message = error_data.get('message', '') if isinstance(error_data, dict) else str(error_data)
+                        if 'token' in error_message.lower() or 'expired' in error_message.lower():
+                            telegram_notifier.notify_yandex_token_error(
+                                "expired" if response.status_code == 401 else "invalid",
+                                f"HTTP {response.status_code}: {error_message}"
+                            )
+                        else:
+                            telegram_notifier.notify_api_error(
+                                "Yandex Official API",
+                                response.status_code,
+                                error_message
+                            )
                 except:
-                    print(f"[VideoAnalyzer] Текст ошибки: {response.text[:500]}...")
+                    error_text = response.text[:500]
+                    print(f"[VideoAnalyzer] Текст ошибки: {error_text}...")
+                    
+                    # Отправляем уведомление даже если не удалось распарсить JSON
+                    if response.status_code in [401, 403]:
+                        telegram_notifier.notify_yandex_token_error(
+                            "expired" if response.status_code == 401 else "invalid",
+                            f"HTTP {response.status_code}: {error_text}"
+                        )
                 return None
             
             # Парсим ответ
@@ -144,8 +168,25 @@ class VideoAnalyzer:
                 try:
                     error_data = response.json()
                     print(f"[VideoAnalyzer] Fallback детали ошибки: {error_data}")
+                    
+                    # Проверяем на ошибки сессии и отправляем уведомления
+                    if response.status_code in [401, 403]:
+                        error_message = error_data.get('message', '') if isinstance(error_data, dict) else str(error_data)
+                        if 'session' in error_message.lower() or 'expired' in error_message.lower():
+                            telegram_notifier.notify_session_expired("Yandex Session")
+                        else:
+                            telegram_notifier.notify_api_error(
+                                "Yandex Session API",
+                                response.status_code,
+                                error_message
+                            )
                 except:
-                    print(f"[VideoAnalyzer] Fallback текст ошибки: {response.text[:500]}...")
+                    error_text = response.text[:500]
+                    print(f"[VideoAnalyzer] Fallback текст ошибки: {error_text}...")
+                    
+                    # Отправляем уведомление даже если не удалось распарсить JSON
+                    if response.status_code in [401, 403]:
+                        telegram_notifier.notify_session_expired("Yandex Session")
                 return None
             
             # Остальная логика polling'а...

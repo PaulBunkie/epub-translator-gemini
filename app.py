@@ -54,6 +54,15 @@ import video_analyzer
 import toptube10
 import video_db
 
+# Импорт Telegram бота
+try:
+    from telegram_bot_handler import TelegramBotHandler
+    TELEGRAM_BOT_AVAILABLE = True
+    print("[App] Telegram бот доступен")
+except ImportError:
+    TELEGRAM_BOT_AVAILABLE = False
+    print("[App] Telegram бот недоступен (модуль не найден)")
+
 # --- Настройки ---
 from config import UPLOADS_DIR, CACHE_DIR, FULL_TRANSLATION_DIR
 
@@ -1677,6 +1686,34 @@ def video_redirect(video_id):
     query = '&'.join(f'{k}={v}' for k, v in args.items())
     return redirect(f'/?{query}')
 
+# --- Инициализация Telegram бота ---
+telegram_bot = None
+telegram_bot_thread = None
+
+def start_telegram_bot():
+    """Запускает Telegram бота в отдельном потоке"""
+    global telegram_bot
+    if TELEGRAM_BOT_AVAILABLE and os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"):
+        try:
+            telegram_bot = TelegramBotHandler()
+            print("[App] Telegram бот инициализирован")
+            
+            # Запускаем бота в отдельном потоке
+            def bot_polling():
+                try:
+                    telegram_bot.run_polling()
+                except Exception as e:
+                    print(f"[App] Ошибка в Telegram боте: {e}")
+            
+            telegram_bot_thread = threading.Thread(target=bot_polling, daemon=True)
+            telegram_bot_thread.start()
+            print("[App] Telegram бот запущен в фоновом режиме")
+            
+        except Exception as e:
+            print(f"[App] Ошибка запуска Telegram бота: {e}")
+    else:
+        print("[App] Telegram бот не запущен (отсутствуют токен или chat_id)")
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
@@ -1685,6 +1722,9 @@ if __name__ == '__main__':
     try:
         configure_api() # Проверка ключей API
         load_models_on_startup() # <-- ДОБАВЛЯЕМ ЭТОТ ВЫЗОВ
+        
+        # Запускаем Telegram бота
+        start_telegram_bot()
 
         app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
     except ValueError as e:
