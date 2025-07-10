@@ -1337,9 +1337,29 @@ def get_workflow_book_status(book_id):
                 current_active_stage_name = stage_name
                 break # Found pending, stop search
 
-    # If still no active stage found (all completed/error), take the last stage
+    # If still no active stage found (all completed/error), workflow is completed
+    # Don't set any stage as active - let the UI handle completed workflow
     if current_active_stage_name is None and stages_ordered:
-        current_active_stage_name = stages_ordered[-1]['stage_name'] # Take the name of the last stage
+        # Check if all stages are completed
+        all_completed = True
+        for stage in stages_ordered:
+            stage_name = stage['stage_name']
+            status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+            if status not in ['completed', 'completed_empty', 'skipped']:
+                all_completed = False
+                break
+        
+        if all_completed:
+            current_active_stage_name = None  # Workflow is completed
+        else:
+            # If not all completed but no active stage found, something is wrong
+            # Take the first pending stage as fallback
+            for stage in stages_ordered:
+                stage_name = stage['stage_name']
+                status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+                if status == 'pending':
+                    current_active_stage_name = stage_name
+                    break
 
     # Add the determined active stage name to the book_info dictionary
     # ИСПРАВЛЕНИЕ: Добавляем поле в response_data, а не в book_info

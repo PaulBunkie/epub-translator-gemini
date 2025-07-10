@@ -193,14 +193,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     } else {
                         console.log(`Book ${bookId} workflow status is '${bookStatus}'. Polling continues.`);
-                        // Убедитесь, что оверлей показывается, если статус processing или queued, и скрыт иначе
-                        if (bookStatus === 'processing' || bookStatus === 'queued') {
-                             // Оверлей уже должен быть показан при старте или загрузке.
-                             // updateProgressText вызывается выше и обновляет текст.
+                        
+                        // Проверяем, есть ли активный этап
+                        const currentStageName = statusData.current_stage_name;
+                        
+                        if (currentStageName && (bookStatus === 'processing' || bookStatus === 'queued')) {
+                             // Есть активный этап и workflow в процессе - показываем оверлей
                              
-                             // --- MODIFIED: Update overlay text with progress based on stage type and status ---
-                             const currentStageName = statusData.current_stage_name || 'Workflow'; // Get active stage name from backend, fallback to 'Workflow'
-
                              // Get stage details from book_stage_statuses to check if it's per-section and get its status
                              const currentStageDetails = statusData.book_stage_statuses ? statusData.book_stage_statuses[currentStageName] : null;
                              const stageStatus = currentStageDetails ? currentStageDetails.status : 'unknown'; // Status of the current stage
@@ -225,17 +224,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                         progressTextContent += `: 0 / ${total} sections`; // Explicitly show 0/0 or 0/something if total is 0
                                    }
                              }
-                             // Если нет сводки по секциям или этап не активен, текст остается только статус.
+                             // Если нет сводка по секциям или этап не активен, текст остается только статус.
                              
                              updateProgressText(progressTextContent);
-                             // --- END MODIFIED ---
-
+                             
                          } else {
-                              // Если статус не processing/queued, но и не финальный (что странно),
-                              // возможно, стоит скрыть оверлей или показать статус книги без деталей этапа.
-                              // В нормальном workflow эта ветка не должна достигаться до завершения.
-                              // Если все этапы прошли, а статус не финальный, возможно, проблема в бэкенде.
-                              hideProgressOverlay(); // На всякий случай скрываем, если статус неактивный и нефинальный
+                              // Нет активного этапа или workflow завершен - скрываем оверлей
+                              hideProgressOverlay();
                          }
                     }
                     // --- КОНЕЦ НОВОЙ ЛОГИКИ остановки поллинга и скрытия оверлея ---

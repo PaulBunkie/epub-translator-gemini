@@ -175,6 +175,14 @@ Text to Analyze:
 class WorkflowTranslator:
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
     # TODO: Добавить URL для Google API, если будем его реализовывать здесь же
+    
+    # Резервные модели для автоматического переключения при ошибках
+    FALLBACK_MODELS = {
+        'summarize': 'meta-llama/llama-3.3-70b-instruct:free',
+        'analyze': 'microsoft/mai-ds-r1:free',
+        'translate': 'meta-llama/llama-3.3-70b-instruct:free',  # Можно добавить резервную для перевода
+        'reduce': 'meta-llama/llama-3.3-70b-instruct:free'      # Для сокращения текста
+    }
 
     def __init__(self):
          # Инициализация API ключа OpenRouter
@@ -189,6 +197,16 @@ class WorkflowTranslator:
             print("Google API ключ успешно сконфигурирован для workflow.")
         else:
             print("Предупреждение: Переменная окружения GOOGLE_API_KEY не установлена.")
+
+    def _get_fallback_model(self, operation_type: str, current_model: str) -> str | None:
+        """
+        Возвращает резервную модель для указанной операции, если она отличается от текущей.
+        """
+        fallback_model = self.FALLBACK_MODELS.get(operation_type)
+        if fallback_model and fallback_model != current_model:
+            print(f"[WorkflowTranslator] Переключение на резервную модель для {operation_type}: {current_model} -> {fallback_model}")
+            return fallback_model
+        return None
 
     def get_system_instruction(self, operation_type: str, target_language: str) -> str:
         """
@@ -257,6 +275,10 @@ class WorkflowTranslator:
             return [text]
         
         # Вычисляем оптимальное количество чанков
+        if target_chunk_size <= 0:
+            print(f"[WorkflowTranslator] Предупреждение: target_chunk_size = {target_chunk_size}, используем дефолтное значение 30000")
+            target_chunk_size = 30000
+        
         optimal_chunks_count = max(2, (text_length + target_chunk_size - 1) // target_chunk_size)
         print(f"[WorkflowTranslator] Умное разбиение: текст {text_length} символов на {optimal_chunks_count} чанков (цель: <{target_chunk_size} каждый)")
         
@@ -555,6 +577,14 @@ class WorkflowTranslator:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Google API: {e}")
                 if "context window" in str(e).lower():
                     return CONTEXT_LIMIT_ERROR
+                
+                # Попытка переключения на резервную модель
+                fallback_model = self._get_fallback_model(operation_type, model_name)
+                if fallback_model:
+                    print(f"[WorkflowTranslator] Попытка переключения на резервную модель: {fallback_model}")
+                    # Рекурсивный вызов с резервной моделью (только одна попытка)
+                    return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1)
+                
                 return None
 
         elif api_type == "openrouter":
@@ -711,6 +741,14 @@ class WorkflowTranslator:
                      return None # Возвращаем None при непредвиденной ошибке
 
             print("[OpenRouterTranslator] Не удалось получить успешный ответ от OpenRouter API после всех попыток.")
+            
+            # Попытка переключения на резервную модель
+            fallback_model = self._get_fallback_model(operation_type, model_name)
+            if fallback_model:
+                print(f"[WorkflowTranslator] Попытка переключения на резервную модель: {fallback_model}")
+                # Рекурсивный вызов с резервной моделью (только одна попытка)
+                return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1)
+            
             return None
 
         else:
@@ -744,6 +782,10 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
                 CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit // 2
+            # Дополнительная проверка на случай, если context_chars_limit тоже 0
+            if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
+                print(f"[WorkflowTranslator] Предупреждение: context_chars_limit = {context_chars_limit}, используем дефолтное значение 30000")
+                CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 30000
             # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум CHUNK_SIZE_LIMIT_CHARS символов ---
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, CHUNK_SIZE_LIMIT_CHARS)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
@@ -757,6 +799,10 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
                 CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit // 2
+            # Дополнительная проверка на случай, если context_chars_limit тоже 0
+            if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
+                print(f"[WorkflowTranslator] Предупреждение: context_chars_limit = {context_chars_limit}, используем дефолтное значение 30000")
+                CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 30000
             # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум CHUNK_SIZE_LIMIT_CHARS символов ---
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, CHUNK_SIZE_LIMIT_CHARS)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
@@ -770,6 +816,10 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit - 4000
             if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
                 CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = context_chars_limit // 2
+            # Дополнительная проверка на случай, если context_chars_limit тоже 0
+            if CHUNK_SIZE_LIMIT_CHARS_DYNAMIC <= 0:
+                print(f"[WorkflowTranslator] Предупреждение: context_chars_limit = {context_chars_limit}, используем дефолтное значение 30000")
+                CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 30000
             # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум ANALYSIS_CHUNK_SIZE_LIMIT_CHARS символов для анализа ---
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, ANALYSIS_CHUNK_SIZE_LIMIT_CHARS)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
@@ -826,7 +876,19 @@ class WorkflowTranslator:
                 if result and result != CONTEXT_LIMIT_ERROR:
                     summarized_chunks.append(result)
                 else:
-                    print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не дал валидного результата. Возвращаем None для ретрая.")
+                    print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не дал валидного результата.")
+                    
+                    # Попытка переключения на резервную модель
+                    fallback_model = self._get_fallback_model(operation_type, model_name)
+                    if fallback_model:
+                        print(f"[WorkflowTranslator] Попытка переключения на резервную модель для чанка {i+1}: {fallback_model}")
+                        # Повторная попытка с резервной моделью
+                        result = self._call_model_api(fallback_model, messages, operation_type=operation_type, chunk_text=chunk)
+                        if result and result != CONTEXT_LIMIT_ERROR:
+                            summarized_chunks.append(result)
+                            continue
+                    
+                    print(f"[WorkflowTranslator] Возвращаем None для ретрая.")
                     return None
             
             if summarized_chunks:
@@ -870,7 +932,18 @@ class WorkflowTranslator:
                         print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
                         attempt += 1
                         if attempt > max_chunk_retries:
-                            print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не удалось перевести после {max_chunk_retries+1} попыток. Прерывание.")
+                            print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не удалось перевести после {max_chunk_retries+1} попыток.")
+                            
+                            # Попытка переключения на резервную модель
+                            fallback_model = self._get_fallback_model('translate', model_name)
+                            if fallback_model:
+                                print(f"[WorkflowTranslator] Попытка переключения на резервную модель для перевода чанка {i+1}: {fallback_model}")
+                                # Повторная попытка с резервной моделью
+                                translated_chunk = self._call_model_api(fallback_model, messages, operation_type='translate', chunk_text=chunk)
+                                if translated_chunk and translated_chunk not in ['TRUNCATED_RESPONSE_ERROR', 'EMPTY_RESPONSE_ERROR']:
+                                    break
+                            
+                            print(f"[WorkflowTranslator] Прерывание.")
                             return None
                         time.sleep(2)
                         continue
@@ -991,7 +1064,19 @@ class WorkflowTranslator:
             if result and result != CONTEXT_LIMIT_ERROR:
                 reduced_chunks.append(result)
             else:
-                print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не дал валидного результата. Возвращаем None для ретрая.")
+                print(f"[WorkflowTranslator] Ошибка: чанк {i+1} не дал валидного результата.")
+                
+                # Попытка переключения на резервную модель
+                fallback_model = self._get_fallback_model('reduce', model_name)
+                if fallback_model:
+                    print(f"[WorkflowTranslator] Попытка переключения на резервную модель для reduce чанка {i+1}: {fallback_model}")
+                    # Повторная попытка с резервной моделью
+                    result = self._call_model_api(fallback_model, messages, operation_type='reduce', chunk_text=chunk)
+                    if result and result != CONTEXT_LIMIT_ERROR:
+                        reduced_chunks.append(result)
+                        continue
+                
+                print(f"[WorkflowTranslator] Возвращаем None для ретрая.")
                 return None
         
         if reduced_chunks:

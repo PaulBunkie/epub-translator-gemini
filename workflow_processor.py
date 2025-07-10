@@ -435,12 +435,31 @@ def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Opt
             # --- ДОБАВЛЯЮ: Пересчитываем статус этапа после завершения всех секций ---
             recalculate_book_stage_status(book_id, stage_name)
         else:
-            # Книжный этап (анализ, создание epub и т.д.)
+            # Книжный этап (анализ, создание epub, сокращение и т.д.)
             result = True  # По умолчанию успех
             if stage_name == 'analyze':
                 result = process_book_analysis(book_id)
             elif stage_name == 'epub_creation':
                 result = process_book_epub_creation(book_id)
+            elif stage_name == 'reduce_text':
+                # Проверяем, нужен ли этап сокращения (текст слишком большой?)
+                book_info = workflow_db_manager.get_book_workflow(book_id)
+                collected_summary_text = collect_book_summary_text(book_id)
+                if len(collected_summary_text) <= 12000:  # или ANALYSIS_CHUNK_SIZE_LIMIT_CHARS
+                    # Если текст уже короткий, этап сокращения не нужен
+                    workflow_db_manager.update_book_stage_status_workflow(book_id, 'reduce_text', 'skipped', error_message='Сокращение не требуется')
+                    print(f"[WorkflowProcessor] Этап 'reduce_text' пропущен: текст уже короткий.")
+                else:
+                    # Вызовем анализ с автоматической суммаризацией (он сам обновит статус reduce_text)
+                    workflow_translation_module.analyze_with_summarization(
+                        text_to_analyze=collected_summary_text,
+                        target_language=book_info['target_language'],
+                        model_name=None,
+                        prompt_ext=None,
+                        dict_data=None,
+                        summarization_model=None,
+                        book_id=book_id
+                    )
             # Можно добавить другие этапы по аналогии
             
             # Проверяем результат книжного этапа

@@ -5,7 +5,7 @@
 ### 1. Настройка
 ```bash
 # Установите переменные окружения
-export TELEGRAM_BOT_TOKEN="7110443855:AAGTep3d3Aand8MOYyqpxLorrrfUA8boQoc"
+export TELEGRAM_BOT_TOKEN="<YOUR_TELEGRAM_BOT_TOKEN>"
 export TELEGRAM_CHAT_ID="ваш_chat_id"
 
 # Получите chat_id
