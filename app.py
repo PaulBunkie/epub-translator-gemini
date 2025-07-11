@@ -963,7 +963,7 @@ def workflow_upload_file():
                      current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
                      # Теперь start_book_workflow принимает только app_instance.
 # Workflow автоматически определяет, с какого этапа начать.
-                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), None)
+                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object())
              threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
              # --- КОНЕЦ ИЗМЕНЕНИЯ ---
              print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
