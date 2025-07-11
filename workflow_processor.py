@@ -557,6 +557,25 @@ def start_book_workflow(book_id: str, app_instance: Flask):
         book_info = workflow_db_manager.get_book_workflow(book_id)
         # --- ВЫЗЫВАЕМ обновление статуса книги ---
         update_overall_workflow_book_status(book_id)
+    
+    # --- ФИНАЛЬНОЕ ОБНОВЛЕНИЕ СТАТУСА КНИГИ ---
+    # После завершения всех этапов проверяем, что все этапы завершены успешно
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if book_info:
+        book_stage_statuses = book_info.get('book_stage_statuses', {})
+        all_completed = True
+        for stage_name, stage_data in book_stage_statuses.items():
+            status = stage_data.get('status', 'pending')
+            if status not in ['completed', 'completed_empty', 'skipped']:
+                all_completed = False
+                break
+        
+        if all_completed:
+            workflow_db_manager.update_book_workflow_status(book_id, 'completed')
+            print(f"[WorkflowProcessor] Все этапы завершены успешно. Статус книги {book_id} обновлен на 'completed'.")
+        else:
+            print(f"[WorkflowProcessor] Не все этапы завершены. Статус книги {book_id} остается текущим.")
+    
     print(f"[WorkflowProcessor] Рабочий процесс start_book_workflow для книги ID: {book_id} завершен (основная функция). Финальный статус книги: {book_info.get('current_workflow_status') if book_info else 'unknown'}.")
     return True
 
@@ -1047,7 +1066,19 @@ def process_book_epub_creation(book_id: str):
             for item in items_to_copy:
                 book.add_item(item)
             print(f"  Скопировано {len(items_to_copy)} ресурсов/служебных файлов.")
-            
+
+            # --- ЯВНО УСТАНАВЛИВАЕМ ОБЛОЖКУ ---
+            cover_item = None
+            for item in original_book.get_items_of_type(ebooklib.ITEM_IMAGE):
+                if item.get_id() == 'cover' or 'cover' in item.get_name().lower():
+                    cover_item = item
+                    break
+            if cover_item:
+                book.set_cover(cover_item.file_name, cover_item.get_content())
+                print(f'  Обложка установлена: {cover_item.file_name}')
+            else:
+                print('  [WARN] Обложка не найдена в оригинале, не будет установлена явно.')
+
             # Обработка и добавление переведенных глав
             chapters = []
             chapter_titles_map = {}
@@ -1068,10 +1099,22 @@ def process_book_epub_creation(book_id: str):
             print(f"  Обработка {len(section_ids)} секций книги...")
             for i, section_id in enumerate(section_ids):
                 chapter_index = i + 1
-                chapter_title = chapter_titles_map.get(section_id, f"{default_title_prefix} {chapter_index}")
+                
+                # Ищем название главы в TOC по section_id
+                chapter_title = None
+                if toc_data:
+                    for item in toc_data:
+                        if item.get('id') == section_id:
+                            chapter_title = item.get('translated_title') or item.get('title')
+                            break
+                
+                # Если не нашли в TOC, используем fallback
+                if not chapter_title:
+                    chapter_title = f"{default_title_prefix} {chapter_index}"
+                
                 chapter_title_escaped = html.escape(chapter_title)
-                header_html = f"<h1>{chapter_title_escaped}</h1>\n"
-                final_html_body_content = header_html
+                # Убираем заголовок из содержимого - он будет только в метаданных главы
+                final_html_body_content = ""
                 
                 section_data = sections_data_map.get(section_id)
                 section_status = section_data.get("status", "unknown") if section_data else "unknown"
