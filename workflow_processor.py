@@ -357,52 +357,131 @@ def update_overall_workflow_book_status(book_id):
     return True
 
 # TODO: Добавить функцию start_book_workflow для запуска процесса для всей книги DONE
-def start_book_workflow(book_id: str, app_instance: Flask, start_from_stage: Optional[str] = None):
+def start_book_workflow(book_id: str, app_instance: Flask):
     """
     Запускает полный рабочий процесс для книги, начиная с указанного этапа (или с самого начала).
     После завершения каждого этапа автоматически переходит к следующему.
     """
-    print(f"[WorkflowProcessor] Запуск рабочего процесса для книги ID: {book_id}, старт с этапа: {start_from_stage}")
+    print(f"[WorkflowProcessor] Запуск рабочего процесса для книги ID: {book_id}")
 
-    # --- ДОБАВЛЕНО: Сброс статусов и кэша для этапов, кроме summarize ---
-    if start_from_stage == 'analyze':
-        print(f"[WorkflowProcessor] Сброс этапов analyze, translate, epub_creation для книги {book_id} перед повторным запуском workflow.")
-        # Сброс book-level этапов
-        for stage in ['analyze', 'epub_creation']:
-            workflow_db_manager.update_book_stage_status_workflow(book_id, stage, 'pending', model_name=None, error_message=None)
-            import workflow_cache_manager
-            workflow_cache_manager.delete_book_stage_result(book_id, stage)
-            # Явная проверка статуса после сброса
-            status = workflow_db_manager.get_book_workflow(book_id)['book_stage_statuses'][stage]['status']
-            print(f"[DEBUG] Статус этапа {stage} после сброса: {status}")
-        # Сброс per-section этапа translate
-        sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
-        for section in sections:
-            section_id = section['section_id']
-            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'pending', model_name=None, error_message=None)
-            workflow_cache_manager.delete_section_stage_result(book_id, section_id, 'translate')
-        # --- ОБНОВЛЯЮ book_info после сброса ---
-        book_info = workflow_db_manager.get_book_workflow(book_id)
-
+    # --- УМНАЯ ЛОГИКА: Определяем первый незавершенный этап и сбрасываем его и все последующие ---
     stages = workflow_db_manager.get_all_stages_ordered_workflow()
     print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]}")
     book_info = workflow_db_manager.get_book_workflow(book_id)
     if not book_info:
         print(f"[WorkflowProcessor] Книга {book_id} не найдена в Workflow DB. Прерывание.")
         return False
+    
+    # Определяем первый незавершенный этап КНИГИ
+    first_incomplete_stage = None
+    stages_to_reset = []
+    
+    for stage in stages:
+        stage_name = stage['stage_name']
+        
+        # Проверяем статус этапа на уровне КНИГИ
+        book_stage_statuses = book_info.get('book_stage_statuses', {})
+        current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+        
+        print(f"[WorkflowProcessor] Проверяем этап {stage_name}: статус книги = {current_stage_status}")
+        
+        if current_stage_status not in ['completed', 'completed_empty', 'skipped']:
+            first_incomplete_stage = stage_name
+            print(f"[WorkflowProcessor] Найден первый незавершенный этап книги: {stage_name}")
+            break
+    
+    # Определяем первый незавершенный этап (с которого нужно начать перезапуск)
+    if first_incomplete_stage:
+        print(f"[WorkflowProcessor] Workflow упал на этапе: {first_incomplete_stage}. Начинаем перезапуск с этого этапа.")
+    else:
+        print(f"[WorkflowProcessor] Все этапы завершены. Workflow завершен успешно.")
+        return True
+    
+    # Определяем этапы для сброса (первый незавершенный и все последующие)
+    if first_incomplete_stage:
+        reset_started = False
+        for stage in stages:
+            stage_name = stage['stage_name']
+            if stage_name == first_incomplete_stage:
+                reset_started = True
+            
+            if reset_started:
+                # Проверяем, нужно ли сбрасывать этот этап
+                is_per_section_stage = stage.get('is_per_section', False)
+                
+                if is_per_section_stage:
+                    # Для per-section этапов проверяем все секции
+                    sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+                    all_sections_completed = True
+                    for section in sections:
+                        section_id = section['section_id']
+                        section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
+                        if section_stage_status not in ['completed', 'completed_empty']:
+                            all_sections_completed = False
+                            break
+                    
+                    if not all_sections_completed:
+                        stages_to_reset.append(stage_name)
+                        print(f"[WorkflowProcessor] Этап {stage_name} будет сброшен (не все секции завершены)")
+                    else:
+                        print(f"[WorkflowProcessor] Этап {stage_name} пропущен (все секции завершены)")
+                else:
+                    # Для book-level этапов проверяем статус книги
+                    book_stage_statuses = book_info.get('book_stage_statuses', {})
+                    current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+                    
+                    if current_stage_status not in ['completed', 'completed_empty', 'skipped']:
+                        stages_to_reset.append(stage_name)
+                        print(f"[WorkflowProcessor] Этап {stage_name} будет сброшен (статус: {current_stage_status})")
+                    else:
+                        print(f"[WorkflowProcessor] Этап {stage_name} пропущен (статус: {current_stage_status})")
+        
+        print(f"[WorkflowProcessor] Сбрасываем этапы: {stages_to_reset}")
+        
+        # Сбрасываем определенные этапы
+        for stage_name in stages_to_reset:
+            is_per_section_stage = next((s.get('is_per_section', False) for s in stages if s['stage_name'] == stage_name), False)
+            
+            if is_per_section_stage:
+                # Сброс per-section этапа
+                sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+                for section in sections:
+                    section_id = section['section_id']
+                    workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, stage_name, 'pending', model_name=None, error_message=None)
+                    import workflow_cache_manager
+                    workflow_cache_manager.delete_section_stage_result(book_id, section_id, stage_name)
+                # Пересчитываем статус этапа на уровне книги после сброса секций
+                recalculate_book_stage_status(book_id, stage_name)
+                print(f"[WorkflowProcessor] Сброшен per-section этап: {stage_name}")
+            else:
+                # Сброс book-level этапа
+                workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, 'pending', model_name=None, error_message=None)
+                import workflow_cache_manager
+                workflow_cache_manager.delete_book_stage_result(book_id, stage_name)
+                print(f"[WorkflowProcessor] Сброшен book-level этап: {stage_name}")
+        
+        # Обновляем book_info после сброса
+        book_info = workflow_db_manager.get_book_workflow(book_id)
+    
     # Определяем с какого этапа начинать
     start_index = 0
-    if start_from_stage:
+    if first_incomplete_stage:
         for i, stage in enumerate(stages):
-            if stage['stage_name'] == start_from_stage:
+            if stage['stage_name'] == first_incomplete_stage:
                 start_index = i
                 break
+    
+    # --- ВАЖНО: Обновляем book_info еще раз перед циклом выполнения ---
+    # Это нужно, чтобы получить актуальные статусы после сброса
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    
     # Последовательно обрабатываем этапы
     for stage in stages[start_index:]:
         stage_name = stage['stage_name']
         is_per_section_stage = stage.get('is_per_section', False)
         print(f"[WorkflowProcessor] Обработка этапа '{stage_name}' (per-section: {is_per_section_stage}) для книги ID {book_id}.")
-        # Проверяем статус этапа
+        # Проверяем статус этапа (обновляем book_info для получения актуальных данных)
+        book_info = workflow_db_manager.get_book_workflow(book_id)
         book_stage_statuses = book_info.get('book_stage_statuses', {})
         current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
         print(f"[WorkflowProcessor] Текущий статус этапа '{stage_name}' для книги {book_id}: '{current_stage_status}'.")
@@ -779,13 +858,12 @@ def process_section_translate(book_id: str, section_id: int):
 def process_book_epub_creation(book_id: str):
     """
     Процессит создание EPUB для всей книги.
-    (Заглушка: Реальная логика создания EPUB будет добавлена позже.)
-    Обновляет статус этапа 'epub_creation' в БД workflow.
+    Собирает переведенные секции из кэша workflow и создает новый EPUB файл.
     """
-    print(f"[WorkflowProcessor] Placeholder: Начат процесс создания EPUB для книги {book_id}")
+    print(f"[WorkflowProcessor] Начат процесс создания EPUB для книги {book_id}")
     
-    status_to_set = 'error' # Статус по умолчанию в случае ошибки
-    error_message_to_set = 'Unknown placeholder error'
+    status_to_set = 'error'
+    error_message_to_set = 'Unknown error'
 
     try:
         # Устанавливаем статус 'processing' при начале этапа
@@ -793,58 +871,473 @@ def process_book_epub_creation(book_id: str):
             book_id,
             'epub_creation',
             'processing',
-            error_message=None # Сбрасываем ошибку при старте
+            error_message=None
         )
 
-        # TODO: Реализовать реальную логику создания EPUB и сохранения файла
-        # Например:
-        # epub_file_path = create_epub_file(book_id, ...) # Реальная функция создания EPUB
-        # if not epub_file_path:
-        #     raise Exception("Failed to create EPUB file") # Вызываем исключение при ошибке
+        # 1. Получаем информацию о книге
+        book_info = workflow_db_manager.get_book_workflow(book_id)
+        if not book_info:
+            raise Exception(f"Book {book_id} not found in workflow DB")
 
-        # Имитация работы: представим, что здесь происходит создание EPUB и оно успешно.
-        print(f"[WorkflowProcessor] Placeholder: Имитация создания EPUB для книги {book_id} прошла успешно.")
+        # 2. Получаем все секции книги
+        sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+        if not sections:
+            raise Exception(f"No sections found for book {book_id}")
 
-        # Если реальная логика создания EPUB завершилась успешно,
-        # устанавливаем статус 'completed'.
+        # 3. Получаем переведенные секции и TOC
+        target_language = book_info.get('target_language', 'russian')
+        translated_sections = []
+        translated_toc_titles = {}
+        
+        # Получаем переведенные заголовки TOC
+        toc_data = book_info.get('toc', [])
+        if toc_data:
+            toc_titles_for_translation = [item['title'] for item in toc_data if item.get('title')]
+            if toc_titles_for_translation:
+                print(f"[WorkflowProcessor] Перевод {len(toc_titles_for_translation)} заголовков TOC...")
+                from workflow_translation_module import translate_text
+                titles_text = "\n|||---\n".join(toc_titles_for_translation)
+                translated_titles_text = translate_text(titles_text, target_language, 'deepseek/deepseek-chat-v3-0324:free')
+                
+                if translated_titles_text and translated_titles_text != 'CONTEXT_LIMIT_ERROR':
+                    translated_titles = translated_titles_text.split("\n|||---\n")
+                    if len(translated_titles) == len(toc_titles_for_translation):
+                        for i, item in enumerate(toc_data):
+                            if item.get('title') and item.get('id'):
+                                translated_toc_titles[item['id']] = translated_titles[i].strip() if translated_titles[i] else None
+                        print(f"[WorkflowProcessor] TOC переведен: {len(translated_toc_titles)} заголовков")
+                    else:
+                        print(f"[WorkflowProcessor] ОШИБКА: Не совпало количество названий TOC")
+                else:
+                    print(f"[WorkflowProcessor] ОШИБКА: Не удалось перевести оглавление")
+        
+        # Получаем переведенные секции
+        for section in sections:
+            section_id = section['section_id']
+            translated_text = workflow_cache_manager.load_section_stage_result(
+                book_id, section_id, 'translate'
+            )
+            
+            if translated_text is None or not translated_text.strip():
+                print(f"[WorkflowProcessor] Предупреждение: Секция {section_id} не переведена или пуста")
+                continue
+                
+            translated_sections.append({
+                'section_id': section_id,
+                'section_epub_id': section['section_epub_id'],
+                'translated_text': translated_text
+            })
+
+        if not translated_sections:
+            raise Exception(f"No translated sections found for book {book_id}")
+
+        # 4. Создаем EPUB файл используя модифицированную функцию для workflow
+        from epub_creator import create_translated_epub
+        
+        # Подготавливаем book_info в формате, ожидаемом create_translated_epub
+        # create_translated_epub ожидает section_ids_list и sections как словарь
+        section_ids_list = [section['section_epub_id'] for section in translated_sections]
+        sections_dict = {}
+        
+        for section in translated_sections:
+            section_id = section['section_epub_id']
+            sections_dict[section_id] = {
+                'status': 'translated',
+                'translated_text': section['translated_text']
+            }
+        
+        epub_book_info = {
+            'filepath': book_info.get('filepath'),  # create_translated_epub ожидает 'filepath'
+            'filename': book_info.get('filename'),
+            'book_id': book_info.get('book_id'),
+            'target_language': target_language,
+            'section_ids_list': section_ids_list,  # Список ID секций в порядке spine
+            'sections': sections_dict,  # Словарь с данными секций
+            'toc': []
+        }
+        
+        # Отладочная информация
+        print(f"[WorkflowProcessor] DEBUG: epub_book_info keys: {list(epub_book_info.keys())}")
+        print(f"[WorkflowProcessor] DEBUG: filepath = {epub_book_info['filepath']}")
+        print(f"[WorkflowProcessor] DEBUG: filename = {epub_book_info['filename']}")
+        print(f"[WorkflowProcessor] DEBUG: section_ids_list count = {len(epub_book_info['section_ids_list'])}")
+        print(f"[WorkflowProcessor] DEBUG: sections dict count = {len(epub_book_info['sections'])}")
+        print(f"[WorkflowProcessor] DEBUG: original book_info keys: {list(book_info.keys())}")
+        print(f"[WorkflowProcessor] DEBUG: book_info filepath = {book_info.get('filepath')}")
+        
+        # Добавляем переведённые заголовки TOC
+        for item in toc_data:
+            toc_item = item.copy()
+            if item.get('id') in translated_toc_titles:
+                toc_item['translated_title'] = translated_toc_titles[item['id']]
+            epub_book_info['toc'].append(toc_item)
+        
+        # Создаем модифицированную функцию для workflow
+        def create_workflow_epub(book_info, target_language):
+            """Модифицированная версия create_translated_epub для workflow"""
+            from ebooklib import epub
+            import ebooklib
+            import os
+            import traceback
+            import html
+            import re
+            import unicodedata
+            import tempfile
+            from collections import defaultdict
+            
+            # Регулярные выражения (копируем из epub_creator.py)
+            INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
+            BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
+            ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
+            SUPERSCRIPT_MARKER_RE = re.compile(r"([\¹\²\³\⁰\⁴\⁵\⁶\⁷\⁸\⁹]+)")
+            NOTE_LINE_START_RE = re.compile(r"^\s*([\¹\²\³\⁰\⁴\⁵\⁶\⁷\⁸\⁹]+)\s*(.*)", re.UNICODE)
+            
+            def get_int_from_superscript(marker_str):
+                """Преобразует строку надстрочных цифр в целое число."""
+                SUPerscript_INT_MAP = {'¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9'}
+                if not marker_str: return -1
+                num_str = "".join(SUPerscript_INT_MAP.get(c, '') for c in marker_str)
+                try: return int(num_str) if num_str else -1
+                except ValueError: return -1
+            
+            print(f"Запуск создания EPUB для: {book_info.get('filename', 'N/A')}, язык: {target_language}")
+            
+            original_filepath = book_info.get("filepath")
+            section_ids = book_info.get("section_ids_list", [])
+            toc_data = book_info.get("toc", [])
+            sections_data_map = book_info.get("sections", {})
+            
+            book_title_orig = os.path.splitext(book_info.get('filename', 'Untitled'))[0]
+            epub_id_str = book_info.get('book_id', 'unknown-book-id')
+            lang_code = target_language[:2] if target_language else "ru"
+            
+            if not original_filepath or not os.path.exists(original_filepath) or not section_ids:
+                print("[ERROR epub_creator] Отсутствует путь к файлу, файл не найден или нет ID секций.")
+                return None
+            
+            # Чтение оригинала для копирования ресурсов
+            try:
+                original_book = epub.read_epub(original_filepath)
+                print(f"  Оригинальная книга прочитана: {original_filepath}")
+            except Exception as e:
+                print(f"  ОШИБКА чтения оригинальной книги: {e}")
+                traceback.print_exc()
+                return None
+            
+            # Создание новой книги
+            book = epub.EpubBook()
+            book.set_identifier(f"urn:uuid:{epub_id_str}-{target_language}")
+            book.set_title(f"{book_title_orig} ({target_language.capitalize()} Translation)")
+            book.set_language(lang_code)
+            book.add_author("EPUB Translator Tool")
+            book.add_metadata('DC', 'description', 'Translated using EPUB Translator Tool')
+            
+            # Копирование ресурсов
+            copied_items_ids = set()
+            items_to_copy = []
+            print("  Копирование ресурсов...")
+            for item in original_book.get_items():
+                is_cover = item.get_id() == 'cover' or 'cover' in item.get_name().lower()
+                if item.get_type() != ebooklib.ITEM_DOCUMENT or is_cover:
+                    item_id = item.get_id()
+                    if item_id not in copied_items_ids:
+                        items_to_copy.append(item)
+                        copied_items_ids.add(item_id)
+            
+            for item in items_to_copy:
+                book.add_item(item)
+            print(f"  Скопировано {len(items_to_copy)} ресурсов/служебных файлов.")
+            
+            # Обработка и добавление переведенных глав
+            chapters = []
+            chapter_titles_map = {}
+            default_title_prefix = "Section"
+            if toc_data:
+                for item in toc_data:
+                    sec_id = item.get('id')
+                    title = item.get('translated_title') or item.get('title')
+                    if sec_id and title:
+                        chapter_titles_map[sec_id] = title
+                        if default_title_prefix == "Section" and any('а' <= c <= 'я' for c in title.lower()):
+                            default_title_prefix = "Раздел"
+                if not chapter_titles_map:
+                    print("  [WARN] Не удалось извлечь заголовки из TOC.")
+            else:
+                print("  [WARN] Нет данных TOC.")
+            
+            print(f"  Обработка {len(section_ids)} секций книги...")
+            for i, section_id in enumerate(section_ids):
+                chapter_index = i + 1
+                chapter_title = chapter_titles_map.get(section_id, f"{default_title_prefix} {chapter_index}")
+                chapter_title_escaped = html.escape(chapter_title)
+                header_html = f"<h1>{chapter_title_escaped}</h1>\n"
+                final_html_body_content = header_html
+                
+                section_data = sections_data_map.get(section_id)
+                section_status = section_data.get("status", "unknown") if section_data else "unknown"
+                error_message = section_data.get("error_message") if section_data else None
+                
+                # Получаем перевод из sections_data_map вместо кэша
+                translated_text = section_data.get("translated_text") if section_data else None
+                
+                if translated_text is not None:
+                    # Обработка параграфов и сносок (упрощенная версия)
+                    note_definitions = defaultdict(list)
+                    note_targets_found = set()
+                    note_paragraph_indices = set()
+                    reference_markers_data = []
+                    original_paragraphs = translated_text.split('\n\n')
+                    
+                    # Этап 1: Сбор информации о сносках
+                    for para_idx, para_text_raw in enumerate(original_paragraphs):
+                        para_strip_orig = para_text_raw.strip()
+                        if not para_strip_orig:
+                            continue
+                        is_definition_para = False
+                        lines = para_strip_orig.split('\n')
+                        for line in lines:
+                            match_line = NOTE_LINE_START_RE.match(line.strip())
+                            if match_line:
+                                is_definition_para = True
+                                marker = match_line.group(1)
+                                note_text = match_line.group(2).strip()
+                                note_num = get_int_from_superscript(marker)
+                                if note_num > 0:
+                                    note_definitions[note_num].append(note_text)
+                                    note_targets_found.add(note_num)
+                        if is_definition_para:
+                            note_paragraph_indices.add(para_idx)
+                        # Ищем ссылки-маркеры
+                        for match in SUPERSCRIPT_MARKER_RE.finditer(para_strip_orig):
+                            marker = match.group(1)
+                            note_num = get_int_from_superscript(marker)
+                            if note_num > 0:
+                                reference_markers_data.append((para_idx, match, note_num))
+                    
+                    # Этап 2: Генерация HTML
+                    final_content_blocks = []
+                    processed_markers_count = 0
+                    reference_occurrence_counters = defaultdict(int)
+                    definition_occurrence_counters = defaultdict(int)
+                    
+                    for para_idx, para_original_raw in enumerate(original_paragraphs):
+                        para_strip = para_original_raw.strip()
+                        if not para_strip:
+                            if para_original_raw:
+                                final_content_blocks.append("<p> </p>")
+                            continue
+                        
+                        # Проверяем, содержит ли параграф определения сносок
+                        is_footnote_para = False
+                        lines_for_check = para_strip.split('\n')
+                        for line_check in lines_for_check:
+                            if NOTE_LINE_START_RE.match(line_check.strip()):
+                                is_footnote_para = True
+                                break
+                        
+                        if is_footnote_para:
+                            # Обработка параграфа-сноски
+                            footnote_lines_html = []
+                            lines = para_strip.split('\n')
+                            for line in lines:
+                                line_strip = line.strip()
+                                if not line_strip:
+                                    continue
+                                match_line = NOTE_LINE_START_RE.match(line_strip)
+                                if match_line:
+                                    marker = match_line.group(1)
+                                    note_text = match_line.group(2).strip()
+                                    note_num = get_int_from_superscript(marker)
+                                    if note_num > 0:
+                                        definition_occurrence_counters[note_num] += 1
+                                        occ = definition_occurrence_counters[note_num]
+                                        note_anchor_id = f"note_{section_id}_{note_num}_{occ}"
+                                        ref_id = f"ref_{section_id}_{note_num}_{occ}"
+                                        backlink_html = f' <a class="footnote-backlink" href="#{ref_id}" title="Вернуться к тексту">↩</a>'
+                                        note_text_cleaned = INVALID_XML_CHARS_RE.sub('', note_text)
+                                        note_text_md = BOLD_MD_RE.sub(r'<strong>\1</strong>', note_text_cleaned)
+                                        note_text_md = ITALIC_MD_RE.sub(r'<em>\1</em>', note_text_md)
+                                        footnote_lines_html.append(f'<p class="footnote-definition" id="{note_anchor_id}">{marker} {note_text_md}{backlink_html}</p>')
+                                    else:
+                                        footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
+                                else:
+                                    footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
+                            if footnote_lines_html:
+                                final_content_blocks.append(f'<div class="footnote-block">\n{chr(10).join(footnote_lines_html)}\n</div>')
+                        else:
+                            # Обработка обычного параграфа
+                            text_normalized = unicodedata.normalize('NFC', para_strip)
+                            text_cleaned_xml = INVALID_XML_CHARS_RE.sub('', text_normalized)
+                            text_with_md_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', text_cleaned_xml)
+                            text_with_md_html = ITALIC_MD_RE.sub(r'<em>\1</em>', text_with_md_html)
+                            
+                            current_para_html = text_with_md_html
+                            offset = 0
+                            markers_in_para = sorted(list(SUPERSCRIPT_MARKER_RE.finditer(text_with_md_html)), key=lambda m: m.start())
+                            
+                            for match in markers_in_para:
+                                marker = match.group(1)
+                                note_num = get_int_from_superscript(marker)
+                                if note_num > 0 and note_num in note_targets_found:
+                                    reference_occurrence_counters[note_num] += 1
+                                    occ = reference_occurrence_counters[note_num]
+                                    start, end = match.start() + offset, match.end() + offset
+                                    note_anchor_id = f"note_{section_id}_{note_num}_{occ}"
+                                    ref_id = f"ref_{section_id}_{note_num}_{occ}"
+                                    replacement = f'<sup class="footnote-ref"><a id="{ref_id}" href="#{note_anchor_id}" title="См. примечание {note_num}">{marker}</a></sup>'
+                                    current_para_html = current_para_html[:start] + replacement + current_para_html[end:]
+                                    offset += len(replacement) - (end - start)
+                                    processed_markers_count += 1
+                            processed_html = current_para_html.replace('\n', '<br/>')
+                            final_para_html = f"<p>{processed_html}</p>"
+                            final_content_blocks.append(final_para_html)
+                    
+                    # После всех циклов для секции
+                    if processed_markers_count > 0:
+                        print(f"      Заменено маркеров ссылками: {processed_markers_count} для {section_id}")
+                    # Добавляем собранные блоки
+                    final_html_body_content += "\n".join(final_content_blocks)
+                    # Если после всего контент (кроме заголовка) остался пустым, добавим пустой параграф
+                    if not final_content_blocks and translated_text.strip() == "":
+                        final_html_body_content += "<p> </p>"
+                
+                elif section_status.startswith("error_"):
+                    error_display_text = error_message if error_message else section_status
+                    final_html_body_content += f"\n<p><i>[Ошибка перевода: {html.escape(error_display_text)}]</i></p>"
+                else:
+                    final_html_body_content += f"\n<p><i>[Перевод недоступен (статус: {html.escape(section_status)})]</i></p>"
+                
+                # Определяем имя файла главы
+                original_item = original_book.get_item_with_id(section_id)
+                if original_item and original_item.get_type() == ebooklib.ITEM_DOCUMENT:
+                    chapter_filename_to_use = original_item.file_name
+                else:
+                    fallback_fname = f"chapter_{chapter_index}.xhtml"
+                    print(f"  [WARN] Не найден оригинальный документ для section_id '{section_id}'. Используем fallback: {fallback_fname}")
+                    chapter_filename_to_use = fallback_fname
+                
+                # Создаем и добавляем главу
+                epub_chapter = epub.EpubHtml(
+                    title=chapter_title,
+                    file_name=chapter_filename_to_use,
+                    lang=lang_code,
+                    uid=section_id
+                )
+                try:
+                    basic_css = "<style>body{line-height:1.5; margin: 1em;} h1{margin-top:0; border-bottom: 1px solid #eee; padding-bottom: 0.2em; margin-bottom: 1em;} p{margin: 0.5em 0; text-indent: 0;} .footnote-block{font-size:0.9em; margin-top: 2em; border-top: 1px solid #eee; padding-top: 0.5em;} .footnote-definition{margin: 0.2em 0;} .footnote-ref a {text-decoration: none; vertical-align: super; font-size: 0.8em;}</style>"
+                    full_content = f'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang_code}" xml:lang="{lang_code}"><head><meta charset="utf-8"/><title>{chapter_title_escaped}</title>{basic_css}</head><body>{final_html_body_content}</body></html>'
+                    epub_chapter.content = full_content.encode('utf-8', 'xmlcharrefreplace')
+                except Exception as set_content_err:
+                    print(f"  !!! ОШИБКА set_content для '{section_id}': {set_content_err}")
+                    epub_chapter.content = f"<html><body><h1>Error</h1><p>Failed to set content for section {html.escape(section_id)}.</p></body></html>".encode('utf-8')
+                
+                book.add_item(epub_chapter)
+                chapters.append(epub_chapter)
+            
+            print("  Генерация TOC и Spine...")
+            # Создание TOC и Spine
+            book_toc = []
+            processed_toc_items = 0
+            if toc_data:
+                href_to_chapter_map = {ch.file_name: ch for ch in chapters}
+                for item in toc_data:
+                    item_href = item.get('href')
+                    item_title = item.get('translated_title') or item.get('title')
+                    if item_href and item_title:
+                        clean_href = item_href.split('#')[0]
+                        target_chapter = href_to_chapter_map.get(clean_href)
+                        if target_chapter:
+                            link_target = target_chapter.file_name + (f"#{item_href.split('#')[1]}" if '#' in item_href else '')
+                            toc_entry = epub.Link(link_target, item_title, uid=item.get('id', clean_href))
+                            book_toc.append(toc_entry)
+                            processed_toc_items += 1
+            if processed_toc_items > 0:
+                print(f"  TOC с {processed_toc_items} элементами подготовлен.")
+                book.toc = tuple(book_toc)
+            else:
+                print("  [WARN] Не удалось создать TOC из данных, используем плоский список.")
+                book.toc = tuple(chapters[:])
+            book.add_item(epub.EpubNcx())
+            book.add_item(epub.EpubNav())
+            book.spine = ['nav'] + chapters
+            print(f"  Spine установлен: {len(book.spine)} элементов.")
+            
+            # Запись файла во временный файл
+            print(f"  Запись EPUB во временный файл...")
+            epub_content_bytes = None
+            temp_epub_path = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".epub", mode='wb') as temp_f:
+                    temp_epub_path = temp_f.name
+                epub.write_epub(temp_epub_path, book, {})
+                print(f"    EPUB записан в {temp_epub_path}")
+                with open(temp_epub_path, 'rb') as f_read:
+                    epub_content_bytes = f_read.read()
+                print(f"    EPUB прочитан ({len(epub_content_bytes)} байт).")
+                return epub_content_bytes
+            except Exception as e:
+                print(f"  ОШИБКА записи/чтения EPUB: {e}")
+                traceback.print_exc()
+                return None
+            finally:
+                if temp_epub_path and os.path.exists(temp_epub_path):
+                    try:
+                        os.remove(temp_epub_path)
+                    except OSError as os_err:
+                        print(f"  ОШИБКА удаления temp file {temp_epub_path}: {os_err}")
+        
+        epub_bytes = create_workflow_epub(epub_book_info, target_language)
+        
+        if not epub_bytes:
+            raise Exception("Failed to create EPUB file")
+
+        # Сохраняем EPUB файл
+        output_dir = os.path.join(os.path.dirname(book_info.get('filepath')), 'translated')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        base_name = os.path.splitext(book_info.get('filename', 'translated_book'))[0]
+        output_filename = f"{base_name}_{target_language}.epub"
+        epub_file_path = os.path.join(output_dir, output_filename)
+        
+        with open(epub_file_path, 'wb') as f:
+            f.write(epub_bytes)
+        
+        if not epub_file_path:
+            raise Exception("Failed to create EPUB file")
+
+        print(f"[WorkflowProcessor] EPUB успешно создан: {epub_file_path}")
         status_to_set = 'completed'
-        error_message_to_set = None # Сбрасываем сообщение об ошибке при успехе
+        error_message_to_set = None
 
     except Exception as e:
-        # Если произошла ошибка при реальной логике создания EPUB,
-        # перехватываем исключение и устанавливаем статус 'error'.
         status_to_set = 'error'
-        error_message_to_set = f"Placeholder error during EPUB creation: {e}"
-        print(f"[WorkflowProcessor] Placeholder ОШИБКА при создании EPUB для книги {book_id}: {e}")
+        error_message_to_set = f"Error during EPUB creation: {e}"
+        print(f"[WorkflowProcessor] ОШИБКА при создании EPUB для книги {book_id}: {e}")
         traceback.print_exc()
-        # Продолжаем выполнение, чтобы обновить статус этапа в БД ниже.
 
     finally:
-        # Этот блок выполняется всегда, независимо от того, было исключение или нет.
-        # Обновляем статус этапа 'epub_creation' в базе данных workflow.
+        # Обновляем статус этапа в БД
         try:
-            # Проверяем, существует ли книга, прежде чем пытаться обновить статус
             book_exists_check = workflow_db_manager.get_book_workflow(book_id)
             if book_exists_check:
-                 workflow_db_manager.update_book_stage_status_workflow(
-                     book_id,
-                     'epub_creation', # Имя этапа
-                     status_to_set,
-                     error_message=error_message_to_set
-                 )
-                 print(f"[WorkflowProcessor] Placeholder: Статус этапа 'epub_creation' для книги {book_id} обновлен на '{status_to_set}'.")
-                 # Убедитесь, что здесь или внутри update_book_stage_status_workflow происходит коммит!
+                workflow_db_manager.update_book_stage_status_workflow(
+                    book_id,
+                    'epub_creation',
+                    status_to_set,
+                    error_message=error_message_to_set
+                )
+                print(f"[WorkflowProcessor] Статус этапа 'epub_creation' для книги {book_id} обновлен на '{status_to_set}'.")
             else:
-                 print(f"[WorkflowProcessor] Placeholder: Книга {book_id} не найдена при попытке обновить статус этапа 'epub_creation'.")
+                print(f"[WorkflowProcessor] Книга {book_id} не найдена при попытке обновить статус этапа 'epub_creation'.")
 
         except Exception as db_err:
-            # Если произошла ошибка при попытке ОБНОВИТЬ статус этапа в БД
-            print(f"[WorkflowProcessor] Placeholder ОШИБКА при попытке записать статус этапа 'epub_creation' для книги {book_id}: {db_err}")
+            print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус этапа 'epub_creation' для книги {book_id}: {db_err}")
             traceback.print_exc()
-            # В этом случае общий статус книги, вероятно, все равно перейдет в error позже.
 
-    # Возвращаем True, если этап завершился успешно (статус 'completed'), иначе False.
     return status_to_set == 'completed'
+
+# --- Function to create EPUB from workflow translated sections ---
+# Удалена - теперь используется стандартная create_translated_epub из epub_creator.py
 
 # --- New function to recalculate book stage status ---
 def recalculate_book_stage_status(book_id, stage_name):

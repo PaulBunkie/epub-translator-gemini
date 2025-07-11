@@ -961,8 +961,8 @@ def workflow_upload_file():
              def run_workflow_in_context(book_id):
                  with app.app_context(): # 'app' is the global Flask app instance
                      current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
-                     # Теперь start_book_workflow принимает app_instance и start_from_stage.
-                     # Для новой загрузки start_from_stage всегда None.
+                     # Теперь start_book_workflow принимает только app_instance.
+# Workflow автоматически определяет, с какого этапа начать.
                      workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), None)
              threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
              # --- КОНЕЦ ИЗМЕНЕНИЯ ---
@@ -1400,17 +1400,11 @@ def workflow_delete_book_request(book_id):
 def workflow_start_existing_book(book_id):
     current_app.logger.info(f"Запрос на запуск рабочего процесса для существующей книги: {book_id}")
     try:
-        start_from_stage = request.json.get('start_from_stage')
-        current_app.logger.info(f"Получен start_from_stage: {start_from_stage} для книги {book_id}")
-
-        # --- Гарантируем app context через глобальный app ---
         from app import app as global_app
-        def run_workflow_in_context(book_id, start_from_stage):
+        def run_workflow_in_context(book_id):
             with global_app.app_context():
-                workflow_processor.start_book_workflow(book_id, global_app, start_from_stage)
-
-        executor.submit(run_workflow_in_context, book_id, start_from_stage)
-        
+                workflow_processor.start_book_workflow(book_id, global_app)
+        executor.submit(run_workflow_in_context, book_id)
         return jsonify({'status': 'success', 'message': 'Workflow started in background'}), 200
     except Exception as e:
         current_app.logger.error(f"Ошибка при запуске рабочего процесса для книги {book_id}: {e}")
