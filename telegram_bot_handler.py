@@ -83,7 +83,7 @@ class TelegramBotHandler:
         """Обрабатывает команды бота"""
         
         if command == "/start":
-            return self.cmd_start()
+            return self.cmd_start_with_token(chat_id, args)
         
         elif command == "/help":
             return self.cmd_help()
@@ -103,11 +103,14 @@ class TelegramBotHandler:
         elif command == "/restart":
             return self.cmd_restart()
         
+        elif command == "/unsubscribe":
+            return self.cmd_unsubscribe(chat_id)
+        
         else:
             return "❌ Неизвестная команда. Используйте /help для списка команд."
     
     def cmd_start(self) -> str:
-        """Команда /start"""
+        """Команда /start без токена"""
         return """
 🤖 <b>AI Tube Notification Bot</b>
 
@@ -121,8 +124,88 @@ class TelegramBotHandler:
 /logs - Последние логи
 /restart - Перезапуск системы
 
+📚 <b>Для пользователей EPUB переводчика:</b>
+/start [токен] - Подписаться на уведомления о переводе
+/unsubscribe - Отписаться от уведомлений
+
 💡 Используйте /help для подробной информации о командах.
         """.strip()
+    
+    def cmd_start_with_token(self, chat_id: str, token: str) -> str:
+        """Команда /start с токеном для подписки на уведомления"""
+        if not token:
+            return self.cmd_start()
+        
+        try:
+            # Импортируем здесь, чтобы избежать циклических импортов
+            import sqlite3
+            from datetime import datetime
+            
+            # Подключаемся к БД
+            conn = sqlite3.connect('workflow.db')
+            cursor = conn.cursor()
+            
+            # Проверяем существование токена в workflow
+            cursor.execute("""
+                SELECT book_id, filename, target_language 
+                FROM books 
+                WHERE access_token = ?
+            """, (token,))
+            
+            book_info = cursor.fetchone()
+            
+            if not book_info:
+                return "❌ Токен не найден или недействителен. Проверьте ссылку."
+            
+            book_id, filename, target_language = book_info
+            
+            # Добавляем или обновляем пользователя
+            cursor.execute("""
+                INSERT OR REPLACE INTO telegram_users (user_id, access_token, created_at, is_active)
+                VALUES (?, ?, ?, ?)
+            """, (chat_id, token, datetime.now(), True))
+            
+            conn.commit()
+            conn.close()
+            
+            return f"""
+✅ <b>Подписка активирована!</b>
+
+📚 <b>Книга:</b> {filename}
+🌍 <b>Язык:</b> {target_language}
+
+🔔 Вы получите уведомление когда перевод будет готов.
+
+📱 <b>Команды:</b>
+/unsubscribe - Отписаться от уведомлений
+            """.strip()
+            
+        except Exception as e:
+            print(f"[TelegramBot] Ошибка при подписке пользователя {chat_id}: {e}")
+            return "❌ Ошибка при активации подписки. Попробуйте позже."
+    
+    def cmd_unsubscribe(self, chat_id: str) -> str:
+        """Команда /unsubscribe для отписки от уведомлений"""
+        try:
+            import sqlite3
+            
+            conn = sqlite3.connect('workflow.db')
+            cursor = conn.cursor()
+            
+            # Удаляем пользователя
+            cursor.execute("DELETE FROM telegram_users WHERE user_id = ?", (chat_id,))
+            
+            if cursor.rowcount > 0:
+                conn.commit()
+                conn.close()
+                return "✅ Вы отписались от уведомлений о переводах."
+            else:
+                conn.close()
+                return "ℹ️ Вы не были подписаны на уведомления."
+                
+        except Exception as e:
+            print(f"[TelegramBot] Ошибка при отписке пользователя {chat_id}: {e}")
+            return "❌ Ошибка при отписке. Попробуйте позже."
     
     def cmd_help(self) -> str:
         """Команда /help"""

@@ -166,6 +166,48 @@ class TelegramNotifier:
         except Exception as e:
             print(f"[TelegramNotifier] ❌ Ошибка подключения: {e}")
             return False
+    
+    def send_message_to_user(self, user_id: str, message: str, parse_mode: str = "HTML") -> bool:
+        """
+        Отправляет сообщение конкретному пользователю
+        
+        Args:
+            user_id: ID пользователя в Telegram
+            message: Текст сообщения
+            parse_mode: Режим парсинга (HTML, Markdown)
+            
+        Returns:
+            bool: True если сообщение отправлено успешно
+        """
+        if not self.bot_token:
+            print("[TelegramNotifier] Не удалось отправить сообщение: отсутствует TELEGRAM_BOT_TOKEN")
+            return False
+        
+        try:
+            url = f"{self.api_url}{self.bot_token}/sendMessage"
+            payload = {
+                "chat_id": user_id,
+                "text": message,
+                "parse_mode": parse_mode
+            }
+            
+            response = requests.post(url, json=payload, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("ok"):
+                    print(f"[TelegramNotifier] Сообщение отправлено пользователю {user_id}")
+                    return True
+                else:
+                    print(f"[TelegramNotifier] Ошибка API Telegram для пользователя {user_id}: {result.get('description', 'Unknown error')}")
+                    return False
+            else:
+                print(f"[TelegramNotifier] HTTP ошибка {response.status_code} для пользователя {user_id}: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"[TelegramNotifier] Ошибка отправки сообщения пользователю {user_id}: {e}")
+            return False
 
 # Глобальный экземпляр для использования в других модулях
 telegram_notifier = TelegramNotifier() 

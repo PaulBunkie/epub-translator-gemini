@@ -2,6 +2,7 @@ import os
 import json
 import traceback
 import shutil
+from pathlib import Path
 
 from config import CACHE_DIR
 
@@ -14,7 +15,7 @@ os.makedirs(WORKFLOW_CACHE_BASE_DIR, exist_ok=True)
 def _get_cache_dir_for_stage(book_id, stage_name):
     """Возвращает путь к директории для кэша определенного этапа для данной книги."""
     # Например: .epub_cache/workflow/book-id-123/summaries/
-    return os.path.join(WORKFLOW_CACHE_BASE_DIR, book_id, stage_name)
+    return str(Path(WORKFLOW_CACHE_BASE_DIR) / book_id / stage_name)
 
 def _get_cache_file_path(book_id, section_id, stage_name, file_extension='.txt'):
     """Возвращает полный путь к файлу кэша для секции на определенном этапе."""

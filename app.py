@@ -144,6 +144,18 @@ scheduler.add_job(
 print("[Scheduler] Задание 'toptube_full_workflow_job' добавлено (полный рабочий процесс каждые 2 часа).")
 # --- КОНЕЦ ЗАДАНИЙ ДЛЯ TOPTUBE ---
 
+# --- ЗАДАНИЕ ДЛЯ ОЧИСТКИ ИСТЕКШИХ СЕССИЙ ---
+scheduler.add_job(
+    workflow_db_manager.delete_expired_sessions,
+    trigger='interval',
+    hours=6,  # Очистка каждые 6 часов
+    id='cleanup_expired_sessions_job',
+    replace_existing=True,
+    misfire_grace_time=600  # 10 минут grace time
+)
+print("[Scheduler] Задание 'cleanup_expired_sessions_job' добавлено (очистка истекших сессий каждые 6 часов).")
+# --- КОНЕЦ ЗАДАНИЯ ДЛЯ ОЧИСТКИ СЕССИЙ ---
+
 try:
     scheduler.start()
     print("Планировщик APScheduler запущен (задача запустится через час или по расписанию).")
@@ -403,11 +415,8 @@ def upload_file():
             except OSError as e_del:
                 print(f"  Не удалось удалить временный файл {temp_filepath}: {e_del}")
         if filepath and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-                print(f"  Удален файл {filepath} после ошибки.")
-            except OSError as e_del:
-                print(f"  Не удалось удалить файл {filepath}: {e_del}")
+            try: os.remove(filepath)
+            except OSError as e_del: print(f"  Не удалось удалить файл {filepath}: {e_del}")
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
         return "Ошибка сервера при обработке файла.", 500
 
@@ -707,16 +716,45 @@ def api_get_models():
     else: return jsonify({"error": "Could not retrieve models"}), 500
 
 @app.route('/download_epub/<book_id>', methods=['GET'])
-def download_epub(book_id):
-    book_info = get_book(book_id);
-    if book_info is None: return "Book not found", 404
-    target_language = book_info.get('target_language', session.get('target_language', 'russian'))
-    update_overall_book_status(book_id); book_info = get_book(book_id)
-    if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
-    epub_bytes = create_translated_epub(book_info, target_language) # book_info уже содержит 'sections'
-    if epub_bytes is None: return "Server error generating EPUB", 500
-    base_name = os.path.splitext(book_info.get('filename', 'tr_book'))[0]; out_fn = f"{base_name}_{target_language}_translated.epub"
-    return send_file(io.BytesIO(epub_bytes), mimetype='application/epub+zip', as_attachment=True, download_name=out_fn)
+def workflow_download_epub(book_id):
+    print(f"Запрос на скачивание EPUB для книги: {book_id}")
+
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if book_info is None:
+        print(f"  [DownloadEPUB] Книга с ID {book_id} не найдена в Workflow DB.")
+        return "Book not found", 404
+
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    epub_stage_status = book_stage_statuses.get('epub_creation', {}).get('status')
+
+    if epub_stage_status not in ['completed', 'completed_with_errors']:
+         print(f"  [DownloadEPUB] Этап создания EPUB для книги {book_id} не завершен. Статус: {epub_stage_status}")
+         return f"EPUB creation not complete (Status: {epub_stage_status}).", 409
+
+    # Формируем путь к переведенному EPUB файлу
+    base_name = os.path.splitext(book_info.get('filename', 'book'))[0]
+    target_language = book_info.get('target_language', 'russian')
+    epub_filename = f"{base_name}_{target_language}.epub"
+    epub_filepath = UPLOADS_DIR / "translated" / epub_filename
+
+    # Проверяем существование файла
+    if not epub_filepath.exists():
+        print(f"  [DownloadEPUB] EPUB файл не найден: {epub_filepath}")
+        return "EPUB file not found", 404
+
+    try:
+        # Читаем файл и отправляем его
+        with open(epub_filepath, 'rb') as f:
+            epub_content = f.read()
+        download_filename = epub_filename
+        return Response(
+            epub_content,
+            mimetype="application/epub+zip",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{download_filename}"}
+        )
+    except Exception as e:
+        print(f"  [DownloadEPUB] ОШИБКА при чтении EPUB файла {epub_filepath}: {e}")
+        return "Error reading EPUB file", 500
 
 def get_bbc_news():
     """Получает заголовки новостей BBC с NewsAPI."""
@@ -931,8 +969,10 @@ def workflow_upload_file():
              })
              order_in_book += 1
 
-        # Создаем запись о книге в новой БД
-        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language):
+        # --- ГЕНЕРИРУЕМ ТОКЕН ДО СОЗДАНИЯ КНИГИ ---
+        access_token = workflow_db_manager.generate_access_token()
+        # Создаем запись о книге в новой БД сразу с access_token
+        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language, access_token):
              print(f"  Книга '{book_id}' сохранена в Workflow DB.")
 
              # --- ДОБАВЛЯЕМ ИНИЦИАЛИЗАЦИЮ СТАТУСОВ ЭТАПОВ КНИГИ ---
@@ -968,21 +1008,57 @@ def workflow_upload_file():
              # --- КОНЕЦ ИЗМЕНЕНИЯ ---
              print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
 
-             # TODO: Перенаправить на страницу новой главной страницы workflow
-             # Пока просто возвращаем успешный ответ
-             # return f"Книга {original_filename} загружена и запущен рабочий процесс с ID: {book_id}", 200
+             # --- СОЗДАЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
+             session_id = workflow_db_manager.create_user_session(access_token)
+             if session_id:
+                 print(f"[WorkflowUpload] Создана сессия пользователя: {session_id}")
+             else:
+                 print(f"[WorkflowUpload] ОШИБКА: Не удалось создать сессию для токена {access_token}")
+                 session_id = None
 
-             # --- ИЗМЕНЕНИЕ: Возвращаем JSON с book_id ---
-             return jsonify({"status": "success", "message": "Книга загружена и запущен рабочий процесс.", "book_id": book_id, "filename": original_filename, "total_sections_count": sec_created_count}), 200
-             # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-
+             # --- ВСЕГДА ДЕЛАЕМ RETURN ---
+             if access_token:
+                 redirect_url = url_for('translate_page', access_token=access_token)
+                 response = redirect(redirect_url)
+                 if session_id:
+                     response.set_cookie(
+                         'user_session',
+                         session_id,
+                         max_age=24*60*60,
+                         httponly=True,
+                         secure=False,
+                         samesite='Lax'
+                     )
+                 return response
+             else:
+                 response_data = {
+                     "status": "success",
+                     "message": "Книга загружена и запущен рабочий процесс.",
+                     "book_id": book_id,
+                     "filename": original_filename,
+                     "total_sections_count": sec_created_count,
+                     "access_token": access_token
+                 }
+                 if session_id:
+                     response_data["session_id"] = session_id
+                 response = jsonify(response_data)
+                 if session_id:
+                     response.set_cookie(
+                         'user_session',
+                         session_id,
+                         max_age=24*60*60,
+                         httponly=True,
+                         secure=False,
+                         samesite='Lax'
+                     )
+                 return response, 200
         else:
              # Если не удалось создать запись книги в БД, удаляем файл
              print(f"ОШИБКА: Не удалось сохранить книгу '{book_id}' в Workflow DB! Удаляем файл.")
              if filepath and os.path.exists(filepath):
                  try: os.remove(filepath)
                  except OSError as e: print(f"  Не удалось удалить файл {filepath} после ошибки БД: {e}")
-             return "Ошибка сервера при сохранении информации о книге в Workflow DB.", 500
+             return jsonify({"status": "error", "message": "Ошибка сервера при сохранении информации о книге в Workflow DB."}), 500
 
     except Exception as e:
         print(f"ОШИБКА при обработке загрузки для workflow: {e}"); traceback.print_exc()
@@ -1235,10 +1311,10 @@ def workflow_download_epub(book_id):
     base_name = os.path.splitext(book_info.get('filename', 'book'))[0]
     target_language = book_info.get('target_language', 'russian')
     epub_filename = f"{base_name}_{target_language}.epub"
-    epub_filepath = os.path.join('uploads', 'translated', epub_filename)
+    epub_filepath = UPLOADS_DIR / "translated" / epub_filename
 
     # Проверяем существование файла
-    if not os.path.exists(epub_filepath):
+    if not epub_filepath.exists():
         print(f"  [DownloadEPUB] EPUB файл не найден: {epub_filepath}")
         return "EPUB file not found", 404
 
@@ -1246,21 +1322,108 @@ def workflow_download_epub(book_id):
         # Читаем файл и отправляем его
         with open(epub_filepath, 'rb') as f:
             epub_content = f.read()
-        
-        # Формируем имя файла для скачивания
         download_filename = epub_filename
-        
         return Response(
             epub_content,
             mimetype="application/epub+zip",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{download_filename}"}
         )
-        
     except Exception as e:
         print(f"  [DownloadEPUB] ОШИБКА при чтении EPUB файла {epub_filepath}: {e}")
         return "Error reading EPUB file", 500
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ EPUB ---
+
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ПЕРЕВОДА ---
+@app.route('/translate/<access_token>', methods=['GET'])
+def translate_page(access_token):
+    """Универсальная страница для пользователей - показывает форму загрузки или прогресс/результат"""
+    print(f"Запрос пользовательской страницы для токена: {access_token}")
+    
+    # --- ПРОВЕРЯЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
+    session_id = request.cookies.get('user_session')
+    user_access_token = None
+    
+    if session_id:
+        print(f"Найдена сессия пользователя: {session_id}")
+        user_access_token = workflow_db_manager.get_session_access_token(session_id)
+        if user_access_token:
+            print(f"Сессия активна, токен пользователя: {user_access_token}")
+        else:
+            print(f"Сессия истекла или недействительна: {session_id}")
+    
+    # --- ОПРЕДЕЛЯЕМ КАКОЙ ТОКЕН ИСПОЛЬЗОВАТЬ ---
+    # Если у пользователя есть активная сессия, используем её токен
+    # Иначе используем токен из URL
+    effective_token = user_access_token if user_access_token else access_token
+    
+    # Проверяем есть ли файл с этим токеном
+    book_info = workflow_db_manager.get_book_by_access_token(effective_token)
+    
+    if book_info:
+        # Показываем прогресс/результат
+        print(f"Найдена книга: {book_info.get('filename')}")
+        
+        # --- СОЗДАЕМ НОВУЮ СЕССИЮ, ЕСЛИ ЕЁ НЕТ ---
+        access_token = None
+        if book_info and book_info.get('access_token'):
+            access_token = book_info['access_token']
+        return render_template('translate_user.html', 
+                             access_token=effective_token, 
+                             book_info=None)
+        
+        if not session_id and effective_token == access_token:
+            # Создаем новую сессию для пользователя
+            new_session_id = workflow_db_manager.create_user_session(access_token)
+            if new_session_id:
+                print(f"Создана новая сессия для пользователя: {new_session_id}")
+                response_obj = make_response(response)
+                response_obj.set_cookie(
+                    'user_session', 
+                    new_session_id, 
+                    max_age=24*60*60,  # 24 часа
+                    httponly=True,     # Защита от XSS
+                    secure=False,      # False для HTTP, True для HTTPS
+                    samesite='Lax'     # Защита от CSRF
+                )
+                return response_obj
+        
+        return response
+    else:
+        # Показываем форму загрузки
+        print(f"Книга не найдена для токена {effective_token}, показываем форму загрузки")
+        return render_template('translate_user.html', 
+                             access_token=effective_token, 
+                             book_info=None)
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ---
+
+@app.route('/user', methods=['GET'])
+def user_main_page():
+    """Главная страница пользователя - перенаправляет на книгу пользователя или показывает форму загрузки"""
+    print("Запрос главной страницы пользователя")
+    
+    # --- ПРОВЕРЯЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
+    session_id = request.cookies.get('user_session')
+    
+    if session_id:
+        print(f"Найдена сессия пользователя: {session_id}")
+        user_access_token = workflow_db_manager.get_session_access_token(session_id)
+        if user_access_token:
+            print(f"Сессия активна, перенаправляем на книгу пользователя")
+            return redirect(url_for('translate_page', access_token=user_access_token))
+        else:
+            print(f"Сессия истекла или недействительна: {session_id}")
+            # Очищаем недействительную сессию из cookie
+            response = make_response(render_template('translate_user.html', access_token=None, book_info=None))
+            response.delete_cookie('user_session')
+            return response
+    
+    # Если нет активной сессии, показываем форму загрузки
+    print("Нет активной сессии, показываем форму загрузки")
+    return render_template('translate_user.html', access_token=None, book_info=None)
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ГЛАВНОЙ СТРАНИЦЫ ПОЛЬЗОВАТЕЛЯ ---
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛУЧЕНИЯ СТАТУСА WORKFLOW КНИГИ ---
 @app.route('/workflow_book_status/<book_id>', methods=['GET'])
@@ -1795,3 +1958,34 @@ if __name__ == '__main__':
         exit(1)
 
 # --- END OF FILE app.py ---
+
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОИСКА КНИГИ ПО ACCESS_TOKEN ---
+@app.route('/workflow_book_by_token/<access_token>', methods=['GET'])
+def get_workflow_book_by_token(access_token):
+    print(f"Запрос книги по access_token: {access_token}")
+    
+    if not access_token or access_token == 'None':
+        print("  Access token пустой или None")
+        return jsonify({"error": "Invalid access token"}), 400
+    
+    # Ищем книгу по access_token в workflow БД
+    book_info = workflow_db_manager.get_book_by_access_token(access_token)
+    
+    if book_info is None:
+        print(f"  Книга с access_token {access_token} не найдена")
+        return jsonify({"error": "Book not found"}), 404
+    
+    print(f"  Найдена книга: {book_info.get('filename', 'Unknown')}")
+    
+    # Возвращаем основную информацию о книге
+    response_data = {
+        "book_id": book_info.get('book_id'),
+        "filename": book_info.get('filename'),
+        "target_language": book_info.get('target_language'),
+        "current_workflow_status": book_info.get('current_workflow_status'),
+        "access_token": book_info.get('access_token')
+    }
+    
+    return jsonify(response_data), 200
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ПОИСКА ПО ТОКЕНУ ---

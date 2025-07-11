@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB Translator</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2em;
+            font-weight: 300;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .upload-form {
+            display: none;
+        }
+        
+        .upload-form.active {
+            display: block;
+        }
+        
+        .progress-section {
+            display: none;
+        }
+        
+        .progress-section.active {
+            display: block;
+        }
+        
+        .result-section {
+            display: none;
+        }
+        
+        .result-section.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #555;
+        }
+        
+        input[type="file"], select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="file"]:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e1e5e9;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .status-text {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 18px;
+            color: #555;
+        }
+        
+        .download-link {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            margin: 10px 0;
+            transition: background 0.3s;
+        }
+        
+        .download-link:hover {
+            background: #218838;
+        }
+        
+        .telegram-info {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .telegram-info h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        
+        .qr-code {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .qr-code img {
+            max-width: 200px;
+            border-radius: 8px;
+        }
+        
+        .book-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .book-info h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        
+        .book-info p {
+            margin: 8px 0;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 EPUB Translator</h1>
+            <p>Переведите вашу книгу на любой язык</p>
+        </div>
+        
+        <div class="content">
+            <!-- Форма загрузки -->
+            <div id="uploadForm" class="upload-form {% if not book_info %}active{% endif %}">
+                <h2>Загрузите EPUB файл</h2>
+                <form id="epubForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="epubFile">Выберите EPUB файл:</label>
+                        <input type="file" id="epubFile" name="epub_file" accept=".epub" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="targetLanguage">Язык перевода:</label>
+                        <select id="targetLanguage" name="target_language" required>
+                            <option value="russian">Русский</option>
+                            <option value="english">English</option>
+                            <option value="german">Deutsch</option>
+                            <option value="french">Français</option>
+                            <option value="spanish">Español</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn">Начать перевод</button>
+                </form>
+            </div>
+            
+            <!-- Секция прогресса -->
+            <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
+                <div class="book-info">
+                    <h3>📖 {{ book_info.filename if book_info else 'Обработка...' }}</h3>
+                    <p><strong>Статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
+                </div>
+                
+                <!-- Постоянная ссылка (показывается сразу после загрузки) -->
+                <div id="permanentLink" class="telegram-info" style="display: none;">
+                    <h3>🔗 Ваша постоянная ссылка</h3>
+                    <p>Сохраните эту ссылку для доступа к результату:</p>
+                    <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0;">
+                        <code id="linkText">{{ request.url }}</code>
+                        <button onclick="copyLink(event)" style="margin-left: 10px; padding: 5px 10px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            📋 Копировать
+                        </button>
+                    </div>
+                    <p><small>Вы можете закрыть эту страницу и вернуться позже по этой ссылке</small></p>
+                </div>
+                
+                <!-- Информация о сессии -->
+                <div class="telegram-info">
+                    <h3>💾 Автоматический доступ</h3>
+                    <p>✅ Ваша сессия сохранена в браузере</p>
+                    <p><small>Вы можете закрыть эту страницу и просто перейти на <a href="/user" style="color: #667eea;">user</a> - система автоматически покажет вашу книгу</small></p>
+                </div>
+                
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                
+                <div class="status-text" id="statusMessage">
+                    {% if book_info %}
+                        {% if book_info.current_workflow_status == 'completed' %}
+                            Перевод завершен!
+                        {% else %}
+                            Обрабатываем вашу книгу...
+                        {% endif %}
+                    {% else %}
+                        Загружаем файл...
+                    {% endif %}
+                </div>
+                
+                <!-- QR-код для мобильного доступа -->
+                <!-- УДАЛЕНО: Блок QR-кода -->
+            </div>
+            
+            <!-- Секция результата -->
+            <div id="resultSection" class="result-section {% if book_info and book_info.current_workflow_status == 'completed' %}active{% endif %}">
+                <div class="success">
+                    <h3>✅ Перевод готов!</h3>
+                    <p>Ваша книга успешно переведена.</p>
+                </div>
+                
+                <div class="book-info">
+                    <h3>📖 {{ book_info.filename if book_info else 'Книга' }}</h3>
+                </div>
+                
+                <a href="/workflow_download_epub/{{ book_info.book_id if book_info else '' }}" class="download-link">
+                    📥 Скачать переведенную книгу
+                </a>
+                
+                <div class="telegram-info">
+                    <h3>🔗 Ваша постоянная ссылка</h3>
+                    <p>Сохраните эту ссылку для доступа к результату:</p>
+                    <code>{{ request.url }}</code>
+                </div>
+                
+                <div class="telegram-info">
+                    <h3>💾 Автоматический доступ</h3>
+                    <p>✅ Ваша сессия сохранена в браузере</p>
+                    <p><small>Вы можете закрыть эту страницу и просто перейти на <a href="/user" style="color: #667eea;">user</a> - система автоматически покажет вашу книгу</small></p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="text/javascript">
+        // @ts-nocheck
+        var accessToken = "{{ access_token if access_token and access_token != 'None' else '' }}";
+        var bookInfo = "{{ book_info | tojson | default('') | safe }}";
+        if (bookInfo === "" || bookInfo === "null") { bookInfo = null; } else { bookInfo = JSON.parse(bookInfo); }
+        // Обработка формы загрузки
+        document.getElementById('epubForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(this);
+            formData.append('access_token', accessToken);
+            
+            // Показываем прогресс
+            document.getElementById('uploadForm').classList.remove('active');
+            document.getElementById('progressSection').classList.add('active');
+            
+            try {
+                const response = await fetch('/workflow_upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.redirected) {
+                    window.location.href = response.url;
+                    return;
+                }
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    showError('Ошибка сервера: ' + text);
+                    return;
+                }
+
+                let result;
+                try {
+                    result = await response.json();
+                } catch (e) {
+                    const text = await response.text();
+                    showError('Ошибка сети: ' + text);
+                    return;
+                }
+
+                if (result.status === 'success') {
+                    // Начинаем отслеживание прогресса
+                    startProgressTracking(result.book_id);
+                } else {
+                    showError('Ошибка загрузки файла: ' + result.message);
+                }
+            } catch (error) {
+                showError('Ошибка сети: ' + error.message);
+            }
+        });
+        
+        // Polling для ожидания появления книги по access_token
+        async function pollForBookByToken(token) {
+            const statusMessage = document.getElementById('statusMessage');
+            statusMessage.textContent = 'Ожидание появления книги...';
+            let found = false;
+            while (!found) {
+                try {
+                    const response = await fetch(`/workflow_book_by_token/${token}`);
+                    if (response.status === 200) {
+                        const data = await response.json();
+                        if (data && data.book_id) {
+                            found = true;
+                            // Обновляем глобальный bookInfo и запускаем прогресс
+                            bookInfo = data;
+                            updateProgress(data);
+                            startProgressTracking(data.book_id);
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки, пробуем снова
+                }
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        }
+        
+        // Отслеживание прогресса
+        function startProgressTracking(bookId) {
+            const progressInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/workflow_book_status/${bookId}`);
+                    const data = await response.json();
+                    
+                    updateProgress(data);
+                    
+                    if (data.current_workflow_status === 'completed') {
+                        clearInterval(progressInterval);
+                        showResult();
+                    } else if (data.current_workflow_status === 'error') {
+                        clearInterval(progressInterval);
+                        showError('Ошибка при переводе книги');
+                    }
+                } catch (error) {
+                    console.error('Ошибка получения статуса:', error);
+                }
+            }, 2000);
+        }
+        
+        function updateProgress(data) {
+            const statusText = document.getElementById('statusText');
+            const statusMessage = document.getElementById('statusMessage');
+            const progressFill = document.getElementById('progressFill');
+            
+            statusText.textContent = data.current_workflow_status || 'Обработка...';
+            
+            // Рассчитываем прогресс на основе этапов
+            const stages = data.book_stage_statuses || {};
+            const totalStages = Object.keys(stages).length;
+            const completedStages = Object.values(stages).filter(stage => 
+                stage.status === 'completed' || stage.status === 'completed_empty'
+            ).length;
+            
+            const progress = totalStages > 0 ? (completedStages / totalStages) * 100 : 0;
+            progressFill.style.width = progress + '%';
+            
+            // Обновляем сообщение
+            if (data.current_workflow_status === 'completed') {
+                statusMessage.textContent = 'Перевод завершен!';
+            } else {
+                statusMessage.textContent = `Обрабатываем вашу книгу... (${Math.round(progress)}%)`;
+            }
+        }
+        
+        function showResult() {
+            document.getElementById('progressSection').classList.remove('active');
+            document.getElementById('resultSection').classList.add('active');
+        }
+        
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            document.querySelector('.content').appendChild(errorDiv);
+        }
+        
+        // Если книга уже загружена, начинаем отслеживание
+        if (bookInfo && bookInfo.current_workflow_status !== 'completed') {
+            startProgressTracking(bookInfo.book_id);
+        } else if (!bookInfo && accessToken && accessToken !== "" && accessToken !== "None" && accessToken !== "null") {
+            // Если bookInfo нет, но есть accessToken — ждём появления книги
+            document.getElementById('uploadForm').classList.remove('active');
+            document.getElementById('progressSection').classList.add('active');
+            pollForBookByToken(accessToken);
+        }
+        
+        // Функция копирования ссылки
+        function copyLink(event) {
+            const linkText = document.getElementById('linkText').textContent;
+            navigator.clipboard.writeText(linkText).then(() => {
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = '✅ Скопировано!';
+                button.style.background = '#28a745';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#667eea';
+                }, 2000);
+            }).catch(err => {
+                console.error('Ошибка копирования:', err);
+                alert('Не удалось скопировать ссылку. Скопируйте вручную.');
+            });
+        }
+        
+        // Удаляю функцию generateQRCode и все вызовы showPermanentLink, связанные с QR-кодом
+    </script>
+</body>
+</html> 

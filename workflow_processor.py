@@ -10,6 +10,7 @@ import time
 from flask import current_app, Flask
 import re
 from typing import Optional
+from config import UPLOADS_DIR
 
 # --- Constants for Workflow Processor ---
 MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analysis
@@ -573,6 +574,9 @@ def start_book_workflow(book_id: str, app_instance: Flask):
         if all_completed:
             workflow_db_manager.update_book_workflow_status(book_id, 'completed')
             print(f"[WorkflowProcessor] Все этапы завершены успешно. Статус книги {book_id} обновлен на 'completed'.")
+            
+            # Отправляем уведомление в Telegram
+            send_telegram_notification(book_id, 'completed')
         else:
             print(f"[WorkflowProcessor] Не все этапы завершены. Статус книги {book_id} остается текущим.")
     
@@ -1335,19 +1339,15 @@ def process_book_epub_creation(book_id: str):
             raise Exception("Failed to create EPUB file")
 
         # Сохраняем EPUB файл
-        output_dir = os.path.join(os.path.dirname(book_info.get('filepath')), 'translated')
+        output_dir = UPLOADS_DIR / "translated"
         os.makedirs(output_dir, exist_ok=True)
-        
         base_name = os.path.splitext(book_info.get('filename', 'translated_book'))[0]
         output_filename = f"{base_name}_{target_language}.epub"
-        epub_file_path = os.path.join(output_dir, output_filename)
-        
+        epub_file_path = output_dir / output_filename
         with open(epub_file_path, 'wb') as f:
             f.write(epub_bytes)
-        
         if not epub_file_path:
             raise Exception("Failed to create EPUB file")
-
         print(f"[WorkflowProcessor] EPUB успешно создан: {epub_file_path}")
         status_to_set = 'completed'
         error_message_to_set = None
@@ -1410,5 +1410,63 @@ def recalculate_book_stage_status(book_id, stage_name):
         status = 'processing'
     workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, status)
     print(f"[WorkflowProcessor] recalculate_book_stage_status: book_id={book_id}, stage={stage_name}, status={status}")
+
+# --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
+
+def send_telegram_notification(book_id: str, status: str = 'completed'):
+    """Отправляет уведомление в Telegram когда перевод готов"""
+    try:
+        import workflow_db_manager
+        from telegram_notifier import telegram_notifier
+        
+        # Получаем информацию о книге
+        book_info = workflow_db_manager.get_book_workflow(book_id)
+        if not book_info:
+            print(f"[WorkflowProcessor] Не удалось получить информацию о книге {book_id} для уведомления")
+            return False
+        
+        access_token = book_info.get('access_token')
+        if not access_token:
+            print(f"[WorkflowProcessor] У книги {book_id} нет токена доступа для уведомлений")
+            return False
+        
+        # Получаем список пользователей Telegram
+        telegram_users = workflow_db_manager.get_telegram_users_for_book(access_token)
+        if not telegram_users:
+            print(f"[WorkflowProcessor] Нет пользователей Telegram для уведомления о книге {book_id}")
+            return False
+        
+        # Формируем сообщение
+        filename = book_info.get('filename', 'Unknown')
+        target_language = book_info.get('target_language', 'Unknown')
+        download_url = f"http://localhost:5000/translate/{access_token}"
+        
+        message = f"""
+✅ <b>Перевод готов!</b>
+
+📚 <b>Книга:</b> {filename}
+🌍 <b>Язык:</b> {target_language}
+
+📥 <b>Скачать:</b> {download_url}
+
+🔗 <b>Ваша ссылка:</b> {download_url}
+        """.strip()
+        
+        # Отправляем уведомления всем подписчикам
+        success_count = 0
+        for user in telegram_users:
+            user_id = user['user_id']
+            if telegram_notifier.send_message_to_user(user_id, message):
+                success_count += 1
+                print(f"[WorkflowProcessor] Уведомление отправлено пользователю {user_id}")
+            else:
+                print(f"[WorkflowProcessor] Ошибка отправки уведомления пользователю {user_id}")
+        
+        print(f"[WorkflowProcessor] Уведомления отправлены {success_count}/{len(telegram_users)} пользователям")
+        return success_count > 0
+        
+    except Exception as e:
+        print(f"[WorkflowProcessor] Ошибка отправки Telegram уведомлений для книги {book_id}: {e}")
+        return False
 
 # --- END OF FILE workflow_processor.py ---

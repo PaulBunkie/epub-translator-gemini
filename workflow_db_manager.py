@@ -15,18 +15,20 @@ DATABASE_FILE = str(WORKFLOW_DB_FILE)
 
 def get_workflow_db():
     """Устанавливает соединение с новой базой данных и возвращает его."""
+    print('[DEBUG] Вызов get_workflow_db')
     # Используем другое имя атрибута в g, чтобы не конфликтовать со старой БД
     try:
         db = getattr(g, '_workflow_database', None)
     except Exception as e:
-        print(f"[WorkflowDB] Хуяк!: {e}")
+        print(f"[WorkflowDB] ОШИБКА доступа к g: {e}")
         traceback.print_exc()
-        return None
+        raise RuntimeError('g не инициализирован!')
 
     if db is None:
-        db = g._workflow_database = sqlite3.connect(DATABASE_FILE)
+        db = g._workflow_database = sqlite3.connect(DATABASE_FILE, isolation_level=None)  # ВКЛЮЧЕН autocommit!
         db.row_factory = sqlite3.Row # Позволяет обращаться к колонкам по имени
         db.execute("PRAGMA foreign_keys = ON;") # Включаем поддержку внешних ключей
+        print('[DEBUG] Создано новое соединение с workflow_db')
     return db
 
 def close_workflow_db(e=None):
@@ -41,20 +43,21 @@ def init_workflow_db():
     """Создает таблицы новой базы данных, если они еще не существуют, и заполняет workflow_stages."""
     db = get_workflow_db()
     try:
-        with db: # Использование контекстного менеджера для автоматического коммита/отката
+        with db:
             # Таблица books
             db.execute('''
                 CREATE TABLE IF NOT EXISTS books (
                     book_id TEXT PRIMARY KEY,
                     filename TEXT NOT NULL,
-                    filepath TEXT NOT NULL, -- Путь к оригинальному файлу EPUB
-                    toc TEXT, -- Оглавление книги в формате JSON
-                    current_workflow_status TEXT NOT NULL DEFAULT 'idle', -- Общий статус рабочего процесса книги
-                    target_language TEXT, -- Целевой язык для перевода этой книги
-                    upload_time DATETIME DEFAULT CURRENT_TIMESTAMP, -- Время загрузки книги
-                    workflow_error_message TEXT, -- Сообщение об ошибке рабочего процесса на уровне книги
-                    generated_prompt_ext TEXT, -- Сгенерированное дополнение к промпту (после анализа)
-                    manual_prompt_ext TEXT -- Дополнение от пользователя
+                    filepath TEXT NOT NULL,
+                    toc TEXT,
+                    current_workflow_status TEXT NOT NULL DEFAULT 'idle',
+                    target_language TEXT,
+                    upload_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    workflow_error_message TEXT,
+                    generated_prompt_ext TEXT,
+                    manual_prompt_ext TEXT,
+                    access_token TEXT UNIQUE
                 );
             ''')
 
@@ -142,6 +145,47 @@ def init_workflow_db():
             # Добавляем этап reduce_text, если его нет
             add_reduce_text_stage()
             
+            # Таблица telegram_users для уведомлений пользователей
+            db.execute('''
+                CREATE TABLE IF NOT EXISTS telegram_users (
+                    user_id TEXT PRIMARY KEY,
+                    access_token TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    FOREIGN KEY (access_token) REFERENCES books(access_token) ON DELETE CASCADE
+                );
+            ''')
+            
+            # Таблица user_sessions для хранения сессий пользователей
+            db.execute('''
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    access_token TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    expires_at DATETIME NOT NULL,
+                    FOREIGN KEY (access_token) REFERENCES books(access_token) ON DELETE CASCADE
+                );
+            ''')
+            
+            # --- МИГРАЦИЯ: Добавление access_token в таблицу books, если его нет ---
+            cursor = db.execute("PRAGMA table_info(books);")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'access_token' not in columns:
+                try:
+                    db.execute("ALTER TABLE books ADD COLUMN access_token TEXT;")
+                    print("[WorkflowDB] Колонка access_token добавлена в таблицу books (без UNIQUE)")
+                except Exception as e:
+                    print(f"[WorkflowDB] ОШИБКА добавления access_token: {e}")
+            else:
+                print("[WorkflowDB] Колонка access_token уже существует (PRAGMA)")
+            # --- Создание уникального индекса для access_token ---
+            try:
+                db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_books_access_token ON books(access_token);")
+                print("[WorkflowDB] Уникальный индекс для access_token создан или уже существует")
+            except Exception as e:
+                print(f"[WorkflowDB] ОШИБКА создания уникального индекса для access_token: {e}")
+            
             # --- КОНЕЦ ИЗМЕНЕНИЯ: Новая структура таблиц ---
 
         print("[WorkflowDB] База данных инициализирована.")
@@ -152,7 +196,7 @@ def init_workflow_db():
 
 # --- Функции работы с книгами (общая информация) ---
 
-def create_book_workflow(book_id, filename, filepath, toc_data, target_language):
+def create_book_workflow(book_id, filename, filepath, toc_data, target_language, access_token):
     """Создает новую запись о книге в таблице books."""
     print(f"[WorkflowDB] Попытка создания записи для книги ID: {book_id}")
     db = get_workflow_db()
@@ -164,10 +208,11 @@ def create_book_workflow(book_id, filename, filepath, toc_data, target_language)
             return False # Книга уже существует
 
         db.execute('''
-            INSERT INTO books (book_id, filename, filepath, toc, target_language, current_workflow_status)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (book_id, filename, filepath, json.dumps(toc_data), target_language, 'uploaded'))
-        print(f"[WorkflowDB] Книга '{book_id}' добавлена в БД со статусом 'uploaded'.")
+            INSERT INTO books (book_id, filename, filepath, toc, target_language, current_workflow_status, access_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (book_id, filename, filepath, json.dumps(toc_data), target_language, 'uploaded', access_token))
+        db.commit()  # Явный коммит после создания книги
+        print(f"[WorkflowDB] Книга '{book_id}' добавлена в БД со статусом 'uploaded'. (commit)")
 
         # Удаляем прямой вызов вставки статусов этапов книги здесь.
         # Инициализация будет происходить в отдельной функции, которая будет вызвана после создания книги.
@@ -180,7 +225,7 @@ def create_book_workflow(book_id, filename, filepath, toc_data, target_language)
         #      ''', book_stage_statuses_data)
         # print(f"[WorkflowDB] Инициализированы статусы этапов книги для '{book_id}'.")
 
-        db.commit()
+        # db.commit() # Удален явный коммит, так как он уже выполнен выше
         print(f"[WorkflowDB] Запись книги {book_id} успешно создана.")
         return True
     except sqlite3.IntegrityError as e:
@@ -840,4 +885,187 @@ def migrate_stage_orders_to_decimals():
         db.rollback()
         return False
 
-# --- END OF FILE workflow_db_manager.py ---
+# --- КОНЕЦ ФУНКЦИЙ МИГРАЦИИ ---
+
+# --- ФУНКЦИИ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
+
+def generate_access_token() -> str:
+    """Генерирует уникальный токен доступа"""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+def set_book_access_token(book_id: str, access_token: str) -> bool:
+    """Устанавливает токен доступа для книги"""
+    db = get_workflow_db()
+    try:
+        print(f"[WorkflowDB] Попытка установить токен для книги {book_id}: {access_token}")
+        result = db.execute("UPDATE books SET access_token = ? WHERE book_id = ?", (access_token, book_id))
+        db.commit()
+        if result.rowcount == 0:
+            print(f"[WorkflowDB] Не удалось найти книгу для установки токена: {book_id}")
+            return False
+        print(f"[WorkflowDB] Токен доступа установлен для книги {book_id}: {access_token}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка установки токена для книги {book_id}: {e}")
+        return False
+
+def get_book_by_access_token(access_token: str):
+    print(f'[DEBUG] get_book_by_access_token вызван с access_token={access_token}')
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("SELECT * FROM books WHERE access_token = ?", (access_token,))
+        book = cursor.fetchone()
+        print(f'[DEBUG] Результат поиска по токену: {book}')
+        if book:
+            return dict(book)
+        return None
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка получения книги по токену {access_token}: {e}")
+        traceback.print_exc()
+        return None
+
+def get_telegram_users_for_book(access_token: str) -> list:
+    """Получает список пользователей Telegram, подписанных на уведомления о книге"""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("""
+            SELECT user_id, created_at, is_active 
+            FROM telegram_users 
+            WHERE access_token = ? AND is_active = TRUE
+        """, (access_token,))
+        return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка получения пользователей Telegram для токена {access_token}: {e}")
+        return []
+
+def add_telegram_user(user_id: str, access_token: str) -> bool:
+    """Добавляет пользователя Telegram для получения уведомлений"""
+    db = get_workflow_db()
+    try:
+        db.execute("""
+            INSERT OR REPLACE INTO telegram_users (user_id, access_token, is_active)
+            VALUES (?, ?, TRUE)
+        """, (user_id, access_token))
+        db.commit()
+        print(f"[WorkflowDB] Пользователь Telegram {user_id} добавлен для токена {access_token}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка добавления пользователя Telegram {user_id}: {e}")
+        return False
+
+def remove_telegram_user(user_id: str) -> bool:
+    """Удаляет пользователя Telegram из подписок"""
+    db = get_workflow_db()
+    try:
+        db.execute("DELETE FROM telegram_users WHERE user_id = ?", (user_id,))
+        db.commit()
+        print(f"[WorkflowDB] Пользователь Telegram {user_id} удален из подписок")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка удаления пользователя Telegram {user_id}: {e}")
+        return False
+
+# --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
+
+# --- ФУНКЦИИ ДЛЯ РАБОТЫ С ПОЛЬЗОВАТЕЛЬСКИМИ СЕССИЯМИ ---
+
+def create_user_session(access_token: str, session_duration_hours: int = 24) -> str:
+    """Создает новую сессию пользователя и возвращает session_id"""
+    import secrets
+    import datetime
+    
+    db = get_workflow_db()
+    try:
+        # Проверяем, что книга с таким токеном существует
+        cursor = db.execute("SELECT 1 FROM books WHERE access_token = ?", (access_token,))
+        if not cursor.fetchone():
+            print(f"[WorkflowDB] Книга с токеном {access_token} не найдена")
+            return None
+        
+        # Генерируем уникальный session_id
+        session_id = secrets.token_urlsafe(32)
+        
+        # Вычисляем время истечения сессии
+        expires_at = datetime.datetime.now() + datetime.timedelta(hours=session_duration_hours)
+        
+        # Создаем сессию
+        db.execute("""
+            INSERT INTO user_sessions (session_id, access_token, expires_at)
+            VALUES (?, ?, ?)
+        """, (session_id, access_token, expires_at))
+        db.commit()
+        
+        print(f"[WorkflowDB] Создана сессия {session_id} для токена {access_token}")
+        return session_id
+        
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка создания сессии для токена {access_token}: {e}")
+        return None
+
+def get_session_access_token(session_id: str) -> str:
+    """Получает access_token по session_id, если сессия активна"""
+    import datetime
+    
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("""
+            SELECT access_token 
+            FROM user_sessions 
+            WHERE session_id = ? AND expires_at > ?
+        """, (session_id, datetime.datetime.now()))
+        
+        row = cursor.fetchone()
+        if row:
+            # Обновляем время последнего доступа
+            db.execute("""
+                UPDATE user_sessions 
+                SET last_accessed = ? 
+                WHERE session_id = ?
+            """, (datetime.datetime.now(), session_id))
+            db.commit()
+            
+            return row['access_token']
+        return None
+        
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка получения токена для сессии {session_id}: {e}")
+        return None
+
+def delete_expired_sessions():
+    """Удаляет истекшие сессии"""
+    import datetime
+    
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (datetime.datetime.now(),))
+        deleted_count = cursor.rowcount
+        db.commit()
+        
+        if deleted_count > 0:
+            print(f"[WorkflowDB] Удалено {deleted_count} истекших сессий")
+        
+        return deleted_count
+        
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка удаления истекших сессий: {e}")
+        return 0
+
+def delete_user_session(session_id: str) -> bool:
+    """Удаляет конкретную сессию пользователя"""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("DELETE FROM user_sessions WHERE session_id = ?", (session_id,))
+        deleted = cursor.rowcount > 0
+        db.commit()
+        
+        if deleted:
+            print(f"[WorkflowDB] Сессия {session_id} удалена")
+        
+        return deleted
+        
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка удаления сессии {session_id}: {e}")
+        return False
+
+# --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ПОЛЬЗОВАТЕЛЬСКИМИ СЕССИЯМИ ---
