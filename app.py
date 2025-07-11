@@ -1214,6 +1214,54 @@ def workflow_download_analysis(book_id):
     return Response(analysis_result, mimetype="text/plain; charset=utf-8", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{out_fn}"})
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ АНАЛИЗА ---
 
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ СКАЧИВАНИЯ EPUB WORKFLOW ---
+@app.route('/workflow_download_epub/<book_id>', methods=['GET'])
+def workflow_download_epub(book_id):
+    print(f"Запрос на скачивание EPUB для книги: {book_id}")
+
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if book_info is None:
+        print(f"  [DownloadEPUB] Книга с ID {book_id} не найдена в Workflow DB.")
+        return "Book not found", 404
+
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    epub_stage_status = book_stage_statuses.get('epub_creation', {}).get('status')
+
+    if epub_stage_status not in ['completed', 'completed_with_errors']:
+         print(f"  [DownloadEPUB] Этап создания EPUB для книги {book_id} не завершен. Статус: {epub_stage_status}")
+         return f"EPUB creation not complete (Status: {epub_stage_status}).", 409
+
+    # Формируем путь к переведенному EPUB файлу
+    base_name = os.path.splitext(book_info.get('filename', 'book'))[0]
+    target_language = book_info.get('target_language', 'russian')
+    epub_filename = f"{base_name}_{target_language}.epub"
+    epub_filepath = os.path.join('uploads', 'translated', epub_filename)
+
+    # Проверяем существование файла
+    if not os.path.exists(epub_filepath):
+        print(f"  [DownloadEPUB] EPUB файл не найден: {epub_filepath}")
+        return "EPUB file not found", 404
+
+    try:
+        # Читаем файл и отправляем его
+        with open(epub_filepath, 'rb') as f:
+            epub_content = f.read()
+        
+        # Формируем имя файла для скачивания
+        download_filename = epub_filename
+        
+        return Response(
+            epub_content,
+            mimetype="application/epub+zip",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{download_filename}"}
+        )
+        
+    except Exception as e:
+        print(f"  [DownloadEPUB] ОШИБКА при чтении EPUB файла {epub_filepath}: {e}")
+        return "Error reading EPUB file", 500
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ EPUB ---
+
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛУЧЕНИЯ СТАТУСА WORKFLOW КНИГИ ---
 @app.route('/workflow_book_status/<book_id>', methods=['GET'])
 def get_workflow_book_status(book_id):

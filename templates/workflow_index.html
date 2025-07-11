@@ -221,6 +221,19 @@
                              <span class="download-analysis-placeholder" style="margin-left: 10px;">Анализ не готов</span>
                         {% endif %}
 
+                        {# --- NEW: Display EPUB Download Link/Placeholder based on backend data --- #}
+                        {% set epub_status = book.book_stage_statuses.epub_creation.status if book.book_stage_statuses and book.book_stage_statuses.epub_creation else 'pending' %}
+                        {% if epub_status in ['completed', 'completed_with_errors'] %}
+                            <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" class="download-epub-link" style="margin-left: 10px;">Скачать EPUB</a>
+                            <span class="download-epub-placeholder" style="display: none; margin-left: 10px;"></span>
+                        {% elif epub_status in ['error', 'completed_with_errors'] or epub_status.startswith('error_') %}
+                            <a href="#" class="download-epub-link" style="display: none; margin-left: 10px;"></a>
+                             <span class="download-epub-placeholder" style="margin-left: 10px;">Ошибка EPUB: {{ epub_status }}</span>
+                        {% else %}
+                            <a href="#" class="download-epub-link" style="display: none; margin-left: 10px;"></a>
+                             <span class="download-epub-placeholder" style="margin-left: 10px;">EPUB не готов</span>
+                        {% endif %}
+
                         {# NEW: Start Workflow button for existing books #}
                         <button class="start-workflow-button" data-book-id="{{ book.book_id }}" style="margin-left: 10px;">Start Workflow</button>
 
