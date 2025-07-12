@@ -716,45 +716,16 @@ def api_get_models():
     else: return jsonify({"error": "Could not retrieve models"}), 500
 
 @app.route('/download_epub/<book_id>', methods=['GET'])
-def workflow_download_epub(book_id):
-    print(f"Запрос на скачивание EPUB для книги: {book_id}")
-
-    book_info = workflow_db_manager.get_book_workflow(book_id)
-    if book_info is None:
-        print(f"  [DownloadEPUB] Книга с ID {book_id} не найдена в Workflow DB.")
-        return "Book not found", 404
-
-    book_stage_statuses = book_info.get('book_stage_statuses', {})
-    epub_stage_status = book_stage_statuses.get('epub_creation', {}).get('status')
-
-    if epub_stage_status not in ['completed', 'completed_with_errors']:
-         print(f"  [DownloadEPUB] Этап создания EPUB для книги {book_id} не завершен. Статус: {epub_stage_status}")
-         return f"EPUB creation not complete (Status: {epub_stage_status}).", 409
-
-    # Формируем путь к переведенному EPUB файлу
-    base_name = os.path.splitext(book_info.get('filename', 'book'))[0]
-    target_language = book_info.get('target_language', 'russian')
-    epub_filename = f"{base_name}_{target_language}.epub"
-    epub_filepath = UPLOADS_DIR / "translated" / epub_filename
-
-    # Проверяем существование файла
-    if not epub_filepath.exists():
-        print(f"  [DownloadEPUB] EPUB файл не найден: {epub_filepath}")
-        return "EPUB file not found", 404
-
-    try:
-        # Читаем файл и отправляем его
-        with open(epub_filepath, 'rb') as f:
-            epub_content = f.read()
-        download_filename = epub_filename
-        return Response(
-            epub_content,
-            mimetype="application/epub+zip",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{download_filename}"}
-        )
-    except Exception as e:
-        print(f"  [DownloadEPUB] ОШИБКА при чтении EPUB файла {epub_filepath}: {e}")
-        return "Error reading EPUB file", 500
+def download_epub(book_id):
+    book_info = get_book(book_id);
+    if book_info is None: return "Book not found", 404
+    target_language = book_info.get('target_language', session.get('target_language', 'russian'))
+    update_overall_book_status(book_id); book_info = get_book(book_id)
+    if book_info.get('status') not in ["complete", "complete_with_errors"]: return f"Перевод не завершен (Статус: {book_info.get('status')}).", 409
+    epub_bytes = create_translated_epub(book_info, target_language) # book_info уже содержит 'sections'
+    if epub_bytes is None: return "Server error generating EPUB", 500
+    base_name = os.path.splitext(book_info.get('filename', 'tr_book'))[0]; out_fn = f"{base_name}_{target_language}_translated.epub"
+    return send_file(io.BytesIO(epub_bytes), mimetype='application/epub+zip', as_attachment=True, download_name=out_fn)
 
 def get_bbc_news():
     """Получает заголовки новостей BBC с NewsAPI."""
