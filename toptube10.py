@@ -200,7 +200,10 @@ class TopTubeManager:
                 return True
                 
         except Exception as e:
+            import traceback
             print(f"[TopTube] Ошибка при анализе видео {video_data.get('title', 'unknown')}: {e}")
+            print(f"[TopTube] Полный traceback:")
+            print(traceback.format_exc())
             # Переводим статус в 'error', чтобы не брать видео снова
             video_db.update_video_status(video_data['id'], 'error')
             return False

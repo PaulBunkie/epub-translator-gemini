@@ -531,6 +531,12 @@ class VideoAnalyzer:
         Returns:
             Словарь с результатами анализа
         """
+        print(f"[VideoAnalyzer] === НАЧАЛО АНАЛИЗА ВИДЕО ===")
+        print(f"[VideoAnalyzer] URL: {video_url}")
+        print(f"[VideoAnalyzer] Yandex Token: {'УСТАНОВЛЕН' if self.yandex_token else 'НЕ УСТАНОВЛЕН'}")
+        print(f"[VideoAnalyzer] Session ID: {'УСТАНОВЛЕН' if self.session_id else 'НЕ УСТАНОВЛЕН'}")
+        print(f"[VideoAnalyzer] OpenRouter Key: {'УСТАНОВЛЕН' if self.openrouter_api_key else 'НЕ УСТАНОВЛЕН'}")
+        
         result = {
             'video_url': video_url,
             'sharing_url': None,
@@ -623,7 +629,12 @@ class VideoAnalyzer:
                 # Не падаем в ошибку, просто не добавляем краткую версию
             
         except Exception as e:
+            import traceback
             print(f"[VideoAnalyzer] Ошибка при анализе видео: {e}")
+            print(f"[VideoAnalyzer] Полный traceback:")
+            print(traceback.format_exc())
             result['error'] = f'Непредвиденная ошибка: {str(e)}'
         
+        print(f"[VideoAnalyzer] === КОНЕЦ АНАЛИЗА ВИДЕО ===")
+        print(f"[VideoAnalyzer] Результат: {'УСПЕХ' if not result.get('error') else 'ОШИБКА: ' + result['error']}")
         return result 
