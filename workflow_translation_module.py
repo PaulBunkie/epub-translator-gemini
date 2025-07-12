@@ -136,6 +136,12 @@ Final Instruction:
 Now, execute both tasks on the text below. Begin with the table for Task 1.
 
 {{prompt_ext_section}}"""
+    },
+    'translate_toc': {
+        'system': f"""Translate these chapter titles to {{target_language}}. 
+Keep the exact same order and format. Use "|||" as separator.
+Preserve chapter numbers and punctuation exactly.
+Return only the translated titles, separated by "|||". Do not add any explanations, numbering, or additional text."""
     }
 }
 
@@ -168,7 +174,17 @@ Text to Reduce:
         'user': f"""Your response must start directly with the analysis.
 Text to Analyze:
 {{text}}"""
+    },
+    'translate_toc': {
+        'user': f"""Translate the following chapter titles to {{target_language}}. Use "|||" as separator. Return only the translated titles, separated by "|||". Do not add any explanations, numbering, or additional text. Titles:
+{{text}}"""
     }
+}
+
+# --- Добавляем отдельные fallback модели для translate_toc ---
+FALLBACK_MODELS_TOC = {
+    'primary': 'models/gemini-2.5-flash-preview-05-20',
+    'fallback': 'google/gemma-3-27b-it:free'
 }
 
 # --- НОВЫЙ КЛАСС WorkflowTranslator ---
@@ -196,7 +212,12 @@ class WorkflowTranslator:
     def _get_fallback_model(self, operation_type: str, current_model: str) -> str | None:
         """
         Возвращает резервную модель для указанной операции, если она отличается от текущей.
+        Для translate_toc возвращает свою fallback-модель.
         """
+        if operation_type == 'translate_toc':
+            if current_model == FALLBACK_MODELS_TOC['primary']:
+                return FALLBACK_MODELS_TOC['fallback']
+            return None
         try:
             import workflow_processor
             fallback_model = workflow_processor.FALLBACK_MODELS.get(operation_type)
@@ -231,6 +252,9 @@ class WorkflowTranslator:
             return (
                 f"You are a literary analyst and terminology specialist. Your task is to analyze the provided text "
             )
+
+        elif operation_type == 'translate_toc':
+            return SYSTEM_PROMPT_TEMPLATES['translate_toc']['system'].format(target_language=target_language)
 
         else:
             return ""
@@ -492,6 +516,12 @@ class WorkflowTranslator:
             system_content = SYSTEM_PROMPT_TEMPLATES['reduce']['system'].format(**formatted_vars)
             user_content = USER_PROMPT_TEMPLATES['reduce']['user'].format(**formatted_vars)
             
+            messages.append({"role": "system", "content": system_content})
+            messages.append({"role": "user", "content": user_content})
+            
+        elif operation_type == 'translate_toc':
+            system_content = SYSTEM_PROMPT_TEMPLATES['translate_toc']['system'].format(**formatted_vars)
+            user_content = USER_PROMPT_TEMPLATES['translate_toc']['user'].format(**formatted_vars)
             messages.append({"role": "system", "content": system_content})
             messages.append({"role": "user", "content": user_content})
             
@@ -834,6 +864,10 @@ class WorkflowTranslator:
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = min(CHUNK_SIZE_LIMIT_CHARS_DYNAMIC, ANALYSIS_CHUNK_SIZE_LIMIT_CHARS)
             # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
             print(f"[WorkflowTranslator] Динамический лимит чанка для анализа: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов (модель: {model_name})")
+        elif operation_type == 'translate_toc':
+            # Для перевода TOC используем свой лимит, так как это короткий текст
+            CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 1000 # Ограничиваем размер чанка для TOC
+            print(f"[WorkflowTranslator] Динамический лимит чанка для перевода TOC: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов.")
         else:
             CHUNK_SIZE_LIMIT_CHARS_DYNAMIC = 20000 # Дефолтное значение для неизвестных операций
             print(f"[WorkflowTranslator] Предупреждение: Неизвестный тип операции '{operation_type}'. Используется дефолтный лимит чанка.")
@@ -997,6 +1031,83 @@ class WorkflowTranslator:
                 # Объединяем чанки с двойным переносом строки для сохранения структуры параграфов
                 full_translated_text = "\n\n".join(translated_chunks)
             print(f"[WorkflowTranslator] Перевод завершен. Общая длина: {len(full_translated_text)} симв.")
+            return full_translated_text
+        elif operation_type == 'translate_toc':
+            print(f"[WorkflowTranslator] Вызов операции 'translate_toc' для текста длиной {len(text_to_translate)} символов.")
+            translated_titles = []
+            chunks = self._smart_chunk_text_for_reduction(text_to_translate, CHUNK_SIZE_LIMIT_CHARS_DYNAMIC)
+            if not chunks:
+                print("[WorkflowTranslator] Нет чанков для перевода TOC.")
+                return None
+
+            print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков умным разбиением (target_size: {CHUNK_SIZE_LIMIT_CHARS_DYNAMIC} символов).")
+
+            for i, chunk in enumerate(chunks):
+                chunk_stripped = chunk.strip()
+                chunk_length = len(chunk_stripped)
+                print(f"[WorkflowTranslator] Перевод чанка TOC {i+1}/{len(chunks)} (длина исходного текста: {chunk_length} симв).")
+                messages = self._build_messages_for_operation(
+                    operation_type,
+                    chunk,
+                    target_language,
+                    model_name=model_name,
+                    prompt_ext=prompt_ext,
+                    dict_data=dict_data
+                )
+
+                max_chunk_retries = 2
+                attempt = 0
+                translated_chunk = None
+                while attempt <= max_chunk_retries:
+                    translated_chunk = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
+                    if translated_chunk is None:
+                        print(f"[WorkflowTranslator] Ошибка перевода чанка TOC {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: чанк TOC {i+1} не удалось перевести после {max_chunk_retries+1} попыток.")
+                            return None
+                        time.sleep(2)
+                        continue
+                    
+                    # Проверка на специальные ошибки
+                    if translated_chunk == 'TRUNCATED_RESPONSE_ERROR':
+                        print(f"[WorkflowTranslator] Обнаружена ошибка TRUNCATED_RESPONSE_ERROR для чанка TOC {i+1}. Попытка {attempt+1}/{max_chunk_retries+1}.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: чанк TOC {i+1} остался обрезанным после {max_chunk_retries+1} попыток. Возвращаем TRUNCATED_RESPONSE_ERROR.")
+                            return 'TRUNCATED_RESPONSE_ERROR'
+                        time.sleep(2)
+                        continue
+                    
+                    # --- Эвристика: если чанк короткий (<100 символов), принимаем любой непустой перевод ---
+                    if chunk_length < 100:
+                        if translated_chunk.strip():
+                            break
+                        else:
+                            print(f"[WorkflowTranslator] Короткий чанк TOC (<100 симв). Перевод пустой. Попытка {attempt+1}/{max_chunk_retries+1}.")
+                            attempt += 1
+                            if attempt > max_chunk_retries:
+                                print(f"[WorkflowTranslator] Ошибка: короткий чанк TOC остался пустым после {max_chunk_retries+1} попыток. Возвращаем EMPTY_RESPONSE_ERROR.")
+                                return EMPTY_RESPONSE_ERROR
+                            time.sleep(2)
+                            continue
+                    # --- Для длинных чанков прежняя эвристика, но сравниваем только с длиной исходного текста ---
+                    elif not translated_chunk.strip() or len(translated_chunk.strip()) < max(10, chunk_length * 0.8):
+                        print(f"[WorkflowTranslator] Предупреждение: перевод чанка TOC {i+1} подозрительно короткий или пустой (длина: {len(translated_chunk.strip())}, исходный: {chunk_length}). Попытка {attempt+1}/{max_chunk_retries+1}.")
+                        attempt += 1
+                        if attempt > max_chunk_retries:
+                            print(f"[WorkflowTranslator] Ошибка: перевод чанка TOC {i+1} остался пустым после {max_chunk_retries+1} попыток. Возвращаем EMPTY_RESPONSE_ERROR.")
+                            return EMPTY_RESPONSE_ERROR
+                        time.sleep(2) # небольшая задержка между попытками
+                        continue
+                    break
+                translated_titles.append(translated_chunk)
+            if not translated_titles:
+                full_translated_text = ""
+            else:
+                # Объединяем чанки с двойным переносом строки для сохранения структуры параграфов
+                full_translated_text = "|||".join(translated_titles)
+            print(f"[WorkflowTranslator] Перевод TOC завершен. Общая длина: {len(full_translated_text)} симв.")
             return full_translated_text
         else:
             print(f"[WorkflowTranslator] Неизвестный тип операции: {operation_type}")

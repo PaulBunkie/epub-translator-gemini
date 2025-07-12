@@ -15,7 +15,6 @@ DATABASE_FILE = str(WORKFLOW_DB_FILE)
 
 def get_workflow_db():
     """Устанавливает соединение с новой базой данных и возвращает его."""
-    print('[DEBUG] Вызов get_workflow_db')
     # Используем другое имя атрибута в g, чтобы не конфликтовать со старой БД
     try:
         db = getattr(g, '_workflow_database', None)
@@ -28,7 +27,6 @@ def get_workflow_db():
         db = g._workflow_database = sqlite3.connect(DATABASE_FILE, isolation_level=None)  # ВКЛЮЧЕН autocommit!
         db.row_factory = sqlite3.Row # Позволяет обращаться к колонкам по имени
         db.execute("PRAGMA foreign_keys = ON;") # Включаем поддержку внешних ключей
-        print('[DEBUG] Создано новое соединение с workflow_db')
     return db
 
 def close_workflow_db(e=None):

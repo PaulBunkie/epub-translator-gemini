@@ -11,6 +11,12 @@ from flask import current_app, Flask
 import re
 from typing import Optional
 from config import UPLOADS_DIR
+import sys
+import json
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple
+from datetime import datetime, timedelta
+import threading
 
 # --- Constants for Workflow Processor ---
 MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analysis
@@ -59,6 +65,79 @@ FALLBACK_MODELS = {
     'translate': 'microsoft/mai-ds-r1:free',
     'reduce': 'meta-llama/llama-3.3-70b-instruct:free'
 }
+
+def clean_toc_title(title):
+    """
+    Очищает заголовок от HTML и Markdown разметки.
+    Сохраняет номера глав и пунктуацию.
+    """
+    if not title:
+        return title
+    
+    # Убираем HTML теги
+    title = re.sub(r'<[^>]+>', '', title)
+    
+    # Убираем Markdown разметку
+    title = re.sub(r'\*\*(.*?)\*\*', r'\1', title)  # **bold**
+    title = re.sub(r'\*(.*?)\*', r'\1', title)      # *italic*
+    title = re.sub(r'^#+\s*', '', title)            # # heading
+    title = re.sub(r'`([^`]+)`', r'\1', title)      # `code`
+    
+    # Убираем лишние пробелы в начале и конце
+    title = title.strip()
+    
+    # Убираем множественные пробелы внутри
+    title = re.sub(r'\s+', ' ', title)
+    
+    return title
+
+def translate_toc_titles_workflow(titles: List[str], target_language: str) -> List[str]:
+    """
+    Переводит заголовки оглавления с retry логикой для workflow.
+    Использует отдельный operation_type 'translate_toc' с собственными моделями и промптами.
+    """
+    if not titles:
+        return []
+    
+    # Очищаем заголовки
+    cleaned_titles = [clean_toc_title(title) for title in titles]
+    
+    # Объединяем в одну строку с разделителем
+    titles_text = "|||".join(cleaned_titles)
+    
+    # Используем основную модель для translate_toc
+    primary_model = 'models/gemini-2.5-flash-preview-05-20'
+    
+    print(f"[WorkflowProcessor] Перевод TOC: используем operation_type 'translate_toc' с моделью {primary_model}")
+    
+    try:
+        # Вызываем перевод с operation_type='translate_toc'
+        result = workflow_translation_module.translate_text(
+            text_to_translate=titles_text,
+            target_language=target_language,
+            model_name=primary_model,
+            prompt_ext=None,
+            operation_type='translate_toc'
+        )
+        
+        if result and result != 'CONTEXT_LIMIT_ERROR':
+            # Парсим результат
+            translated_titles = result.split("|||")
+            
+            # Проверяем количество строк
+            if len(translated_titles) == len(titles):
+                print(f"[WorkflowProcessor] TOC переведен успешно: {len(translated_titles)} заголовков")
+                return translated_titles
+            else:
+                print(f"[WorkflowProcessor] ОШИБКА TOC: ожидалось {len(titles)}, получено {len(translated_titles)} строк")
+        else:
+            print(f"[WorkflowProcessor] ОШИБКА TOC: пустой ответ или CONTEXT_LIMIT_ERROR")
+            
+    except Exception as e:
+        print(f"[WorkflowProcessor] ОШИБКА TOC: {e}")
+    
+    print("[WorkflowProcessor] Не удалось перевести TOC")
+    return []
 
 def process_section_summarization(book_id: str, section_id: int):
     """
@@ -918,21 +997,17 @@ def process_book_epub_creation(book_id: str):
             toc_titles_for_translation = [item['title'] for item in toc_data if item.get('title')]
             if toc_titles_for_translation:
                 print(f"[WorkflowProcessor] Перевод {len(toc_titles_for_translation)} заголовков TOC...")
-                from workflow_translation_module import translate_text
-                titles_text = "\n|||---\n".join(toc_titles_for_translation)
-                translated_titles_text = translate_text(titles_text, target_language, 'deepseek/deepseek-chat-v3-0324:free')
                 
-                if translated_titles_text and translated_titles_text != 'CONTEXT_LIMIT_ERROR':
-                    translated_titles = translated_titles_text.split("\n|||---\n")
-                    if len(translated_titles) == len(toc_titles_for_translation):
-                        for i, item in enumerate(toc_data):
-                            if item.get('title') and item.get('id'):
-                                translated_toc_titles[item['id']] = translated_titles[i].strip() if translated_titles[i] else None
-                        print(f"[WorkflowProcessor] TOC переведен: {len(translated_toc_titles)} заголовков")
-                    else:
-                        print(f"[WorkflowProcessor] ОШИБКА: Не совпало количество названий TOC")
+                # Используем новую функцию с правильными моделями и retry логикой
+                translated_titles = translate_toc_titles_workflow(toc_titles_for_translation, target_language)
+                
+                if translated_titles and len(translated_titles) == len(toc_titles_for_translation):
+                    for i, item in enumerate(toc_data):
+                        if item.get('title') and item.get('id'):
+                            translated_toc_titles[item['id']] = translated_titles[i].strip() if translated_titles[i] else None
+                    print(f"[WorkflowProcessor] TOC переведен: {len(translated_toc_titles)} заголовков")
                 else:
-                    print(f"[WorkflowProcessor] ОШИБКА: Не удалось перевести оглавление")
+                    print(f"[WorkflowProcessor] ОШИБКА: Не удалось перевести оглавление или не совпало количество заголовков")
         
         # Получаем переведенные секции
         for section in sections:
