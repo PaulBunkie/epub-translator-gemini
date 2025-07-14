@@ -1489,14 +1489,26 @@ def send_telegram_notification(book_id: str, status: str = 'completed'):
         target_language = book_info.get('target_language', 'Unknown')
         download_url = f"http://localhost:5000/translate/{access_token}"
         
-        message = f"""
+        if status == 'completed_with_errors':
+            message = f"""
+⚠️ <b>Перевод завершен с ошибками!</b>
+
+📚 <b>Книга:</b> {filename}
+🌍 <b>Язык:</b> {target_language}
+
+🔗 <b>Скачать перевод:</b> <a href=\"{download_url}\">{download_url}</a>
+
+<i>Некоторые части книги могли не перевестись из-за ошибок API.</i>
+            """.strip()
+        else:
+            message = f"""
 ✅ <b>Перевод готов!</b>
 
 📚 <b>Книга:</b> {filename}
 🌍 <b>Язык:</b> {target_language}
 
-🔗 <b>Скачать перевод:</b> {download_url}
-        """.strip()
+🔗 <b>Скачать перевод:</b> <a href=\"{download_url}\">{download_url}</a>
+            """.strip()
         
         # Отправляем уведомления всем подписчикам
         success_count = 0
