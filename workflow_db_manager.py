@@ -7,6 +7,7 @@ import time
 import traceback
 from flask import g # Используем Flask's g для управления соединением
 from typing import List, Dict, Any
+from collections import OrderedDict
 
 # --- Настройки новой базы данных ---
 from config import WORKFLOW_DB_FILE
@@ -550,7 +551,6 @@ def update_section_stage_status_workflow(
                 print(f"[WorkflowDB] Обновление статуса для секции {section_id} этапа {stage_name} на '{status}'.")
 
                 # Строим SQL запрос для обновления. Обновляем все поля времени явно.
-                print(f"[WorkflowDB] DEBUG: UPDATE section_stage_statuses SET status = '{status}', model_name = '{model_name}', error_message = '{error_message}', start_time = {start_time_val}, end_time = {end_time_val} WHERE section_id = {section_id} AND stage_name = '{stage_name}'.")
                 db.execute('''
                     UPDATE section_stage_statuses
                     SET status = ?, model_name = ?, error_message = ?, start_time = ?, end_time = ?
@@ -561,7 +561,6 @@ def update_section_stage_status_workflow(
             else:
                 # Записи не существует, вставляем новую
                 print(f"[WorkflowDB] Вставка новой записи статуса для секции {section_id} этапа {stage_name} со статусом '{status}'.")
-                print(f"[WorkflowDB] DEBUG: INSERT INTO section_stage_statuses (section_id, stage_name, status, model_name, error_message, start_time, end_time) VALUES ({section_id}, '{stage_name}', '{status}', '{model_name}', '{error_message}', {start_time_val}, {end_time_val}).")
                 db.execute('''
                     INSERT INTO section_stage_statuses (section_id, stage_name, status, model_name, error_message, start_time, end_time)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -570,7 +569,6 @@ def update_section_stage_status_workflow(
 
             # Явный коммит после обновления/вставки статуса секции
             db.commit()
-            print(f"[WorkflowDB] DEBUG: Явный коммит после обновления/вставки статуса секции {section_id} этапа {stage_name}.")
             return True # Возвращаем True только при успешном коммите
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА обновления статуса этапа '{stage_name}' для секции '{section_id}': {e}")
@@ -589,14 +587,15 @@ def get_book_stage_statuses_workflow(book_id):
             ORDER BY ws.stage_order;
         ''', (book_id,))
         rows = cursor.fetchall()
-        statuses = {}
+        # Используем OrderedDict для сохранения порядка этапов
+        statuses = OrderedDict()
         for row in rows:
             statuses[row['stage_name']] = dict(row)
         return statuses
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА при получении статусов этапов книги '{book_id}': {e}")
         traceback.print_exc()
-        return {}
+        return OrderedDict()
 
 
 def update_book_stage_status_workflow(book_id, stage_name, status, model_name=None, error_message=None, completed_count=None, total_count=None):

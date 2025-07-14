@@ -893,9 +893,9 @@ def workflow_upload_file():
 
         # Проверяем, существует ли книга уже в новой БД
         if workflow_db_manager.get_book_workflow(book_id):
-             print(f"Книга с ID {book_id} уже существует в Workflow DB. Перенаправление...")
-             # TODO: Перенаправить на страницу новой книги
-             return f"Книга с ID {book_id} уже существует.", 200 # Временно возвращаем сообщение
+             print(f"Книга с ID {book_id} уже существует в Workflow DB.")
+             # Для /workflow всегда возвращаем JSON, не делаем редирект
+             return jsonify({"status": "error", "message": f"Книга с ID {book_id} уже существует."}), 200
 
         # Если книга новая, сохраняем файл с уникальным именем
         unique_filename = f"{book_id}.epub"
@@ -1910,26 +1910,6 @@ def start_telegram_bot():
     else:
         print("[App] Telegram бот не запущен (отсутствуют токен или chat_id)")
 
-# --- Запуск приложения ---
-if __name__ == '__main__':
-    print("Запуск Flask приложения...")
-    # use_reloader=False рекомендуется при использовании APScheduler в режиме отладки,
-    # чтобы избежать двойного запуска планировщика. Но можно попробовать и без него.
-    try:
-        configure_api() # Проверка ключей API
-        load_models_on_startup() # <-- ДОБАВЛЯЕМ ЭТОТ ВЫЗОВ
-        
-        # Запускаем Telegram бота
-        start_telegram_bot()
-
-        app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
-    except ValueError as e:
-        print(f"Ошибка конфигурации API: {e}")
-        # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
-        exit(1)
-
-# --- END OF FILE app.py ---
-
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОИСКА КНИГИ ПО ACCESS_TOKEN ---
 @app.route('/workflow_book_by_token/<access_token>', methods=['GET'])
 def get_workflow_book_by_token(access_token):
@@ -1960,3 +1940,23 @@ def get_workflow_book_by_token(access_token):
     return jsonify(response_data), 200
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ПОИСКА ПО ТОКЕНУ ---
+
+# --- Запуск приложения ---
+if __name__ == '__main__':
+    print("Запуск Flask приложения...")
+    # use_reloader=False рекомендуется при использовании APScheduler в режиме отладки,
+    # чтобы избежать двойного запуска планировщика. Но можно попробовать и без него.
+    try:
+        configure_api() # Проверка ключей API
+        load_models_on_startup() # <-- ДОБАВЛЯЕМ ЭТОТ ВЫЗОВ
+        
+        # Запускаем Telegram бота
+        start_telegram_bot()
+
+        app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
+    except ValueError as e:
+        print(f"Ошибка конфигурации API: {e}")
+        # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
+        exit(1)
+
+# --- END OF FILE app.py ---
