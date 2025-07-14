@@ -617,7 +617,7 @@ def start_book_workflow(book_id: str, app_instance: Flask):
         all_completed = True
         for stage_name, stage_data in book_stage_statuses.items():
             status = stage_data.get('status', 'pending')
-            if status not in ['completed', 'completed_empty', 'skipped']:
+            if status not in ['completed', 'completed_empty', 'skipped', 'passed']:
                 all_completed = False
                 break
         
@@ -1462,7 +1462,7 @@ def recalculate_book_stage_status(book_id, stage_name):
 # --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
 
 def send_telegram_notification(book_id: str, status: str = 'completed'):
-    """Отправляет уведомление в Telegram когда перевод готов"""
+    print(f"[DEBUG] Вызвана send_telegram_notification для книги {book_id} со статусом {status}")
     try:
         import workflow_db_manager
         from telegram_notifier import telegram_notifier

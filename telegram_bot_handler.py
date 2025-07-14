@@ -218,6 +218,7 @@ class TelegramBotHandler:
     def cmd_status(self) -> str:
         """Команда /status - показывает статус системы"""
         try:
+            from config import MAIN_DB_FILE, VIDEO_DB_FILE, WORKFLOW_DB_FILE, CACHE_DIR, UPLOADS_DIR, FULL_TRANSLATION_DIR
             # Проверяем основные компоненты
             status_info = []
             
@@ -232,9 +233,9 @@ class TelegramBotHandler:
             
             # Проверяем базы данных
             db_files = [
-                ("epub_translator.db", "Основная БД"),
-                ("video_analyzer.db", "Видео БД"),
-                ("workflow.db", "Workflow БД")
+                (str(MAIN_DB_FILE), "Основная БД"),
+                (str(VIDEO_DB_FILE), "Видео БД"),
+                (str(WORKFLOW_DB_FILE), "Workflow БД")
             ]
             
             for db_file, description in db_files:
@@ -246,7 +247,7 @@ class TelegramBotHandler:
                     status_info.append(f"{description}: ❌")
             
             # Проверяем директории
-            dirs = [".epub_cache", "uploads", ".translated"]
+            dirs = [str(CACHE_DIR), str(UPLOADS_DIR), str(FULL_TRANSLATION_DIR)]
             for dir_name in dirs:
                 if os.path.exists(dir_name):
                     status_info.append(f"Директория {dir_name}: ✅")
