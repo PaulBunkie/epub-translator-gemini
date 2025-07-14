@@ -1561,6 +1561,7 @@ def get_workflow_book_status(book_id):
     response_data = {
         "book_id": book_info.get('book_id'),
         "filename": book_info.get('filename'),
+        "book_title": book_info.get('book_title', book_info.get('filename')), # Добавляем название книги
         "target_language": book_info.get('target_language'), # Add target_language
         "current_workflow_status": book_info.get('current_workflow_status'),
         # --- ИСПОЛЬЗУЕМ НОВЫЕ ДАННЫЕ С КОНФИГУРАЦИЕЙ НИЖЕ ---
@@ -2065,6 +2066,7 @@ def get_workflow_book_by_token(access_token):
     response_data = {
         "book_id": book_info.get('book_id'),
         "filename": book_info.get('filename'),
+        "book_title": book_info.get('book_title', book_info.get('filename')), # Добавляем название книги
         "target_language": book_info.get('target_language'),
         "current_workflow_status": book_info.get('current_workflow_status'),
         "access_token": book_info.get('access_token')

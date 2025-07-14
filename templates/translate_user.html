@@ -275,7 +275,7 @@
             <!-- Секция прогресса -->
             <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
                 <div class="book-info">
-                    <h3>📖 {{ book_info.filename if book_info else 'Обработка...' }}</h3>
+                    <h3>Перевод: {{ book_info.book_title if book_info and book_info.book_title else (book_info.filename if book_info else '...') }}</h3>
                     <div class="status-details">
                         <p><strong>Общий статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
                         <div id="stageStatuses">
@@ -343,7 +343,7 @@
                 </div>
                 
                 <div class="book-info">
-                    <h3>📖 {{ book_info.filename if book_info else 'Книга' }}</h3>
+                    <h3>📖 {{ book_info.book_title if book_info and book_info.book_title else (book_info.filename if book_info else 'Книга') }}</h3>
                     <div class="status-details">
                         <p><strong>Общий статус:</strong> <span class="stage-status">{{ book_info.current_workflow_status if book_info else 'completed' }}</span></p>
                         {% if book_info and book_info.book_stage_statuses %}
@@ -499,6 +499,13 @@
             // Обновляем глобальную переменную bookInfo
             bookInfo = data;
             
+            // Обновляем заголовок с названием книги
+            const bookTitle = data.book_title || data.filename || '...';
+            const bookTitleHeader = document.querySelector('#progressSection .book-info h3');
+            if (bookTitleHeader) {
+                bookTitleHeader.textContent = 'Перевод: ' + bookTitle;
+            }
+            
             const statusText = document.getElementById('statusText');
             const statusMessage = document.getElementById('statusMessage');
             const progressFill = document.getElementById('progressFill');
@@ -527,16 +534,36 @@
                 }
             }
             
-            // Рассчитываем прогресс на основе этапов
+            // Рассчитываем прогресс на основе этапов по новой формуле
             const stages = data.book_stage_statuses || {};
-            const totalStages = Object.keys(stages).length;
-            const completedStages = Object.values(stages).filter(stage => 
-                stage.status === 'completed' || stage.status === 'completed_empty' || stage.status === 'skipped'
-            ).length;
-            
-            const progress = totalStages > 0 ? (completedStages / totalStages) * 100 : 0;
+            const totalSections = data.total_sections_count || 0;
+            let score = 0;
+            let maxScore = 5 + 3 + totalSections + 1; // 5 (суммаризация) + 3 (анализ) + N (перевод) + 1 (epub)
+
+            // Суммаризация
+            const summarizeStatus = stages.summarize ? stages.summarize.status : null;
+            if (["completed", "completed_empty", "skipped"].includes(summarizeStatus)) score += 5;
+
+            // Анализ
+            const analyzeStatus = stages.analyze ? stages.analyze.status : null;
+            if (["completed", "completed_empty", "skipped"].includes(analyzeStatus)) score += 3;
+
+            // Перевод
+            let translatedSections = 0;
+            if (data.sections_status_summary && data.sections_status_summary.translate) {
+                const summary = data.sections_status_summary.translate;
+                translatedSections = (summary.completed || 0) + (summary.completed_empty || 0) + (summary.skipped || 0);
+            }
+            score += translatedSections;
+
+            // EPUB
+            const epubStatus = stages.epub_creation ? stages.epub_creation.status : null;
+            if (["completed", "completed_empty", "skipped"].includes(epubStatus)) score += 1;
+
+            // Прогресс
+            const progress = maxScore > 0 ? (score / maxScore) * 100 : 0;
             progressFill.style.width = progress + '%';
-            
+
             // Обновляем сообщение
             if (data.current_workflow_status === 'completed') {
                 statusMessage.textContent = 'Перевод завершен!';

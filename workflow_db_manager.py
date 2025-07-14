@@ -250,6 +250,9 @@ def get_book_workflow(book_id):
                 try: book_info['toc'] = json.loads(book_info['toc'])
                 except (json.JSONDecodeError, TypeError) as e: print(f"[WorkflowDB] Ошибка парсинга TOC для {book_id}: {e}"); book_info['toc'] = []
             else: book_info['toc'] = []
+            
+            # Вместо извлечения из TOC просто используем имя файла
+            book_info['book_title'] = book_info['filename']
             # Обеспечиваем наличие target_language
             book_info['target_language'] = book_info.get('target_language') or 'russian' # Default to russian
 
