@@ -128,7 +128,11 @@ class TelegramBotHandler:
 /start [токен] - Подписаться на уведомления о переводе
 /unsubscribe - Отписаться от уведомлений
 
-💡 Используйте /help для подробной информации о командах.
+💡 <b>Если вы перешли по ссылке для подписки:</b>
+Скопируйте токен из ссылки и отправьте команду:
+<code>/start [ваш_токен]</code>
+
+Например: <code>/start LutIqOTUHttP35cjjQo1F1PY3Bh1qFpIUC5HRIWUd9M</code>
         """.strip()
     
     def cmd_start_with_token(self, chat_id: str, token: str) -> str:
@@ -428,6 +432,7 @@ class TelegramBotHandler:
                     continue
                 
                 response = self.handle_command(chat_id, command, args)
+                
                 self.send_message(chat_id, response)
     
     def run_polling(self):
