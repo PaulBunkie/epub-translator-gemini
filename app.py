@@ -2074,6 +2074,12 @@ def get_workflow_book_by_token(access_token):
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ПОИСКА ПО ТОКЕНУ ---
 
+@app.route('/reset_session', methods=['GET'])
+def reset_session():
+    response = redirect('/user')
+    response.delete_cookie('user_session', path='/')
+    return response
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
