@@ -137,36 +137,24 @@ class TelegramBotHandler:
             return self.cmd_start()
         
         try:
-            # Импортируем здесь, чтобы избежать циклических импортов
-            import sqlite3
-            from datetime import datetime
+            # Импортируем workflow_db_manager
+            import workflow_db_manager
             
-            # Подключаемся к БД
-            conn = sqlite3.connect('workflow.db')
-            cursor = conn.cursor()
-            
-            # Проверяем существование токена в workflow
-            cursor.execute("""
-                SELECT book_id, filename, target_language 
-                FROM books 
-                WHERE access_token = ?
-            """, (token,))
-            
-            book_info = cursor.fetchone()
+            # Проверяем существование токена
+            book_info = workflow_db_manager.get_book_by_access_token(token)
             
             if not book_info:
                 return "❌ Токен не найден или недействителен. Проверьте ссылку."
             
-            book_id, filename, target_language = book_info
+            book_id = book_info['book_id']
+            filename = book_info['filename']
+            target_language = book_info['target_language']
             
-            # Добавляем или обновляем пользователя
-            cursor.execute("""
-                INSERT OR REPLACE INTO telegram_users (user_id, access_token, created_at, is_active)
-                VALUES (?, ?, ?, ?)
-            """, (chat_id, token, datetime.now(), True))
+            # Добавляем пользователя
+            success = workflow_db_manager.add_telegram_user(chat_id, token)
             
-            conn.commit()
-            conn.close()
+            if not success:
+                return "❌ Ошибка при добавлении подписки. Попробуйте позже."
             
             return f"""
 ✅ <b>Подписка активирована!</b>
@@ -187,20 +175,14 @@ class TelegramBotHandler:
     def cmd_unsubscribe(self, chat_id: str) -> str:
         """Команда /unsubscribe для отписки от уведомлений"""
         try:
-            import sqlite3
-            
-            conn = sqlite3.connect('workflow.db')
-            cursor = conn.cursor()
+            import workflow_db_manager
             
             # Удаляем пользователя
-            cursor.execute("DELETE FROM telegram_users WHERE user_id = ?", (chat_id,))
+            success = workflow_db_manager.remove_telegram_user(chat_id)
             
-            if cursor.rowcount > 0:
-                conn.commit()
-                conn.close()
+            if success:
                 return "✅ Вы отписались от уведомлений о переводах."
             else:
-                conn.close()
                 return "ℹ️ Вы не были подписаны на уведомления."
                 
         except Exception as e:
