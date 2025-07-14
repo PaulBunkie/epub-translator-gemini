@@ -15,20 +15,24 @@ from config import WORKFLOW_DB_FILE
 DATABASE_FILE = str(WORKFLOW_DB_FILE)
 
 def get_workflow_db():
-    """Устанавливает соединение с новой базой данных и возвращает его."""
-    # Используем другое имя атрибута в g, чтобы не конфликтовать со старой БД
+    """Универсальный доступ к базе: Flask/g если есть, иначе standalone."""
     try:
-        db = getattr(g, '_workflow_database', None)
-    except Exception as e:
-        print(f"[WorkflowDB] ОШИБКА доступа к g: {e}")
-        traceback.print_exc()
-        raise RuntimeError('g не инициализирован!')
-
-    if db is None:
-        db = g._workflow_database = sqlite3.connect(DATABASE_FILE, isolation_level=None)  # ВКЛЮЧЕН autocommit!
-        db.row_factory = sqlite3.Row # Позволяет обращаться к колонкам по имени
-        db.execute("PRAGMA foreign_keys = ON;") # Включаем поддержку внешних ключей
-    return db
+        from flask import g
+        try:
+            db = getattr(g, '_workflow_database', None)
+        except Exception:
+            db = None
+        if db is None:
+            db = g._workflow_database = sqlite3.connect(DATABASE_FILE, isolation_level=None)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys = ON;")
+        return db
+    except (ImportError, RuntimeError):
+        # Не Flask-контекст — просто открываем соединение
+        db = sqlite3.connect(DATABASE_FILE, isolation_level=None)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys = ON;")
+        return db
 
 def close_workflow_db(e=None):
     """Закрывает соединение с новой базой данных."""
