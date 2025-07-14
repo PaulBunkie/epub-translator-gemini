@@ -1495,7 +1495,7 @@ def send_telegram_notification(book_id: str, status: str = 'completed'):
 📚 <b>Книга:</b> {filename}
 🌍 <b>Язык:</b> {target_language}
 
-🔗 <b>Скачать перевод{download_url}
+🔗 <b>Скачать перевод:</b> {download_url}
         """.strip()
         
         # Отправляем уведомления всем подписчикам
