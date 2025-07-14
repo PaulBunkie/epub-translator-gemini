@@ -129,11 +129,31 @@
             transition: width 0.3s ease;
         }
         
-        .status-text {
-            text-align: center;
+        .status-details {
+            margin-top: 15px;
+        }
+        
+        .stage-status {
+            font-weight: 500;
+            color: #667eea;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            padding: 15px;
             margin: 20px 0;
-            font-size: 18px;
-            color: #555;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
         }
         
         .download-link {
@@ -164,111 +184,6 @@
             margin-top: 0;
             color: #667eea;
         }
-        
-        .qr-code {
-            text-align: center;
-            margin: 20px 0;
-        }
-        
-        .qr-code img {
-            max-width: 200px;
-            border-radius: 8px;
-        }
-        
-        .book-info {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        
-        .book-info h3 {
-            margin-top: 0;
-            color: #667eea;
-        }
-        
-        .book-info p {
-            margin: 8px 0;
-        }
-        
-        .status-details {
-            margin-top: 15px;
-        }
-        
-        .status-details p {
-            margin: 5px 0;
-            font-size: 14px;
-        }
-        
-        .stage-status {
-            font-weight: 500;
-            color: #667eea;
-        }
-        
-        .stage-status[data-stage="summarize"] {
-            color: #28a745;
-        }
-        
-        .stage-status[data-stage="analyze"] {
-            color: #ffc107;
-        }
-        
-        .stage-status[data-stage="translate"] {
-            color: #17a2b8;
-        }
-        
-        .stage-status[data-stage="epub_creation"] {
-            color: #6f42c1;
-        }
-        
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 20px 0;
-        }
-        
-        .success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 20px 0;
-        }
-        .status-block {
-            display: flex;
-            align-items: center;
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 8px;
-            padding: 12px 18px;
-            margin: 18px 0 12px 0;
-            font-size: 1.08em;
-        }
-        .status-icon {
-            font-size: 1.3em;
-            margin-right: 10px;
-        }
-        .status-label {
-            font-weight: 500;
-            color: #555;
-            margin-right: 8px;
-        }
-        .status-value.completed {
-            color: #28a745;
-            font-weight: 600;
-        }
-        .status-value.in_progress {
-            color: #ffc107;
-            font-weight: 600;
-        }
-        .status-value.error {
-            color: #dc3545;
-            font-weight: 600;
-        }
     </style>
 </head>
 <body>
@@ -280,9 +195,9 @@
         
         <div class="content">
             <!-- Универсальный блок с названием книги, скрыт по умолчанию -->
-            <div class="book-info" id="bookInfoBlock" style="display: none;">
+            <div class="telegram-info" id="bookInfoBlock" style="display: none;">
                 <h3 id="bookTitleHeader">📖 ...</h3>
-            </div>
+            </div>            
             
             <!-- Форма загрузки -->
             <div id="uploadForm" class="upload-form {% if not book_info %}active{% endif %}">
@@ -306,31 +221,49 @@
                     
                     <button type="submit" class="btn">Начать перевод</button>
                 </form>
-            </div>
+            </div>       
             
             <!-- Секция прогресса -->
             <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
-                <div class="status-details">
-                    <p><strong>Общий статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
-                    <a href="#" id="toggleStages" style="display: inline-block; margin: 8px 0 12px 0; color: #667eea; cursor: pointer; font-size: 15px;">Показать детали этапов ▼</a>
-                    <div id="stageDetails" style="display: none;">
-                        <div id="stageStatuses">
-                            {% if book_info and book_info.book_stage_statuses %}
-                                {% for stage_name, stage_data in book_info.book_stage_statuses|dictsort('stage_order') %}
-                                    <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
-                                        <span class="stage-status" data-stage="{{ stage_name }}">
-                                            {{ stage_data.status or 'pending' }}
-                                            {% if stage_data.is_per_section and stage_data.completed_count is defined %}
-                                                ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
-                                            {% endif %}
-                                        </span>
-                                    </p>
-                                {% endfor %}
+                <div class="telegram-info">
+                    <!-- Новый красивый блок статуса -->
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>   
+                    
+                    <div class="status-text" id="statusMessage">
+                        {% if book_info %}
+                            {% if book_info.current_workflow_status == 'completed' %}
+                                Перевод завершен!
+                            {% else %}
+                                Обрабатываем вашу книгу...
                             {% endif %}
+                        {% else %}
+                            Загружаем файл...
+                        {% endif %}
+                    </div>    
+
+                    <div class="status-details">
+                        <a href="#" id="toggleStages" style="display: inline-block; margin: 8px 0 12px 0; color: #667eea; cursor: pointer; font-size: 15px;">Показать детали ▼</a>
+                        <div id="stageDetails" style="display: none;">
+                            <div id="stageStatuses">
+                                {% if book_info and book_info.book_stage_statuses %}
+                                    {% for stage_name, stage_data in book_info.book_stage_statuses|dictsort('stage_order') %}
+                                        <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
+                                            <span class="stage-status" data-stage="{{ stage_name }}">
+                                                {{ stage_data.status or 'pending' }}
+                                                {% if stage_data.is_per_section and stage_data.completed_count is defined %}
+                                                    ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
+                                                {% endif %}
+                                            </span>
+                                        </p>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
                 </div>
-                
+
                 <!-- Постоянная ссылка (показывается сразу после загрузки) -->
                 <div id="permanentLink" class="telegram-info" style="display: none;">
                     <h3>🔗 Ваша постоянная ссылка</h3>
@@ -347,40 +280,18 @@
                 <!-- Новый блок автоматического доступа -->
                 <div class="telegram-info">
                     <h3>💾 Ваша сессия сохранена в браузере</h3>
-                    <p>Вы можете закрыть эту страницу и вернуться за книгой позже.</p>
+                    <p>Вы можете закрыть эту страницу и вернуться за книгой позже</p>
                 </div>
-                
-                <!-- Новый красивый блок статуса -->
-                <div class="status-block" id="mainStatusBlock">
-                    <span class="status-icon" id="mainStatusIcon">⏳</span>
-                    <span class="status-label">Общий статус:</span>
-                    <span class="status-value" id="mainStatusValue">...</span>
-                </div>
-                
-                <div class="telegram-info">
+
+                <div class="telegram-info" id="telegramInfoBlock">
                     <h3>🔔 Уведомления в Telegram</h3>
                     <p>Хотите получить уведомление, когда перевод будет готов?</p>
-                    <a href="https://t.me/aitube_notification_bot?start={{ access_token }}" target="_blank" class="btn" style="max-width: 350px; margin-bottom: 8px;">
+                    <a href="https://t.me/aitube_notification_bot?start={{ access_token }}" target="_blank" class="btn" id="tgSubscribeBtn" style="max-width: 350px; margin-bottom: 8px;">
                         Подписаться на уведомления в Telegram
                     </a>
+                    <button id="tgSubscribedBtn" class="btn" style="max-width: 350px; margin-bottom: 8px; background: #28a745; display: none;" disabled>✅ Вы подписаны</button>
                     <p style="font-size: 13px; color: #888; margin-bottom: 0;">Бот отправит вам ссылку, когда перевод завершится.</p>
-                </div>
-                
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                
-                <div class="status-text" id="statusMessage">
-                    {% if book_info %}
-                        {% if book_info.current_workflow_status == 'completed' %}
-                            Перевод завершен!
-                        {% else %}
-                            Обрабатываем вашу книгу...
-                        {% endif %}
-                    {% else %}
-                        Загружаем файл...
-                    {% endif %}
-                </div>
+                </div>                                            
                 
                 <!-- QR-код для мобильного доступа -->
                 <!-- УДАЛЕНО: Блок QR-кода -->
@@ -566,9 +477,6 @@
                 bookInfoBlock.style.display = '';
             }
             
-            // Обновляем общий статус
-            statusText.textContent = data.current_workflow_status || 'Обработка...';
-            
             // Обновляем статусы этапов
             if (stageStatuses && data.book_stage_statuses) {
                 stageStatuses.innerHTML = '';
@@ -635,27 +543,20 @@
                 statusMessage.textContent = `Обрабатываем вашу книгу... (${Math.round(progress)}%)`;
             }
 
-            // Новый красивый блок статуса
-            const mainStatusBlock = document.getElementById('mainStatusBlock');
-            const mainStatusIcon = document.getElementById('mainStatusIcon');
-            const mainStatusValue = document.getElementById('mainStatusValue');
-            if (mainStatusBlock && mainStatusIcon && mainStatusValue) {
+            // Аккуратный статус без подложек
+            const statusValue = document.getElementById('statusValue');
+            if (statusValue) {
                 let status = data.current_workflow_status || '...';
-                let icon = '⏳';
                 let statusClass = '';
                 if (status === 'completed') {
-                    icon = '✅';
                     statusClass = 'completed';
                 } else if (status === 'error') {
-                    icon = '❌';
                     statusClass = 'error';
                 } else {
-                    icon = '⏳';
                     statusClass = 'in_progress';
                 }
-                mainStatusIcon.textContent = icon;
-                mainStatusValue.textContent = status;
-                mainStatusValue.className = 'status-value ' + statusClass;
+                statusValue.textContent = status;
+                statusValue.className = 'status-value ' + statusClass;
             }
 
             // Обработка переключения видимости деталей этапов
@@ -786,6 +687,33 @@
                     }
                 });
             }
+        });
+
+        // Проверка подписки на Telegram
+        async function checkTelegramSubscription() {
+            const accessToken = "{{ access_token }}";
+            try {
+                const resp = await fetch(`/check_telegram_subscription?access_token=${accessToken}`);
+                const data = await resp.json();
+                if (data.subscribed) {
+                    document.getElementById('tgSubscribeBtn').style.display = 'none';
+                    document.getElementById('tgSubscribedBtn').style.display = '';
+                } else if (data.error) {
+                    showTgError(data.error);
+                }
+            } catch (e) {
+                showTgError('Ошибка проверки подписки.');
+            }
+        }
+        function showTgError(msg) {
+            document.getElementById('tgErrorText').textContent = msg;
+            document.getElementById('tgErrorOverlay').style.display = 'flex';
+        }
+        // После возврата на страницу пробуем проверить подписку
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('tgSubscribeBtn').addEventListener('click', function() {
+                setTimeout(checkTelegramSubscription, 2000);
+            });
         });
     </script>
 </body>

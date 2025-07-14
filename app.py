@@ -2082,6 +2082,21 @@ def reset_session():
     response.delete_cookie('user_session', path='/')
     return response
 
+@app.route('/check_telegram_subscription')
+def check_telegram_subscription():
+    access_token = request.args.get('access_token')
+    if not access_token:
+        return jsonify({'subscribed': False, 'error': 'Нет токена'}), 400
+    try:
+        import workflow_db_manager
+        users = workflow_db_manager.get_telegram_users_for_book(access_token)
+        if users:
+            return jsonify({'subscribed': True})
+        else:
+            return jsonify({'subscribed': False})
+    except Exception as e:
+        return jsonify({'subscribed': False, 'error': str(e)}), 500
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     print("Запуск Flask приложения...")
