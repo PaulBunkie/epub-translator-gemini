@@ -216,8 +216,8 @@
                                         <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
                                         <span class="stage-status" data-stage="{{ stage_name }}">
                                             {{ stage_data.status or 'pending' }}
-                                            {% if stage_name in ['summarize', 'analyze', 'translate', 'epub_creation'] %}
-                                                ({{ book.completed_sections_count or 0 }} / {{ book.total_sections or 0 }} секций)
+                                            {% if stage_data.is_per_section %}
+                                                ({{ book['processed_sections_count_' ~ stage_name] or 0 }} / {{ book.total_sections or 0 }} секций)
                                             {% endif %}
                                         </span>
                                         {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}

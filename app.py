@@ -1055,28 +1055,34 @@ def workflow_index():
     try:
         # Получаем список книг из новой базы данных
         db_books = workflow_db_manager.get_all_books_workflow()
+        stages_config = workflow_db_manager.get_all_stages_ordered_workflow()
+        is_per_section_map = {stage['stage_name']: stage.get('is_per_section', False) for stage in stages_config}
+        per_section_stages = [stage['stage_name'] for stage in stages_config if stage.get('is_per_section')]
         for book_data in db_books:
-             # Получаем количество секций для отображения прогресса
              total_sections = workflow_db_manager.get_section_count_for_book_workflow(book_data['book_id'])
-             # Получаем количество секций, завершенных на этапе суммаризации (для отображения прогресса на главном экране)
-             # Исправлено: используем get_processed_sections_count_for_stage_workflow
-             processed_sections_count_summarize = workflow_db_manager.get_processed_sections_count_for_stage_workflow(book_data['book_id'], 'summarize')
 
              # --- NEW: Get detailed stage statuses for the book ---
              detailed_stage_statuses = workflow_db_manager.get_book_stage_statuses_workflow(book_data['book_id'])
+             for stage_name, stage_data in detailed_stage_statuses.items():
+                 stage_data['is_per_section'] = is_per_section_map.get(stage_name, False)
              # --- END NEW ---
+
+             # Для каждого посекционного этапа добавляем processed_sections_count_<stage_name>
+             for stage_name in per_section_stages:
+                 key = f'processed_sections_count_{stage_name}'
+                 count = workflow_db_manager.get_processed_sections_count_for_stage_workflow(book_data['book_id'], stage_name)
+                 book_data[key] = count
 
              workflow_books.append({
                  'book_id': book_data['book_id'],
-                 'filename': book_data['filename'], # Используем 'filename' для отображения
+                 'filename': book_data['filename'],
                  'status': book_data['current_workflow_status'],
                  'target_language': book_data.get('target_language'),
                  'total_sections': total_sections,
-                 # Исправлено: передаем количество обработанных секций для суммаризации
-                 'completed_sections_count': processed_sections_count_summarize,
-                 # --- NEW: Pass detailed stage statuses to the template ---
-                 'book_stage_statuses': detailed_stage_statuses
-                 # --- END NEW ---
+                 # Не передаём completed_sections_count и processed_sections_count_summarize!
+                 'book_stage_statuses': detailed_stage_statuses,
+                 # Передаём все processed_sections_count_<stage_name> из book_data
+                 **{k: v for k, v in book_data.items() if k.startswith('processed_sections_count_')}
              })
         workflow_books.sort(key=lambda x: x['filename'].lower()) # Сортируем по имени файла
         print(f"  Найдено книг в Workflow DB: {len(workflow_books)}")
