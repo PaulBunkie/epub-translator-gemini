@@ -281,19 +281,22 @@
             <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
                 <div class="status-details">
                     <p><strong>Общий статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
-                    <div id="stageStatuses">
-                        {% if book_info and book_info.book_stage_statuses %}
-                            {% for stage_name, stage_data in book_info.book_stage_statuses|dictsort('stage_order') %}
-                                <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
-                                    <span class="stage-status" data-stage="{{ stage_name }}">
-                                        {{ stage_data.status or 'pending' }}
-                                        {% if stage_data.is_per_section and stage_data.completed_count is defined %}
-                                            ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
-                                        {% endif %}
-                                    </span>
-                                </p>
-                            {% endfor %}
-                        {% endif %}
+                    <a href="#" id="toggleStages" style="display: inline-block; margin: 8px 0 12px 0; color: #667eea; cursor: pointer; font-size: 15px;">Показать детали этапов ▼</a>
+                    <div id="stageDetails" style="display: none;">
+                        <div id="stageStatuses">
+                            {% if book_info and book_info.book_stage_statuses %}
+                                {% for stage_name, stage_data in book_info.book_stage_statuses|dictsort('stage_order') %}
+                                    <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
+                                        <span class="stage-status" data-stage="{{ stage_name }}">
+                                            {{ stage_data.status or 'pending' }}
+                                            {% if stage_data.is_per_section and stage_data.completed_count is defined %}
+                                                ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
+                                            {% endif %}
+                                        </span>
+                                    </p>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
                 
@@ -509,7 +512,8 @@
             const statusMessage = document.getElementById('statusMessage');
             const progressFill = document.getElementById('progressFill');
             const stageStatuses = document.getElementById('stageStatuses');
-            const bookInfoBlock = document.getElementById('bookInfoBlock');
+            const stageDetails = document.getElementById('stageDetails');
+            const toggleStages = document.getElementById('toggleStages');
 
             // Показываем блок с названием книги, если он еще скрыт
             if (bookInfoBlock) {
@@ -548,9 +552,15 @@
             let score = 0;
             let maxScore = 5 + 3 + totalSections + 1; // 5 (суммаризация) + 3 (анализ) + N (перевод) + 1 (epub)
 
-            // Суммаризация
-            const summarizeStatus = stages.summarize ? stages.summarize.status : null;
-            if (["completed", "completed_empty", "skipped"].includes(summarizeStatus)) score += 5;
+            // Суммаризация (теперь пропорционально секциям)
+            let summarizedSections = 0;
+            if (data.sections_status_summary && data.sections_status_summary.summarize) {
+                const summary = data.sections_status_summary.summarize;
+                summarizedSections = (summary.completed || 0) + (summary.completed_empty || 0) + (summary.skipped || 0);
+            }
+            if (totalSections > 0) {
+                score += (5 / totalSections) * summarizedSections;
+            }
 
             // Анализ
             const analyzeStatus = stages.analyze ? stages.analyze.status : null;
@@ -577,6 +587,12 @@
                 statusMessage.textContent = 'Перевод завершен!';
             } else {
                 statusMessage.textContent = `Обрабатываем вашу книгу... (${Math.round(progress)}%)`;
+            }
+
+            // Обработка переключения видимости деталей этапов
+            if (toggleStages) {
+                const isVisible = stageDetails.style.display === 'block';
+                toggleStages.textContent = isVisible ? 'Скрыть детали этапов ▲' : 'Показать детали этапов ▼';
             }
         }
         
@@ -686,6 +702,22 @@
         }
         
         // Удаляю функцию generateQRCode и все вызовы showPermanentLink, связанные с QR-кодом
+        document.addEventListener('DOMContentLoaded', function() {
+            const toggleStages = document.getElementById('toggleStages');
+            const stageDetails = document.getElementById('stageDetails');
+            if (toggleStages && stageDetails) {
+                toggleStages.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    if (stageDetails.style.display === 'none') {
+                        stageDetails.style.display = 'block';
+                        toggleStages.textContent = 'Скрыть детали этапов ▲';
+                    } else {
+                        stageDetails.style.display = 'none';
+                        toggleStages.textContent = 'Показать детали этапов ▼';
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html> 
