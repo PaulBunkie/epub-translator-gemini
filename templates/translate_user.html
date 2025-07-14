@@ -562,7 +562,7 @@
             // Обработка переключения видимости деталей этапов
             if (toggleStages) {
                 const isVisible = stageDetails.style.display === 'block';
-                toggleStages.textContent = isVisible ? 'Скрыть детали этапов ▲' : 'Показать детали этапов ▼';
+                toggleStages.textContent = isVisible ? 'Скрыть детали ▲' : 'Показать детали ▼';
             }
         }
         
@@ -680,10 +680,10 @@
                     e.preventDefault();
                     if (stageDetails.style.display === 'none') {
                         stageDetails.style.display = 'block';
-                        toggleStages.textContent = 'Скрыть детали этапов ▲';
+                        toggleStages.textContent = 'Скрыть детали ▲';
                     } else {
                         stageDetails.style.display = 'none';
-                        toggleStages.textContent = 'Показать детали этапов ▼';
+                        toggleStages.textContent = 'Показать детали ▼';
                     }
                 });
             }
