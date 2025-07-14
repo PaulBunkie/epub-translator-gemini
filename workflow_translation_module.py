@@ -181,19 +181,12 @@ Text to Analyze:
     }
 }
 
-# --- Добавляем отдельные fallback модели для translate_toc ---
-FALLBACK_MODELS_TOC = {
-    'primary': 'models/gemini-2.5-flash-preview-05-20',
-    'fallback': 'google/gemma-3-27b-it:free'
-}
-
 # --- НОВЫЙ КЛАСС WorkflowTranslator ---
 class WorkflowTranslator:
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
     # TODO: Добавить URL для Google API, если будем его реализовывать здесь же
     
-    # Резервные модели импортируются из workflow_processor
-    # FALLBACK_MODELS теперь определены в workflow_processor.py
+    # Конфигурация моделей импортируется из workflow_model_config
 
     def __init__(self):
          # Инициализация API ключа OpenRouter
@@ -219,22 +212,34 @@ class WorkflowTranslator:
 
     def _get_fallback_model(self, operation_type: str, current_model: str) -> str | None:
         """
-        Возвращает резервную модель для указанной операции, если она отличается от текущей.
-        Для translate_toc возвращает свою fallback-модель.
+        Возвращает следующую модель в цепочке fallback для указанной операции.
+        Поддерживает три уровня: primary -> fallback_level1 -> fallback_level2
         """
-        if operation_type == 'translate_toc':
-            if current_model == FALLBACK_MODELS_TOC['primary']:
-                return FALLBACK_MODELS_TOC['fallback']
-            return None
         try:
-            import workflow_processor
-            fallback_model = workflow_processor.FALLBACK_MODELS.get(operation_type)
-            if fallback_model and fallback_model != current_model:
-                print(f"[WorkflowTranslator] Переключение на резервную модель для {operation_type}: {current_model} -> {fallback_model}")
-                return fallback_model
+            import workflow_model_config
+            
+            # Получаем все модели для операции
+            models = workflow_model_config.get_all_models_for_operation(operation_type)
+            if not models:
+                return None
+            
+            # Определяем текущий уровень и возвращаем следующий
+            if current_model == models.get('primary'):
+                next_model = models.get('fallback_level1')
+                if next_model and next_model != current_model:
+                    print(f"[WorkflowTranslator] Переключение на fallback_level1: {next_model}")
+                    return next_model
+            elif current_model == models.get('fallback_level1'):
+                next_model = models.get('fallback_level2')
+                if next_model and next_model != current_model:
+                    print(f"[WorkflowTranslator] Переключение на fallback_level2: {next_model}")
+                    return next_model
+            
+            return None
+            
         except ImportError:
-            print(f"[WorkflowTranslator] Предупреждение: Не удалось импортировать FALLBACK_MODELS из workflow_processor")
-        return None
+            print(f"[WorkflowTranslator] Предупреждение: Не удалось импортировать workflow_model_config")
+            return None
 
     def get_system_instruction(self, operation_type: str, target_language: str) -> str:
         """
@@ -615,8 +620,16 @@ class WorkflowTranslator:
                 if "context window" in str(e).lower():
                     return CONTEXT_LIMIT_ERROR
                 
-                # НЕ делаем fallback здесь - это будет сделано на уровне translate_text
-                return None
+                # Определяем, нужен ли ретрай или сразу переходить на следующий уровень
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['400', '401', '403', '404', '500', '503', 'user location']):
+                    # Критические ошибки - не ретраим, сразу на следующий уровень
+                    print(f"[WorkflowTranslator] Критическая ошибка API, переход на следующий уровень")
+                    return None
+                else:
+                    # Другие ошибки - можно ретраить
+                    print(f"[WorkflowTranslator] Ошибка API, будет ретрай")
+                    return None
 
         elif api_type == "openrouter":
             if not self.openrouter_api_key:
@@ -783,14 +796,6 @@ class WorkflowTranslator:
                      return None # Возвращаем None при непредвиденной ошибке
 
             print("[OpenRouterTranslator] Не удалось получить успешный ответ от OpenRouter API после всех попыток.")
-            
-            # Попытка переключения на резервную модель
-            fallback_model = self._get_fallback_model(operation_type, model_name)
-            if fallback_model:
-                print(f"[WorkflowTranslator] Попытка переключения на резервную модель: {fallback_model}")
-                # Рекурсивный вызов с резервной моделью (только одна попытка)
-                return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1)
-            
             return None
 
         else:
@@ -920,30 +925,54 @@ class WorkflowTranslator:
         model_name: str = None,
         prompt_ext: Optional[str] = None,
         operation_type: str = 'translate',
-        dict_data: dict | None = None
+        dict_data: dict | None = None,
+        book_id: str = None,
+        section_id: int = None
     ) -> str | None:
         """
-        Ф3 - Fallback контроллер: пытается с основной моделью, затем с резервной.
+        Ф3 - Fallback контроллер: пытается с тремя уровнями моделей.
+        Уровень 1: primary -> Уровень 2: fallback_level1 -> Уровень 3: fallback_level2
         """
         print(f"[WorkflowTranslator] Вызов операции '{operation_type}' для текста длиной {len(text_to_translate)} символов")
 
-        # Пытаемся с основной моделью
-        if model_name:
-            result = self._translate_segment(
-                text_to_translate,
-                target_language,
-                model_name,
-                operation_type,
-                prompt_ext,
-                dict_data
-            )
-            if result:
-                return result
+        # Если модель не передана, используем primary из конфига
+        if not model_name:
+            try:
+                import workflow_model_config
+                model_name = workflow_model_config.get_model_for_operation(operation_type, 'primary')
+                if not model_name:
+                    print(f"[WorkflowTranslator] Ошибка: не найдена primary модель для операции '{operation_type}'")
+                    return None
+            except ImportError:
+                print(f"[WorkflowTranslator] Ошибка: не удалось импортировать workflow_model_config")
+                return None
+
+        # Уровень 1: Пытаемся с primary моделью
+        print(f"[WorkflowTranslator] Попытка с primary моделью: {model_name}")
+        result = self._translate_segment(
+            text_to_translate,
+            target_language,
+            model_name,
+            operation_type,
+            prompt_ext,
+            dict_data
+        )
+        if result:
+            # Сохраняем имя модели в БД при успехе
+            if book_id and section_id:
+                try:
+                    import workflow_db_manager
+                    workflow_db_manager.update_section_stage_status_workflow(
+                        book_id, section_id, operation_type, 'completed', 
+                        model_name=model_name, error_message=None
+                    )
+                except Exception as e:
+                    print(f"[WorkflowTranslator] Ошибка сохранения model_name в БД: {e}")
+            return result
         
-        # Если основная модель не сработала или не передана, пробуем резервную
+        # Уровень 2: Пытаемся с fallback_level1
         fallback_model = self._get_fallback_model(operation_type, model_name)
         if fallback_model:
-            print(f"[WorkflowTranslator] Переключение на резервную модель: {fallback_model}")
             result = self._translate_segment(
                 text_to_translate,
                 target_language,
@@ -954,8 +983,22 @@ class WorkflowTranslator:
             )
             if result:
                 return result
+            
+            # Уровень 3: Пытаемся с fallback_level2
+            fallback_model2 = self._get_fallback_model(operation_type, fallback_model)
+            if fallback_model2:
+                result = self._translate_segment(
+                    text_to_translate,
+                    target_language,
+                    fallback_model2,
+                    operation_type,
+                    prompt_ext,
+                    dict_data
+                )
+                if result:
+                    return result
         
-        print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась ни с основной, ни с резервной моделью")
+        print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех трех уровнях")
         return None
 
     def _summarize_to_fit_chunk(self, text: str, target_language: str, model_name: str, prompt_ext: Optional[str] = None) -> str:
@@ -1049,7 +1092,9 @@ def translate_text(
     model_name: str = None,
     prompt_ext: Optional[str] = None,
     operation_type: str = 'translate',
-    dict_data: dict | None = None # !!! ИЗМЕНЕНО: workflow_data -> dict_data !!!
+    dict_data: dict | None = None, # !!! ИЗМЕНЕНО: workflow_data -> dict_data !!!
+    book_id: str = None,
+    section_id: int = None
 ) -> str | None:
     """
     Публичная точка входа для перевода/обработки в workflow.
@@ -1057,14 +1102,16 @@ def translate_text(
     """
     print(f"[WorkflowModule] Вызов публичной translate_text. Операция: '{operation_type}'")
     translator = WorkflowTranslator()
-    # Передаем новый необязательный параметр dict_data в метод класса
+    # Передаем новые параметры в метод класса
     return translator.translate_text(
         text_to_translate=text_to_translate,
         target_language=target_language,
         model_name=model_name,
         prompt_ext=prompt_ext,
         operation_type=operation_type,
-        dict_data=dict_data # !!! Передаем dict_data дальше !!!
+        dict_data=dict_data, # !!! Передаем dict_data дальше !!!
+        book_id=book_id,
+        section_id=section_id
     )
 
 # --- ПУБЛИЧНАЯ ФУНКЦИЯ ДЛЯ АНАЛИЗА С АВТОМАТИЧЕСКОЙ СУММАРИЗАЦИЕЙ ---
