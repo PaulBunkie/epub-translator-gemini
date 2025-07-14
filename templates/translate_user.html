@@ -248,6 +248,11 @@
         </div>
         
         <div class="content">
+            <!-- Универсальный блок с названием книги, скрыт по умолчанию -->
+            <div class="book-info" id="bookInfoBlock" style="display: none;">
+                <h3 id="bookTitleHeader">📖 ...</h3>
+            </div>
+            
             <!-- Форма загрузки -->
             <div id="uploadForm" class="upload-form {% if not book_info %}active{% endif %}">
                 <h2>Загрузите EPUB файл</h2>
@@ -274,24 +279,21 @@
             
             <!-- Секция прогресса -->
             <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
-                <div class="book-info">
-                    <h3>Перевод: {{ book_info.book_title if book_info and book_info.book_title else (book_info.filename if book_info else '...') }}</h3>
-                    <div class="status-details">
-                        <p><strong>Общий статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
-                        <div id="stageStatuses">
-                            {% if book_info and book_info.book_stage_statuses %}
-                                {% for stage_name, stage_data in book_info.book_stage_statuses.items() %}
-                                    <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
-                                        <span class="stage-status" data-stage="{{ stage_name }}">
-                                            {{ stage_data.status or 'pending' }}
-                                            {% if stage_data.is_per_section and stage_data.completed_count is defined %}
-                                                ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
-                                            {% endif %}
-                                        </span>
-                                    </p>
-                                {% endfor %}
-                            {% endif %}
-                        </div>
+                <div class="status-details">
+                    <p><strong>Общий статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
+                    <div id="stageStatuses">
+                        {% if book_info and book_info.book_stage_statuses %}
+                            {% for stage_name, stage_data in book_info.book_stage_statuses|dictsort('stage_order') %}
+                                <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
+                                    <span class="stage-status" data-stage="{{ stage_name }}">
+                                        {{ stage_data.status or 'pending' }}
+                                        {% if stage_data.is_per_section and stage_data.completed_count is defined %}
+                                            ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
+                                        {% endif %}
+                                    </span>
+                                </p>
+                            {% endfor %}
+                        {% endif %}
                     </div>
                 </div>
                 
@@ -342,23 +344,20 @@
                     <p>Ваша книга успешно переведена.</p>
                 </div>
                 
-                <div class="book-info">
-                    <h3>📖 {{ book_info.book_title if book_info and book_info.book_title else (book_info.filename if book_info else 'Книга') }}</h3>
-                    <div class="status-details">
-                        <p><strong>Общий статус:</strong> <span class="stage-status">{{ book_info.current_workflow_status if book_info else 'completed' }}</span></p>
-                        {% if book_info and book_info.book_stage_statuses %}
-                            {% for stage_name, stage_data in book_info.book_stage_statuses.items() %}
-                                <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
-                                    <span class="stage-status" data-stage="{{ stage_name }}">
-                                        {{ stage_data.status or 'completed' }}
-                                        {% if stage_data.is_per_section and stage_data.completed_count is defined %}
-                                            ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
-                                        {% endif %}
-                                    </span>
-                                </p>
-                            {% endfor %}
-                        {% endif %}
-                    </div>
+                <div class="status-details">
+                    <p><strong>Общий статус:</strong> <span class="stage-status">{{ book_info.current_workflow_status if book_info else 'completed' }}</span></p>
+                    {% if book_info and book_info.book_stage_statuses %}
+                        {% for stage_name, stage_data in book_info.book_stage_statuses|dictsort('stage_order') %}
+                            <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
+                                <span class="stage-status" data-stage="{{ stage_name }}">
+                                    {{ stage_data.status or 'completed' }}
+                                    {% if stage_data.is_per_section and stage_data.completed_count is defined %}
+                                        ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
+                                    {% endif %}
+                                </span>
+                            </p>
+                        {% endfor %}
+                    {% endif %}
                 </div>
                 
                 <div id="epubLink" style="display: none;">
@@ -501,15 +500,21 @@
             
             // Обновляем заголовок с названием книги
             const bookTitle = data.book_title || data.filename || '...';
-            const bookTitleHeader = document.querySelector('#progressSection .book-info h3');
+            const bookTitleHeader = document.getElementById('bookTitleHeader');
             if (bookTitleHeader) {
-                bookTitleHeader.textContent = 'Перевод: ' + bookTitle;
+                bookTitleHeader.textContent = '📖 ' + bookTitle;
             }
             
             const statusText = document.getElementById('statusText');
             const statusMessage = document.getElementById('statusMessage');
             const progressFill = document.getElementById('progressFill');
             const stageStatuses = document.getElementById('stageStatuses');
+            const bookInfoBlock = document.getElementById('bookInfoBlock');
+
+            // Показываем блок с названием книги, если он еще скрыт
+            if (bookInfoBlock) {
+                bookInfoBlock.style.display = '';
+            }
             
             // Обновляем общий статус
             statusText.textContent = data.current_workflow_status || 'Обработка...';
@@ -517,7 +522,10 @@
             // Обновляем статусы этапов
             if (stageStatuses && data.book_stage_statuses) {
                 stageStatuses.innerHTML = '';
-                for (const [stageName, stageData] of Object.entries(data.book_stage_statuses)) {
+                // Сортируем этапы по stage_order
+                const stagesArr = Object.entries(data.book_stage_statuses)
+                    .sort((a, b) => (a[1].stage_order || 0) - (b[1].stage_order || 0));
+                for (const [stageName, stageData] of stagesArr) {
                     const stageDiv = document.createElement('p');
                     const displayName = stageData.display_name || stageName.charAt(0).toUpperCase() + stageName.slice(1);
                     
