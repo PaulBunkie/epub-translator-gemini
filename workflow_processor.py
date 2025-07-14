@@ -40,26 +40,16 @@ def clean_html(html_content):
     cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
     return cleaned_text
 
-# Hardcoded model for summarization for now
-SUMMARIZATION_MODEL = 'meta-llama/llama-4-maverick:free' #'models/gemini-2.5-flash-preview-04-17' #'qwen/qwen3-32b:free' #'google/gemini-2.0-flash-exp:free' #'meta-llama/llama-4-maverick:free' 
+# --- Constants for Stage Names ---
 SUMMARIZATION_STAGE_NAME = 'summarize'
-
-# --- Constants for Analysis Stage ---
-ANALYSIS_MODEL = 'models/gemini-2.5-flash-preview-05-20' # Можно использовать ту же модель или другую
 ANALYSIS_STAGE_NAME = 'analyze'
-
-# --- Constants for Recursive Reduction Stage ---
 REDUCTION_STAGE_NAME = 'reduce_text'
 
 # --- Workflow Configuration ---
 DEBUG_ALLOW_EMPTY = False # Set to True to treat empty model responses (after retries) as completed_empty instead of error
 MAX_RETRIES = 2 # Number of additional retries for model calls
 
-# --- Хардкодим модель для перевода, как для summarize/analyze ---
-TRANSLATION_MODEL = 'deepseek/deepseek-chat-v3-0324:free'
-
-# --- Резервные модели для автоматического переключения при ошибках ---
-# УДАЛЕНО: Теперь используется workflow_model_config.py
+# --- Модели теперь берутся из workflow_model_config.py ---
 
 def clean_toc_title(title):
     """
@@ -193,7 +183,7 @@ def process_section_summarization(book_id: str, section_id: int):
         # Use a hardcoded signal to tell the model to summarize in the original language
         target_language_for_summarization = "ORIGINAL_LANGUAGE"
         operation_type = SUMMARIZATION_STAGE_NAME
-        model_name = SUMMARIZATION_MODEL
+        model_name = None  # Будет взята из workflow_model_config.py
         prompt_ext = None # ИЗМЕНЕНО: MODEL_GENDER_INSTRUCTION_PROMPT больше не используется здесь.
 
         summarized_text = None
@@ -414,7 +404,7 @@ def update_overall_workflow_book_status(book_id):
             has_error = True
         if status == 'completed_with_errors':
             has_completed_with_errors = True
-        if status not in ['completed', 'completed_empty', 'skipped']:
+        if status not in ['completed', 'completed_empty', 'skipped', 'passed']:
             all_completed = False
     if has_error:
         final_status = 'error'
@@ -718,7 +708,7 @@ def process_book_analysis(book_id: str):
 
         # 3. Вызываем модель анализа с ретраями
         target_language = book_info['target_language']
-        model_name = ANALYSIS_MODEL
+        model_name = None  # Будет взята из workflow_model_config.py
         # ANALYSIS_PROMPT_TEMPLATE already contains the English instruction.
 
         analysis_result = None
@@ -734,7 +724,7 @@ def process_book_analysis(book_id: str):
                      model_name=model_name,
                      prompt_ext="", # prompt_ext всегда пустой для анализа
                      dict_data=None, # dict_data не нужен для анализа
-                     summarization_model=ANALYSIS_MODEL, # Используем модель анализа для рекурсивной суммаризации
+                     summarization_model=None, # Будет взята из workflow_model_config.py
                      book_id=book_id # Передаем book_id для сохранения суммаризации в кэш
                  )
                  print(f"[WorkflowProcessor] Результат analyze_with_summarization: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
@@ -860,7 +850,7 @@ def process_section_translate(book_id: str, section_id: int):
         dict_data = {'glossary_data': analysis_data} if analysis_data else None
         # 4. Получаем язык и модель
         target_language = book_info.get('target_language', 'russian')
-        model_name = TRANSLATION_MODEL  # <-- теперь всегда используем хардкод
+        model_name = None  # Будет взята из workflow_model_config.py
 
         # 5. Вызываем перевод
         print(f"[WorkflowProcessor] Вызов translate_text для секции {section_id} ({model_name} -> {target_language})")

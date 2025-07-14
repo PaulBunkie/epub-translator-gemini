@@ -295,7 +295,7 @@ def extract_section_text(epub_filepath, section_id):
             for element in body.find_all(recursive=False):
                  # Получаем текст из элемента, разделяя строки (важно для сохранения абзацев)
                  # separator='\n' может помочь сохранить переносы внутри тегов
-                 text = element.get_text(separator='\n', strip=True)
+                 text = element.get_text(separator='\n\n', strip=True)
                  if text:
                      text_parts.append(text)
             # Если внутри body не нашлось прямых потомков с текстом,

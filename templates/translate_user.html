@@ -191,6 +191,36 @@
             margin: 8px 0;
         }
         
+        .status-details {
+            margin-top: 15px;
+        }
+        
+        .status-details p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .stage-status {
+            font-weight: 500;
+            color: #667eea;
+        }
+        
+        .stage-status[data-stage="summarize"] {
+            color: #28a745;
+        }
+        
+        .stage-status[data-stage="analyze"] {
+            color: #ffc107;
+        }
+        
+        .stage-status[data-stage="translate"] {
+            color: #17a2b8;
+        }
+        
+        .stage-status[data-stage="epub_creation"] {
+            color: #6f42c1;
+        }
+        
         .error {
             background: #f8d7da;
             color: #721c24;
@@ -246,7 +276,23 @@
             <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
                 <div class="book-info">
                     <h3>📖 {{ book_info.filename if book_info else 'Обработка...' }}</h3>
-                    <p><strong>Статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
+                    <div class="status-details">
+                        <p><strong>Общий статус:</strong> <span id="statusText">{{ book_info.current_workflow_status if book_info else 'Загрузка...' }}</span></p>
+                        <div id="stageStatuses">
+                            {% if book_info and book_info.book_stage_statuses %}
+                                {% for stage_name, stage_data in book_info.book_stage_statuses.items() %}
+                                    <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
+                                        <span class="stage-status" data-stage="{{ stage_name }}">
+                                            {{ stage_data.status or 'pending' }}
+                                            {% if stage_data.is_per_section and stage_data.completed_count is defined %}
+                                                ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
+                                            {% endif %}
+                                        </span>
+                                    </p>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Постоянная ссылка (показывается сразу после загрузки) -->
@@ -298,11 +344,38 @@
                 
                 <div class="book-info">
                     <h3>📖 {{ book_info.filename if book_info else 'Книга' }}</h3>
+                    <div class="status-details">
+                        <p><strong>Общий статус:</strong> <span class="stage-status">{{ book_info.current_workflow_status if book_info else 'completed' }}</span></p>
+                        {% if book_info and book_info.book_stage_statuses %}
+                            {% for stage_name, stage_data in book_info.book_stage_statuses.items() %}
+                                <p><strong>{{ stage_data.display_name or stage_name | title }}:</strong> 
+                                    <span class="stage-status" data-stage="{{ stage_name }}">
+                                        {{ stage_data.status or 'completed' }}
+                                        {% if stage_data.is_per_section and stage_data.completed_count is defined %}
+                                            ({{ stage_data.completed_count }}/{{ book_info.total_sections_count or 0 }} секций)
+                                        {% endif %}
+                                    </span>
+                                </p>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
                 </div>
                 
                 <a href="/workflow_download_epub/{{ book_info.book_id if book_info else '' }}" class="download-link">
                     📥 Скачать переведенную книгу
                 </a>
+                
+                <div id="summaryLink" style="display: none;">
+                    <a href="#" class="download-link" style="background: #28a745; margin-top: 10px;">
+                        📄 Скачать суммаризацию
+                    </a>
+                </div>
+                
+                <div id="analysisLink" style="display: none;">
+                    <a href="#" class="download-link" style="background: #ffc107; color: #333; margin-top: 10px;">
+                        📊 Скачать анализ
+                    </a>
+                </div>
                 
                 <div class="telegram-info">
                     <h3>🔗 Ваша постоянная ссылка</h3>
@@ -421,17 +494,42 @@
         }
         
         function updateProgress(data) {
+            // Обновляем глобальную переменную bookInfo
+            bookInfo = data;
+            
             const statusText = document.getElementById('statusText');
             const statusMessage = document.getElementById('statusMessage');
             const progressFill = document.getElementById('progressFill');
+            const stageStatuses = document.getElementById('stageStatuses');
             
+            // Обновляем общий статус
             statusText.textContent = data.current_workflow_status || 'Обработка...';
+            
+            // Обновляем статусы этапов
+            if (stageStatuses && data.book_stage_statuses) {
+                stageStatuses.innerHTML = '';
+                for (const [stageName, stageData] of Object.entries(data.book_stage_statuses)) {
+                    const stageDiv = document.createElement('p');
+                    const displayName = stageData.display_name || stageName.charAt(0).toUpperCase() + stageName.slice(1);
+                    
+                    let statusText = stageData.status || 'pending';
+                    if (stageData.is_per_section && data.sections_status_summary && data.sections_status_summary[stageName]) {
+                        const summary = data.sections_status_summary[stageName];
+                        const completed = (summary.completed || 0) + (summary.completed_empty || 0) + (summary.skipped || 0);
+                        const total = summary.total || 0;
+                        statusText += ` (${completed}/${total} секций)`;
+                    }
+                    
+                    stageDiv.innerHTML = `<strong>${displayName}:</strong> <span class="stage-status" data-stage="${stageName}">${statusText}</span>`;
+                    stageStatuses.appendChild(stageDiv);
+                }
+            }
             
             // Рассчитываем прогресс на основе этапов
             const stages = data.book_stage_statuses || {};
             const totalStages = Object.keys(stages).length;
             const completedStages = Object.values(stages).filter(stage => 
-                stage.status === 'completed' || stage.status === 'completed_empty'
+                stage.status === 'completed' || stage.status === 'completed_empty' || stage.status === 'skipped'
             ).length;
             
             const progress = totalStages > 0 ? (completedStages / totalStages) * 100 : 0;
@@ -448,6 +546,26 @@
         function showResult() {
             document.getElementById('progressSection').classList.remove('active');
             document.getElementById('resultSection').classList.add('active');
+            
+            // Настраиваем ссылки на суммаризацию и анализ
+            const summaryLink = document.getElementById('summaryLink');
+            const analysisLink = document.getElementById('analysisLink');
+            
+            if (summaryLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
+                const summarizeStatus = bookInfo.book_stage_statuses.summarize.status;
+                if (['completed', 'completed_empty'].includes(summarizeStatus)) {
+                    summaryLink.style.display = 'block';
+                    summaryLink.querySelector('a').href = `/workflow_download_summary/${bookInfo.book_id}`;
+                }
+            }
+            
+            if (analysisLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
+                const analysisStatus = bookInfo.book_stage_statuses.analyze.status;
+                if (['completed', 'completed_empty'].includes(analysisStatus)) {
+                    analysisLink.style.display = 'block';
+                    analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
+                }
+            }
         }
         
         function showError(message) {
@@ -460,6 +578,26 @@
         // Если книга уже загружена, начинаем отслеживание
         if (bookInfo && bookInfo.current_workflow_status !== 'completed') {
             startProgressTracking(bookInfo.book_id);
+        } else if (bookInfo && bookInfo.current_workflow_status === 'completed') {
+            // Если книга уже завершена, настраиваем ссылки
+            const summaryLink = document.getElementById('summaryLink');
+            const analysisLink = document.getElementById('analysisLink');
+            
+            if (summaryLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
+                const summarizeStatus = bookInfo.book_stage_statuses.summarize.status;
+                if (['completed', 'completed_empty'].includes(summarizeStatus)) {
+                    summaryLink.style.display = 'block';
+                    summaryLink.querySelector('a').href = `/workflow_download_summary/${bookInfo.book_id}`;
+                }
+            }
+            
+            if (analysisLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
+                const analysisStatus = bookInfo.book_stage_statuses.analyze.status;
+                if (['completed', 'completed_empty'].includes(analysisStatus)) {
+                    analysisLink.style.display = 'block';
+                    analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
+                }
+            }
         } else if (!bookInfo && accessToken && accessToken !== "" && accessToken !== "None" && accessToken !== "null") {
             // Если bookInfo нет, но есть accessToken — ждём появления книги
             document.getElementById('uploadForm').classList.remove('active');

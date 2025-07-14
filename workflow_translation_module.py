@@ -707,9 +707,9 @@ class WorkflowTranslator:
                                     return None
                                 # --- КОНЕЦ ПРОВЕРКИ ---
                                 
-                                # --- ПРОВЕРКА ДЛИНЫ ТЕКСТА ПОСЛЕ УСПЕШНОГО finish_reason ---
-                                if not output_content.strip() or len(output_content.strip()) < 10:
-                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой или слишком короткий текст (длина: {len(output_content.strip())}). Возвращаем None для ретрая.")
+                                # --- ПРОВЕРКА НА ПУСТОЙ ОТВЕТ ---
+                                if not output_content.strip():
+                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой текст. Возвращаем None для ретрая.")
                                     return None
                                 
                                 # --- ЭВРИСТИКА определения потенциально неполного перевода ---
@@ -717,7 +717,8 @@ class WorkflowTranslator:
                                     # Честная проверка: сравниваем длину перевода и исходного текста (оба только текст)
                                     input_char_len = len(chunk_text)
                                     output_char_len = len(output_content)
-                                    if output_char_len < input_char_len * 0.8:
+                                    # Проверяем только для достаточно длинных текстов (>50 символов)
+                                    if input_char_len > 50 and output_char_len < input_char_len * 0.8:
                                         print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<80%). Возвращаем None для ретрая.")
                                         return None
                                 
@@ -1141,7 +1142,7 @@ def analyze_with_summarization(
         print(f"[WorkflowModule] Текст слишком большой для анализа. Применяем рекурсивную суммаризацию.")
         print(f"[WorkflowModule] DEBUG: summarization_model = {summarization_model}")
         # Используем модель суммаризации для суммаризации, а не модель анализа
-        summarization_model_to_use = summarization_model or 'meta-llama/llama-4-maverick:free'
+        summarization_model_to_use = summarization_model  # Будет взята из workflow_model_config.py
         print(f"[WorkflowModule] DEBUG: summarization_model_to_use = {summarization_model_to_use}")
         print(f"[WorkflowModule] Используем модель суммаризации: {summarization_model_to_use}")
         

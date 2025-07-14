@@ -132,9 +132,39 @@
             font-weight: normal; /* Remove bold inherited from h2 */
         }
 
+        .status-details {
+            margin-top: 8px;
+        }
+        .status-details div {
+            margin: 2px 0 2px 0;
+            font-size: 14px;
+        }
+        .stage-status {
+            font-weight: 500;
+            color: #667eea;
+        }
+        .stage-status[data-stage="summarize"] {
+            color: #28a745;
+        }
+        .stage-status[data-stage="analyze"] {
+            color: #ffc107;
+        }
+        .stage-status[data-stage="translate"] {
+            color: #17a2b8;
+        }
+        .stage-status[data-stage="epub_creation"] {
+            color: #6f42c1;
+        }
+
+
+
     </style>
 </head>
 <body>
+
+
+
+
     <div class="container">
         <nav style="background: #e9ecef; padding: 0.4em 1em; border-radius: 6px; margin-bottom: 18px;">
             <div style="display: flex; gap: 1.5em; align-items: center;">
@@ -179,65 +209,34 @@
                         {% endif %}
                         <div class="book-status book-status-{{ book.status | lower }}">
                             Status: <span class="book-overall-status">{{ book.status or 'unknown' }}</span>
-                            {% if book.total_sections is not none %}
-                                <!-- Display progress for summarize stage -->
-                                <span class="summarize-progress">
-                                    Summarization: <span class="completed-count">{{ book.completed_sections_count or 0 }}</span> / <span class="total-count">{{ book.total_sections or 0 }}</span> sections
-                                </span>
-                                <!-- Display progress for analysis stage -->
-                                {% if book.book_stage_statuses and book.book_stage_statuses.analyze %}
-                                <span class="analysis-progress">
-                                    Analysis: {{ book.book_stage_statuses.analyze.status or '...' }}
-                                </span>
-                                {% endif %}
+                            {% if book.book_stage_statuses %}
+                                <div style="margin-top: 6px;">
+                                {% for stage_name, stage_data in book.book_stage_statuses.items() %}
+                                    <div style="margin-bottom: 2px;">
+                                        <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
+                                        <span class="stage-status" data-stage="{{ stage_name }}">
+                                            {{ stage_data.status or 'pending' }}
+                                            {% if stage_name in ['summarize', 'analyze', 'translate', 'epub_creation'] %}
+                                                ({{ book.completed_sections_count or 0 }} / {{ book.total_sections or 0 }} секций)
+                                            {% endif %}
+                                        </span>
+                                        {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}
+                                            <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать суммаризацию</a>
+                                        {% endif %}
+                                        {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty']) %}
+                                            <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать анализ</a>
+                                        {% endif %}
+                                        {% if stage_name == 'epub_creation' and (stage_data.status in ['completed', 'completed_with_errors']) %}
+                                            <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать EPUB</a>
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                                </div>
                             {% endif %}
                         </div>
                     </div>
-                    <div class="book-actions">
-                        {# Ссылка и плейсхолдер теперь всегда рендерятся, видимость контролирует JS #}
-                        {# --- MODIFIED: Display Summary Download Link/Placeholder based on backend data --- #}
-                        {% set summarize_status = book.book_stage_statuses.summarize.status if book.book_stage_statuses and book.book_stage_statuses.summarize else 'pending' %}
-                        {% if summarize_status in ['completed', 'completed_empty'] %}
-                            <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" class="download-summary-link">Скачать суммаризацию</a>
-                            <span class="download-summary-placeholder" style="display: none;"></span>
-                        {% elif summarize_status in ['error', 'completed_with_errors'] or summarize_status.startswith('error_') %}
-                             <a href="#" class="download-summary-link" style="display: none;"></a>
-                             <span class="download-summary-placeholder">Ошибка суммаризации: {{ summarize_status }}</span>
-                        {% else %}
-                            <a href="#" class="download-summary-link" style="display: none;"></a>
-                            <span class="download-summary-placeholder">Суммаризация не готова</span>
-                        {% endif %}
-
-                        {# --- MODIFIED: Display Analysis Download Link/Placeholder based on backend data --- #}
-                        {% set analysis_status = book.book_stage_statuses.analyze.status if book.book_stage_statuses and book.book_stage_statuses.analyze else 'pending' %}
-                        {% if analysis_status in ['completed', 'completed_empty'] %}
-                            <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" class="download-analysis-link" style="margin-left: 10px;">Скачать анализ</a>
-                            <span class="download-analysis-placeholder" style="display: none; margin-left: 10px;"></span>
-                        {% elif analysis_status in ['error', 'completed_with_errors'] or analysis_status.startswith('error_') %}
-                            <a href="#" class="download-analysis-link" style="display: none; margin-left: 10px;"></a>
-                             <span class="download-analysis-placeholder" style="margin-left: 10px;">Ошибка анализа: {{ analysis_status }}</span>
-                        {% else %}
-                             <a href="#" class="download-analysis-link" style="display: none; margin-left: 10px;"></a>
-                             <span class="download-analysis-placeholder" style="margin-left: 10px;">Анализ не готов</span>
-                        {% endif %}
-
-                        {# --- NEW: Display EPUB Download Link/Placeholder based on backend data --- #}
-                        {% set epub_status = book.book_stage_statuses.epub_creation.status if book.book_stage_statuses and book.book_stage_statuses.epub_creation else 'pending' %}
-                        {% if epub_status in ['completed', 'completed_with_errors'] %}
-                            <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" class="download-epub-link" style="margin-left: 10px;">Скачать EPUB</a>
-                            <span class="download-epub-placeholder" style="display: none; margin-left: 10px;"></span>
-                        {% elif epub_status in ['error', 'completed_with_errors'] or epub_status.startswith('error_') %}
-                            <a href="#" class="download-epub-link" style="display: none; margin-left: 10px;"></a>
-                             <span class="download-epub-placeholder" style="margin-left: 10px;">Ошибка EPUB: {{ epub_status }}</span>
-                        {% else %}
-                            <a href="#" class="download-epub-link" style="display: none; margin-left: 10px;"></a>
-                             <span class="download-epub-placeholder" style="margin-left: 10px;">EPUB не готов</span>
-                        {% endif %}
-
-                        {# NEW: Start Workflow button for existing books #}
-                        <button class="start-workflow-button" data-book-id="{{ book.book_id }}" style="margin-left: 10px;">Start Workflow</button>
-
-                        {# Кнопка Удалить также всегда рендерится #}
+                    <div class="book-actions" style="margin-top: 10px;">
+                        <button class="start-workflow-button" data-book-id="{{ book.book_id }}">Start Workflow</button>
                         <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
                     </div>
                 </li>

@@ -283,12 +283,17 @@ def get_all_books_workflow():
         cursor = db.execute('SELECT * FROM books ORDER BY upload_time DESC')
         rows = cursor.fetchall()
         books_list = []
+        # Получаем список всех этапов и определяем, какие из них посекционные
+        stages_config = get_all_stages_ordered_workflow()
+        per_section_stages = [stage['stage_name'] for stage in stages_config if stage.get('is_per_section')]
         for row in rows:
             book_info = dict(row)
-             # Получаем количество секций для отображения прогресса
+            # Получаем количество секций для отображения прогресса
             book_info['total_sections_count'] = get_section_count_for_book_workflow(book_info['book_id'])
-             # Получаем количество обработанных секций на этапе суммаризации (для отображения прогресса на главном экране)
-            book_info['processed_sections_count_summarize'] = get_processed_sections_count_for_stage_workflow(book_info['book_id'], 'summarize')
+            # Для каждого посекционного этапа добавляем processed_sections_count_<stage_name>
+            for stage_name in per_section_stages:
+                key =f'processed_sections_count_{stage_name}' 
+                book_info[key] = get_processed_sections_count_for_stage_workflow(book_info['book_id'], stage_name)
             # Обеспечиваем наличие target_language
             book_info['target_language'] = book_info.get('target_language') or 'russian' # Default to russian
             books_list.append(book_info)
