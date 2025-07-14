@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime, timedelta
 import threading
+from telegram_notifier import make_download_link
 
 # --- Constants for Workflow Processor ---
 MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analysis
@@ -1496,7 +1497,7 @@ def send_telegram_notification(book_id: str, status: str = 'completed'):
 📚 <b>Книга:</b> {filename}
 🌍 <b>Язык:</b> {target_language}
 
-🔗 <b>Скачать перевод:</b> <a href=\"{download_url}\">{download_url}</a>
+🔗 {make_download_link(access_token)}
 
 <i>Некоторые части книги могли не перевестись из-за ошибок API.</i>
             """.strip()
@@ -1507,7 +1508,7 @@ def send_telegram_notification(book_id: str, status: str = 'completed'):
 📚 <b>Книга:</b> {filename}
 🌍 <b>Язык:</b> {target_language}
 
-🔗 <b>Скачать перевод:</b> <a href=\"{download_url}\">{download_url}</a>
+🔗 {make_download_link(access_token)}
             """.strip()
         
         # Отправляем уведомления всем подписчикам
