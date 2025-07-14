@@ -409,7 +409,7 @@
             document.getElementById('progressSection').classList.add('active');
             
             try {
-                const response = await fetch('/workflow_upload', {
+                const response = await fetch('/user_upload', {
                     method: 'POST',
                     body: formData
                 });

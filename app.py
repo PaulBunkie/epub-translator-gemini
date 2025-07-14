@@ -987,42 +987,29 @@ def workflow_upload_file():
                  print(f"[WorkflowUpload] ОШИБКА: Не удалось создать сессию для токена {access_token}")
                  session_id = None
 
-             # --- ВСЕГДА ДЕЛАЕМ RETURN ---
-             if access_token:
-                 redirect_url = url_for('translate_page', access_token=access_token)
-                 response = redirect(redirect_url)
-                 if session_id:
-                     response.set_cookie(
-                         'user_session',
-                         session_id,
-                         max_age=24*60*60,
-                         httponly=True,
-                         secure=False,
-                         samesite='Lax'
-                     )
-                 return response
-             else:
-                 response_data = {
-                     "status": "success",
-                     "message": "Книга загружена и запущен рабочий процесс.",
-                     "book_id": book_id,
-                     "filename": original_filename,
-                     "total_sections_count": sec_created_count,
-                     "access_token": access_token
-                 }
-                 if session_id:
-                     response_data["session_id"] = session_id
-                 response = jsonify(response_data)
-                 if session_id:
-                     response.set_cookie(
-                         'user_session',
-                         session_id,
-                         max_age=24*60*60,
-                         httponly=True,
-                         secure=False,
-                         samesite='Lax'
-                     )
-                 return response, 200
+             # --- ВОЗВРАЩАЕМ JSON ДЛЯ WORKFLOW DASHBOARD ---
+             # Для /workflow страницы всегда возвращаем JSON, не делаем редирект
+             response_data = {
+                 "status": "success",
+                 "message": "Книга загружена и запущен рабочий процесс.",
+                 "book_id": book_id,
+                 "filename": original_filename,
+                 "total_sections_count": sec_created_count,
+                 "access_token": access_token
+             }
+             if session_id:
+                 response_data["session_id"] = session_id
+             response = jsonify(response_data)
+             if session_id:
+                 response.set_cookie(
+                     'user_session',
+                     session_id,
+                     max_age=24*60*60,
+                     httponly=True,
+                     secure=False,
+                     samesite='Lax'
+                 )
+             return response, 200
         else:
              # Если не удалось создать запись книги в БД, удаляем файл
              print(f"ОШИБКА: Не удалось сохранить книгу '{book_id}' в Workflow DB! Удаляем файл.")
@@ -1044,6 +1031,146 @@ def workflow_upload_file():
         return "Ошибка сервера при обработке файла для рабочего процесса.", 500
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ---
+
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ЗАГРУЗКИ С ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ (ВОЗВРАЩАЕТ РЕДИРЕКТ) ---
+@app.route('/user_upload', methods=['POST'])
+def user_upload_file():
+    """ Обрабатывает загрузку EPUB с пользовательской страницы, возвращает редирект. """
+    print("Запрос на загрузку файла с пользовательской страницы.")
+    if 'epub_file' not in request.files: return "Файл не найден", 400
+    file = request.files['epub_file'];
+    if file.filename == '': return "Файл не выбран", 400
+    if not allowed_file(file.filename): return "Ошибка: Недопустимый тип файла.", 400
+
+    # Целевой язык пока берем из формы или сессии
+    form_language = request.form.get('target_language')
+    target_language = form_language or session.get('target_language', 'russian')
+
+    original_filename = secure_filename(file.filename)
+    temp_dir = app.config['UPLOAD_FOLDER']
+    temp_filepath = None
+    filepath = None
+    book_id = None
+
+    try:
+        # Сохранение и определение Book ID
+        temp_filename = f"temp_{uuid.uuid4().hex}.epub"
+        temp_filepath = os.path.join(temp_dir, temp_filename)
+        file.save(temp_filepath); print(f"Файл временно сохранен: {temp_filepath}")
+
+        book_id = _get_epub_id(temp_filepath); print(f"Вычислен Book ID: {book_id}")
+
+        # Проверяем, существует ли книга уже в новой БД
+        if workflow_db_manager.get_book_workflow(book_id):
+             print(f"Книга с ID {book_id} уже существует в Workflow DB.")
+             return redirect(url_for('translate_page', access_token=workflow_db_manager.get_book_workflow(book_id).get('access_token')))
+
+        # Если книга новая, сохраняем файл с уникальным именем
+        unique_filename = f"{book_id}.epub"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+
+        if os.path.exists(filepath):
+             print(f"Предупреждение: Файл книги {book_id} уже существует при новой загрузке. Удаляем старый.")
+             try: os.remove(filepath)
+             except OSError as e: print(f"Ошибка при удалении старого файла {filepath}: {e}")
+
+        os.rename(temp_filepath, filepath); print(f"Файл перемещен в хранилище workflow: {filepath}"); temp_filepath = None
+
+        # Парсим структуру EPUB и оглавление
+        section_ids, id_to_href_map = epub_parser.get_epub_structure(filepath)
+        if section_ids is None: raise ValueError("Не удалось получить структуру EPUB для workflow.")
+        toc = epub_parser.get_epub_toc(filepath, id_to_href_map) or []
+
+        # Подготовка данных секций
+        sections_data_for_db = []
+        order_in_book = 0
+        href_to_title_map = {item['href']: item.get('title') for item in toc if item.get('href')}
+
+        for section_id_epub in section_ids:
+             section_href = id_to_href_map.get(section_id_epub)
+             section_title_original = href_to_title_map.get(section_href) if section_href else None
+             if not section_title_original:
+                 section_title_original = section_id_epub
+                 print(f"Предупреждение: Не найдено название TOC для секции {section_id_epub}. Используем ID.")
+
+             sections_data_for_db.append({
+                 'section_epub_id': section_id_epub,
+                 'section_title': section_title_original,
+                 'translated_title': None,
+                 'order_in_book': order_in_book
+             })
+             order_in_book += 1
+
+        # Генерируем токен и создаем книгу
+        access_token = workflow_db_manager.generate_access_token()
+        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language, access_token):
+             print(f"  Книга '{book_id}' сохранена в Workflow DB.")
+
+             workflow_db_manager._initialize_book_stage_statuses(book_id)
+
+             sec_created_count = 0
+             for section_data in sections_data_for_db:
+                  if workflow_db_manager.create_section_workflow(
+                      book_id,
+                      section_data['section_epub_id'],
+                      section_data['section_title'],
+                      section_data['translated_title'],
+                      section_data['order_in_book']
+                  ):
+                       sec_created_count += 1
+             print(f"  Создано {sec_created_count} записей о секциях в Workflow DB.")
+
+             # Запускаем рабочий процесс
+             import threading
+             def run_workflow_in_context(book_id):
+                 with app.app_context():
+                     current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
+                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object())
+             threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
+             print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
+
+             # Создаем сессию пользователя
+             session_id = workflow_db_manager.create_user_session(access_token)
+             if session_id:
+                 print(f"[UserUpload] Создана сессия пользователя: {session_id}")
+             else:
+                 print(f"[UserUpload] ОШИБКА: Не удалось создать сессию для токена {access_token}")
+                 session_id = None
+
+             # ВОЗВРАЩАЕМ РЕДИРЕКТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ
+             redirect_url = url_for('translate_page', access_token=access_token)
+             response = redirect(redirect_url)
+             if session_id:
+                 response.set_cookie(
+                     'user_session',
+                     session_id,
+                     max_age=24*60*60,
+                     httponly=True,
+                     secure=False,
+                     samesite='Lax'
+                 )
+             return response
+        else:
+             # Если не удалось создать запись книги в БД, удаляем файл
+             print(f"ОШИБКА: Не удалось сохранить книгу '{book_id}' в Workflow DB! Удаляем файл.")
+             if filepath and os.path.exists(filepath):
+                 try: os.remove(filepath)
+                 except OSError as e: print(f"  Не удалось удалить файл {filepath} после ошибки БД: {e}")
+             return "Ошибка сервера при сохранении информации о книге в Workflow DB.", 500
+
+    except Exception as e:
+        print(f"ОШИБКА при обработке загрузки для пользователя: {e}"); traceback.print_exc()
+        # Удаляем временный и сохраненный файлы в случае любой ошибки
+        if temp_filepath and os.path.exists(temp_filepath):
+            try: os.remove(temp_filepath)
+            except OSError as e_del: print(f"  Не удалось удалить временный файл {temp_filepath} после ошибки: {e_del}")
+        if filepath and os.path.exists(filepath):
+            try: os.remove(filepath)
+            except OSError as e_del: print(f"  Не удалось удалить файл {filepath} после ошибки: {e_del}")
+
+        return "Ошибка сервера при обработке файла для пользователя.", 500
+
+# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ---
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ОТОБРАЖЕНИЯ СПИСКА КНИГ В РАБОЧЕМ ПРОЦЕССЕ ---
 @app.route('/workflow', methods=['GET'])
