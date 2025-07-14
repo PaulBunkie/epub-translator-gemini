@@ -431,16 +431,19 @@ class TelegramBotHandler:
             if not chat_id or not text:
                 continue
             
-            # Проверяем, что сообщение от авторизованного пользователя
-            if str(chat_id) not in self.allowed_chat_ids:
-                self.send_message(chat_id, "❌ Доступ запрещен")
-                continue
-            
             # Обрабатываем команды
             if text.startswith("/"):
                 parts = text.split(" ", 1)
                 command = parts[0]
                 args = parts[1] if len(parts) > 1 else ""
+                
+                # Команды, доступные всем пользователям
+                public_commands = ["/start", "/unsubscribe"]
+                
+                # Проверяем доступ только для административных команд
+                if command not in public_commands and str(chat_id) not in self.allowed_chat_ids:
+                    self.send_message(chat_id, "❌ Доступ запрещен")
+                    continue
                 
                 response = self.handle_command(chat_id, command, args)
                 self.send_message(chat_id, response)
