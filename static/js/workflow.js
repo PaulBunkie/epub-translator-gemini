@@ -399,9 +399,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         ${stageData.status || 'pending'}
                         ${stageData.is_per_section ? ` (${statusData['processed_sections_count_' + stageName] || 0} / ${statusData.total_sections_count || 0} секций)` : ''}
                     </span>
-                    ${stageName === 'summarize' && ['completed', 'completed_empty'].includes(stageData.status) ? `<a href="/workflow_download_summary/${bookId}" style="margin-left:10px;">Скачать суммаризацию</a>` : ''}
-                    ${stageName === 'analyze' && ['completed', 'completed_empty'].includes(stageData.status) ? `<a href="/workflow_download_analysis/${bookId}" style="margin-left:10px;">Скачать анализ</a>` : ''}
-                    ${stageName === 'epub_creation' && ['completed', 'completed_with_errors'].includes(stageData.status) ? `<a href="/workflow_download_epub/${bookId}" style="margin-left:10px;">Скачать EPUB</a>` : ''}
+                    ${stageName === 'summarize' && ['completed', 'completed_empty'].includes(stageData.status) ? `<a href="/workflow_download_summary/${statusData.book_id}" style="margin-left:10px;">Скачать суммаризацию</a>` : ''}
+                    ${stageName === 'analyze' && ['completed', 'completed_empty'].includes(stageData.status) ? `<a href="/workflow_download_analysis/${statusData.book_id}" style="margin-left:10px;">Скачать анализ</a>` : ''}
+                    ${stageName === 'epub_creation' && ['completed', 'completed_with_errors'].includes(stageData.status) ? `<a href="/workflow_download_epub/${statusData.book_id}" style="margin-left:10px;">Скачать EPUB</a>` : ''}
                 </div>`;
             }
             bookStatusBlock.innerHTML = stagesHtml;

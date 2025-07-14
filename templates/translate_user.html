@@ -361,9 +361,11 @@
                     </div>
                 </div>
                 
-                <a href="/workflow_download_epub/{{ book_info.book_id if book_info else '' }}" class="download-link">
-                    📥 Скачать переведенную книгу
-                </a>
+                <div id="epubLink" style="display: none;">
+                    <a href="#" class="download-link" style="background: #6f42c1; margin-top: 10px;">
+                        📥 Скачать переведенную книгу
+                    </a>
+                </div>
                 
                 <div id="summaryLink" style="display: none;">
                     <a href="#" class="download-link" style="background: #28a745; margin-top: 10px;">
@@ -566,6 +568,16 @@
                     analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
                 }
             }
+
+            // Показываем ссылку на скачивание EPUB
+            const epubLink = document.getElementById('epubLink');
+            if (epubLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.epub_creation) {
+                const epubStatus = bookInfo.book_stage_statuses.epub_creation.status;
+                if (['completed', 'completed_empty'].includes(epubStatus)) {
+                    epubLink.style.display = 'block';
+                    epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
+                }
+            }
         }
         
         function showError(message) {
@@ -596,6 +608,16 @@
                 if (['completed', 'completed_empty'].includes(analysisStatus)) {
                     analysisLink.style.display = 'block';
                     analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
+                }
+            }
+
+            // Показываем ссылку на скачивание EPUB
+            const epubLink = document.getElementById('epubLink');
+            if (epubLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.epub_creation) {
+                const epubStatus = bookInfo.book_stage_statuses.epub_creation.status;
+                if (['completed', 'completed_empty'].includes(epubStatus)) {
+                    epubLink.style.display = 'block';
+                    epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
                 }
             }
         } else if (!bookInfo && accessToken && accessToken !== "" && accessToken !== "None" && accessToken !== "null") {
