@@ -1203,7 +1203,7 @@ def workflow_index():
              workflow_books.append({
                  'book_id': book_data['book_id'],
                  'filename': book_data['filename'],
-                 'status': book_data['current_workflow_status'],
+                 'status': book_data.get('current_workflow_status') or 'pending',
                  'target_language': book_data.get('target_language'),
                  'total_sections': total_sections,
                  # Не передаём completed_sections_count и processed_sections_count_summarize!

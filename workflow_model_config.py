@@ -7,27 +7,27 @@ MODEL_CONFIG = {
     'summarize': {
         'primary': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level1': 'meta-llama/llama-3.3-70b-instruct:free',
-        'fallback_level2': 'MODEL_NAME_HERE'
+        'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
         'primary': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level1': 'microsoft/mai-ds-r1:free',
-        'fallback_level2': 'MODEL_NAME_HERE'
+        'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate': {
-        'primary': 'models/gemini-2.5-flash-preview-05-20',
+        'primary': 'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level1': 'microsoft/mai-ds-r1:free',
-        'fallback_level2': 'MODEL_NAME_HERE'
+        'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'reduce': {
         'primary': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level1': 'meta-llama/llama-3.3-70b-instruct:free',
-        'fallback_level2': 'MODEL_NAME_HERE'
+        'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
         'primary': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level1': 'google/gemma-3-27b-it:free',
-        'fallback_level2': 'MODEL_NAME_HERE'
+        'fallback_level2': 'meta-llama/llama-3.3-70b-instruct:free'
     }
 }
 

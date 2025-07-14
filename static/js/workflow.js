@@ -387,6 +387,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const bookStatusBlock = bookItem.querySelector('.book-status');
         if (bookStatusBlock && statusData.book_stage_statuses) {
             let stagesHtml = '';
+            // --- ДОБАВЛЯЕМ ОБЩИЙ СТАТУС КНИГИ ---
+            stagesHtml += `Status: <span class="book-overall-status">${statusData.current_workflow_status || 'unknown'}</span>`;
             // Сортируем этапы по stage_order
             const stages = Object.entries(statusData.book_stage_statuses);
             stages.sort((a, b) => (a[1].stage_order || 0) - (b[1].stage_order || 0));
