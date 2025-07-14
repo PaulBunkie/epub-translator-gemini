@@ -371,134 +371,38 @@ document.addEventListener('DOMContentLoaded', () => {
     // Helper function updateBookListItem now expects detailed statusData directly
     function updateBookListItem(bookId, statusData) {
         const bookItem = bookList.querySelector(`[data-book-id="${bookId}"]`);
-        if (bookItem) {
-             console.log(`[updateBookListItem] Updating book ${bookId} with status data:`, statusData); // Add logging
-            const bookStatus = statusData.current_workflow_status; // Overall book status
-            // CORRECTED: Get summarization stage data for status, but section counts from sections_status_summary
-            const summaryStageStatusData = statusData.book_stage_statuses ? statusData.book_stage_statuses.summarize : null; // Summarization stage data for status/display_name
-            const summarySectionCountsData = statusData.sections_status_summary ? statusData.sections_status_summary.summarize : null; // Summarization section counts
+        if (!bookItem) return;
 
-            const analysisStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.analyze : null; // Analysis stage data
+        // Обновление языка и статуса (оставляем как есть)
+        const languageSpan = bookItem.querySelector('.book-info .language');
+        if (languageSpan && statusData.target_language) {
+            languageSpan.textContent = `(${statusData.target_language})`;
+        }
+        const overallStatusSpan = bookItem.querySelector('.book-overall-status');
+        if (overallStatusSpan) {
+            overallStatusSpan.textContent = statusData.current_workflow_status || 'unknown';
+        }
 
-            console.log(`[updateBookListItem] Book ${bookId} - summaryStageStatusData:`, summaryStageStatusData); // NEW LOG: Check summary stage status data
-            console.log(`[updateBookListItem] Book ${bookId} - summarySectionCountsData:`, summarySectionCountsData); // NEW LOG: Check summary section counts data
-
-             console.log(`[updateBookListItem] Analysis Stage Data for ${bookId}:`, analysisStageData); // Keep existing log
-
-            // Update displayed language
-            const languageSpan = bookItem.querySelector('.book-info .language');
-            if (languageSpan && statusData.target_language) {
-                languageSpan.textContent = `(${statusData.target_language})`;
+        // --- ПЕРЕРИСОВКА СПИСКА ЭТАПОВ ---
+        const bookStatusBlock = bookItem.querySelector('.book-status');
+        if (bookStatusBlock && statusData.book_stage_statuses) {
+            let stagesHtml = '';
+            // Сортируем этапы по stage_order
+            const stages = Object.entries(statusData.book_stage_statuses);
+            stages.sort((a, b) => (a[1].stage_order || 0) - (b[1].stage_order || 0));
+            for (const [stageName, stageData] of stages) {
+                stagesHtml += `<div style="margin-bottom:2px;">
+                    <strong>${stageData.display_name || stageName}:</strong>
+                    <span class="stage-status" data-stage="${stageName}">
+                        ${stageData.status || 'pending'}
+                        ${stageData.is_per_section ? ` (${statusData['processed_sections_count_' + stageName] || 0} / ${statusData.total_sections_count || 0} секций)` : ''}
+                    </span>
+                    ${stageName === 'summarize' && ['completed', 'completed_empty'].includes(stageData.status) ? `<a href="/workflow_download_summary/${bookId}" style="margin-left:10px;">Скачать суммаризацию</a>` : ''}
+                    ${stageName === 'analyze' && ['completed', 'completed_empty'].includes(stageData.status) ? `<a href="/workflow_download_analysis/${bookId}" style="margin-left:10px;">Скачать анализ</a>` : ''}
+                    ${stageName === 'epub_creation' && ['completed', 'completed_with_errors'].includes(stageData.status) ? `<a href="/workflow_download_epub/${bookId}" style="margin-left:10px;">Скачать EPUB</a>` : ''}
+                </div>`;
             }
-
-            const totalSections = statusData.total_sections_count || 0;
-
-            // --- MODIFIED: Simplified logic for overall status display ---
-            const overallStatusSpan = bookItem.querySelector('.book-overall-status');
-            if (overallStatusSpan) {
-                // Display the overall book status
-                overallStatusSpan.textContent = bookStatus || 'unknown';
-
-                // Update status class for styling based on overall book status
-                overallStatusSpan.parentElement.className = 'book-status'; // Reset to base class
-                const statusClass = (bookStatus || '').toLowerCase().replace(/_/g, '-');
-                if (statusClass) {
-                    overallStatusSpan.parentElement.classList.add(`book-status-${statusClass}`);
-                }
-            }
-
-            // --- MODIFIED: Logic for Summarization Progress Display ---
-            const summarizeProgressSpan = bookItem.querySelector('.summarize-progress');
-            // Calculate completed sections count (sum of completed, skipped, empty)
-            // Use summarySectionCountsData for the counts
-            const completedSections = summarySectionCountsData ? (summarySectionCountsData.completed || 0) + (summarySectionCountsData.skipped || 0) + (summarySectionCountsData.completed_empty || 0) : 0;
-
-            // Use total from summarySectionCountsData if available, otherwise use the overall totalSections
-            const totalSectionsForStage = summarySectionCountsData ? summarySectionCountsData.total || totalSections : totalSections;
-
-            console.log(`[updateBookListItem] Book ${bookId} - Calculated Progress: completedSections=${completedSections}, totalSectionsForStage=${totalSectionsForStage}`); // Keep existing log
-            console.log(`[updateBookListItem] Book ${bookId} - summarizeProgressSpan found: ${!!summarizeProgressSpan}`); // Keep existing log
-
-            // Update summarization progress counts if the span exists and total sections > 0
-            if (summarizeProgressSpan && totalSectionsForStage > 0) {
-                summarizeProgressSpan.innerHTML = `Summarization: <span class="completed-count">${completedSections}</span> / <span class="total-count">${totalSectionsForStage}</span> sections`;
-                summarizeProgressSpan.style.display = ''; // Make sure it's visible
-
-                // NEW LOGS: Verify the span content after update
-                const completedSpan = summarizeProgressSpan.querySelector('.completed-count');
-                const totalSpan = summarizeProgressSpan.querySelector('.total-count');
-                console.log(`[updateBookListItem] Book ${bookId} - Updated Span Content: completed=${completedSpan ? completedSpan.textContent : 'N/A'}, total=${totalSpan ? totalSpan.textContent : 'N/A'}`);
-
-            } else if (summarizeProgressSpan) {
-                // If totalSections is 0 or stage data missing, hide or update the progress display
-                summarizeProgressSpan.textContent = ''; // Or 'No sections'
-                summarizeProgressSpan.style.display = 'none'; // Hide the element
-            }
-
-            // --- NEW: Logic for Analysis Status Display ---
-            const analysisProgressSpan = bookItem.querySelector('.analysis-progress');
-            if (analysisProgressSpan && analysisStageData) {
-                analysisProgressSpan.textContent = `Analysis: ${analysisStageData.status || 'unknown'}`;
-                // You might also want to add a class for styling based on analysis status
-                 analysisProgressSpan.className = 'analysis-progress'; // Reset class
-                 const analysisStatusClass = (analysisStageData.status || '').toLowerCase().replace(/_/g, '-');
-                 if (analysisStatusClass) {
-                      analysisProgressSpan.classList.add(`analysis-progress-${analysisStatusClass}`);
-                 }
-                 analysisProgressSpan.style.display = ''; // Ensure it's visible
-            } else if (analysisProgressSpan) {
-                // If analysis data is missing, hide the span
-                 analysisProgressSpan.style.display = 'none';
-            }
-
-            // --- Existing Logic for Download Links (should be correct) ---
-            // Use summaryStageStatusData for checking status for download links
-            const downloadSummaryLink = bookItem.querySelector('.download-summary-link');
-            const downloadSummaryPlaceholder = bookItem.querySelector('.download-summary-placeholder');
-
-            if (summaryStageStatusData && (summaryStageStatusData.status === 'completed' || summaryStageStatusData.status === 'completed_empty')) {
-                if (downloadSummaryLink) {
-                    downloadSummaryLink.style.display = '';
-                    downloadSummaryLink.href = `/workflow_download_summary/${bookId}`;
-                }
-                if (downloadSummaryPlaceholder) downloadSummaryPlaceholder.style.display = 'none';
-            } else if (summaryStageStatusData && (summaryStageStatusData.status === 'error' || summaryStageStatusData.status.startsWith('error_') || summaryStageStatusData.status === 'completed_with_errors')) {
-                 if (downloadSummaryLink) downloadSummaryLink.style.display = 'none';
-                 if (downloadSummaryPlaceholder) {
-                     downloadSummaryPlaceholder.style.display = '';
-                     downloadSummaryPlaceholder.textContent = `Ошибка суммаризации: ${summaryStageStatusData.status}`; // Show error in placeholder
-                 }
-            } else {
-                 if (downloadSummaryLink) downloadSummaryLink.style.display = 'none';
-                 if (downloadSummaryPlaceholder) {
-                     downloadSummaryPlaceholder.style.display = '';
-                     downloadSummaryPlaceholder.textContent = 'Суммаризация не готова';
-                 }
-            }
-
-            const downloadAnalysisLink = bookItem.querySelector('.download-analysis-link');
-            const downloadAnalysisPlaceholder = bookItem.querySelector('.download-analysis-placeholder');
-
-            if (analysisStageData && (analysisStageData.status === 'completed' || analysisStageData.status === 'completed_empty')) {
-                if (downloadAnalysisLink) {
-                    downloadAnalysisLink.style.display = '';
-                    downloadAnalysisLink.href = `/workflow_download_analysis/${bookId}`;
-                }
-                if (downloadAnalysisPlaceholder) downloadAnalysisPlaceholder.style.display = 'none';
-            } else if (analysisStageData && (analysisStageData.status === 'error' || analysisStageData.status.startsWith('error_') || analysisStageData.status === 'completed_with_errors')) {
-                if (downloadAnalysisLink) downloadAnalysisLink.style.display = 'none';
-                if (downloadAnalysisPlaceholder) {
-                     downloadAnalysisPlaceholder.style.display = '';
-                     downloadAnalysisPlaceholder.textContent = `Ошибка анализа: ${analysisStageData.status}`;
-                }
-            } else {
-                if (downloadAnalysisLink) downloadAnalysisLink.style.display = 'none';
-                if (downloadAnalysisPlaceholder) {
-                     downloadAnalysisPlaceholder.style.display = '';
-                     downloadAnalysisPlaceholder.textContent = 'Анализ не готов';
-                }
-            }
-
+            bookStatusBlock.innerHTML = stagesHtml;
         }
     }
 
