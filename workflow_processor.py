@@ -1606,7 +1606,7 @@ def send_telegram_notification(book_id: str, status: str = 'completed'):
         # Формируем сообщение
         filename = book_info.get('filename', 'Unknown')
         target_language = book_info.get('target_language', 'Unknown')
-        download_url = f"http://localhost:5000/translate/{access_token}"
+        # URL будет сформирован в make_download_link
         
         if status == 'completed_with_errors':
             message = f"""

@@ -345,7 +345,48 @@ class TelegramBotHandler:
             """.strip()
             
         except ImportError:
-            return "❌ Модуль psutil не установлен. Установите: pip install psutil"
+            # Альтернативная информация без psutil
+            try:
+                import os
+                import platform
+                
+                # Базовая информация о системе
+                system_info = platform.system()
+                python_version = platform.python_version()
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Попытка получить информацию о памяти через /proc/meminfo (Linux)
+                memory_info = "Недоступно"
+                try:
+                    with open('/proc/meminfo', 'r') as f:
+                        mem_lines = f.readlines()
+                        total_mem = 0
+                        free_mem = 0
+                        for line in mem_lines:
+                            if line.startswith('MemTotal:'):
+                                total_mem = int(line.split()[1]) / 1024  # MB
+                            elif line.startswith('MemAvailable:'):
+                                free_mem = int(line.split()[1]) / 1024  # MB
+                        if total_mem > 0:
+                            used_mem = total_mem - free_mem
+                            memory_info = f"{used_mem:.0f} MB / {total_mem:.0f} MB"
+                except:
+                    pass
+                
+                return f"""
+💻 <b>Информация о системе (базовая)</b>
+
+🖥️ <b>Система:</b> {system_info}
+🐍 <b>Python:</b> {python_version}
+⏰ <b>Время:</b> {current_time}
+🧠 <b>Память:</b> {memory_info}
+
+⚠️ <b>psutil не установлен</b>
+Для полной информации установите: pip install psutil
+                """.strip()
+                
+            except Exception as e:
+                return f"❌ Ошибка получения базовой информации о системе: {e}"
         except Exception as e:
             return f"❌ Ошибка получения информации о системе: {e}"
     

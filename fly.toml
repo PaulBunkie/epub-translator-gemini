@@ -23,4 +23,4 @@ primary_region = "arn"
 # Секция для указания размера машины
 [machines]
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "512mb"

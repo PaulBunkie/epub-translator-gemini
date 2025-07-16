@@ -2023,7 +2023,9 @@ telegram_bot_thread = None
 def start_telegram_bot():
     """Запускает Telegram бота в отдельном потоке"""
     global telegram_bot
-    if TELEGRAM_BOT_AVAILABLE and os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"):
+    # Запускаем бота только на fly.io, не локально
+    is_fly_io = os.getenv("FLY_APP_NAME") is not None
+    if TELEGRAM_BOT_AVAILABLE and os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID") and is_fly_io:
         try:
             telegram_bot = TelegramBotHandler()
             print("[App] Telegram бот инициализирован")
@@ -2042,7 +2044,10 @@ def start_telegram_bot():
         except Exception as e:
             print(f"[App] Ошибка запуска Telegram бота: {e}")
     else:
-        print("[App] Telegram бот не запущен (отсутствуют токен или chat_id)")
+        if not is_fly_io:
+            print("[App] Telegram бот не запущен (локальная среда)")
+        else:
+            print("[App] Telegram бот не запущен (отсутствуют токен или chat_id)")
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОИСКА КНИГИ ПО ACCESS_TOKEN ---
 @app.route('/workflow_book_by_token/<access_token>', methods=['GET'])
