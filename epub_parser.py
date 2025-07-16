@@ -286,34 +286,46 @@ def extract_section_text(epub_filepath, section_id):
         # Используем XML парсер для XHTML
         soup = BeautifulSoup(html_content, 'xml')
 
-        # --- Улучшенное извлечение текста ---
+        # --- Извлечение текста с обработкой заголовков ---
         text_parts = []
         # Ищем тег body
         body = soup.find('body')
         if body:
             # Итерируемся по всем прямым потомкам body
             for element in body.find_all(recursive=False):
-                 # Получаем текст из элемента, разделяя строки (важно для сохранения абзацев)
-                 # separator='\n' может помочь сохранить переносы внутри тегов
-                 text = element.get_text(separator='\n\n', strip=True)
-                 if text:
-                     text_parts.append(text)
+                # Проверяем, содержит ли элемент заголовок
+                if element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                    # Если содержит заголовок, оборачиваем в bold
+                    text = element.get_text(separator=' ', strip=True)
+                    if text:
+                        text_parts.append(f"**{text}**")
+                else:
+                    # Обычный текст - используем пробел вместо \n\n чтобы не разрывать слова
+                    text = element.get_text(separator=' ', strip=True)
+                    if text:
+                        text_parts.append(text)
             # Если внутри body не нашлось прямых потомков с текстом,
             # но сам body не пустой, попробуем взять весь текст из body
             if not text_parts and body.get_text(strip=True):
                  print("Предупреждение: Не найдены прямые потомки с текстом в body, извлекаем весь текст.")
-                 body_text = body.get_text(separator='\n\n', strip=True)
+                 body_text = body.get_text(separator=' ', strip=True)
                  if body_text:
                       text_parts.append(body_text)
         else:
             print("Предупреждение: Тег body не найден, пытаемся извлечь текст из всего документа.")
             # Если нет body, пытаемся взять текст из всего документа
-            full_text = soup.get_text(separator='\n\n', strip=True)
+            full_text = soup.get_text(separator=' ', strip=True)
             if full_text:
                 text_parts.append(full_text)
 
 
-        extracted_text = "\n\n".join(text_parts)
+        # Объединяем части, добавляя перевод строки после каждого параграфа
+        final_parts = []
+        for part in text_parts:
+            final_parts.append(part)
+            final_parts.append('\n\n')
+        
+        extracted_text = "".join(final_parts)
 
         # Дополнительная очистка от лишних пробелов и пустых строк
         extracted_text = re.sub(r'\n{3,}', '\n\n', extracted_text).strip()
@@ -326,3 +338,5 @@ def extract_section_text(epub_filepath, section_id):
         print(f"ОШИБКА: Не удалось извлечь текст из раздела '{section_id}': {e}")
         # Возвращаем пустую строку в случае ошибки парсинга
         return ""
+
+

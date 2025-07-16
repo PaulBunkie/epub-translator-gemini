@@ -41,13 +41,18 @@ Your translation must follow these principles strictly:
 - Keep *italic* and **bold** Markdown formatting inline, without adding line breaks.
 
 # FOOTNOTES
-- If a clarification for the reader is essential (e.g., for cultural references, puns, or untranslatable elements), add a translator's footnote.
-- Use superscript numbers (¹,²,³) immediately after the relevant word or phrase.
-- At the very end of your response, add a separator (`---`) followed by the footnotes.
-- List the footnotes in order with brief, clear explanations. Use footnotes only when truly necessary.
+- If clarification is needed for a {{target_language}} reader (cultural notes, untranslatable puns, proper names, etc.), use translator's footnotes.
+  - **CRITICAL:** You MUST add footnote markers IN THE TEXT where the term appears, AND provide definitions at the end.
+  - **Format:** Insert a sequential footnote marker directly after the word/phrase that needs explanation.
+    - **Preferred format:** Use superscript numbers (like ¹,²,³).
+    - **Alternative format (if superscript is not possible):** Use numbers in square brackets (like [1], [2], [3]).
+  - **Content:** At the very end of the translated section, add a separator ('---') and a heading('{{translator_notes_heading}}'). List all notes sequentially by their marker (e.g., '¹ Explanation.' or '[1] Explanation.').
+  - **Example:** If you translate "hedonic adaptation" as "гедонистическая адаптация", the text should read: "гедонистическая адаптация¹" and at the end: "---\n{{translator_notes_heading}}\n¹ Гедонистическая адаптация — устоявшийся русскоязычный эквивалент понятия *hedonic adaptation*..."
+  - Use footnotes sparingly.
 
 # LANGUAGE-SPECIFIC RULES
 {{russian_dialogue_rule}}
+{{russian_formatting_rule}}
 
 # GENERAL GUIDELINES
 {{prompt_ext_section}}
@@ -537,8 +542,12 @@ class WorkflowTranslator:
             # Языкозависимые правила
             if target_language.lower() == "russian":
                 formatted_vars['russian_dialogue_rule'] = "For dialogue in Russian, use appropriate punctuation for direct speech (e.g., em dash for conversational breaks)."
+                formatted_vars['russian_formatting_rule'] = "For Russian text formatting: do not add line breaks before or after bold (**text**) and italic (*text*) formatting. Keep the formatting inline with the text flow, unlike English typography where formatting is often separated by line breaks. Example: 'Это **важный** текст' not 'Это\n**важный**\nтекст'."
+                formatted_vars['translator_notes_heading'] = 'Примечания переводчика'
             else:
                 formatted_vars['russian_dialogue_rule'] = ""
+                formatted_vars['russian_formatting_rule'] = ""
+                formatted_vars['translator_notes_heading'] = 'Translator Notes'
 
             formatted_vars['translation_guidelines_section'] = f"You MUST use the following glossary for ALL listed terms and names:\n\n{dict_data}" if dict_data else ''
             formatted_vars['previous_context_section'] = f"Previous context (for continuity):\n{cleaned_previous_context}" if cleaned_previous_context else ""

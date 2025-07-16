@@ -169,12 +169,15 @@ def process_section_summarization(book_id: str, section_id: int):
                  workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'completed_empty', error_message='Empty section content')
             return True # Возвращаем True, так как это не ошибка, а ожидаемое состояние
 
-        # --- НОВОЕ: Проверка длины текста после очистки от HTML ---
-        clean_text = clean_html(section_content)
-        if len(clean_text) < MIN_SECTION_LENGTH:
-            print(f"[WorkflowProcessor] Секция {section_epub_id} (ID: {section_id}) слишком короткая ({len(clean_text)} < {MIN_SECTION_LENGTH} символов). Пропускаем суммаризацию.")
+        # --- НОВОЕ: Проверка длины текста после очистки от HTML (но сохранение Markdown) ---
+        # Создаем временную копию для проверки длины, удаляя только HTML теги, но сохраняя Markdown
+        temp_clean_text = re.sub(r'<[^>]+>', '', section_content)  # Удаляем только HTML теги
+        temp_clean_text = re.sub(r'\s+', ' ', temp_clean_text).strip()  # Убираем лишние пробелы
+        
+        if len(temp_clean_text) < MIN_SECTION_LENGTH:
+            print(f"[WorkflowProcessor] Секция {section_epub_id} (ID: {section_id}) слишком короткая ({len(temp_clean_text)} < {MIN_SECTION_LENGTH} символов). Пропускаем суммаризацию.")
             with current_app.app_context():
-                workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(clean_text)} chars)')
+                workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(temp_clean_text)} chars)')
                 # Сохраняем пустой результат в кэш для единообразия
                 workflow_cache_manager.save_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME, "") # Сохраняем пустой результат
             return True # Секция успешно пропущена
@@ -1232,9 +1235,8 @@ def process_book_epub_creation(book_id: str):
                     chapter_title = f"{default_title_prefix} {chapter_index}"
                 
                 chapter_title_escaped = html.escape(chapter_title)
-                # Добавляем заголовок главы (как в рабочей версии)
-                header_html = f"<h1>{chapter_title_escaped}</h1>\n"
-                final_html_body_content = header_html
+                # НЕ добавляем заголовок главы - он не нужен в тексте
+                final_html_body_content = ""
                 
                 section_data = sections_data_map.get(section_id)
                 section_status = section_data.get("status", "unknown") if section_data else "unknown"
