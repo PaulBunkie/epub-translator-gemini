@@ -562,12 +562,43 @@ def update_section_stage_status_workflow(
                 # Запись существует, обновляем
                 print(f"[WorkflowDB] Обновление статуса для секции {section_id} этапа {stage_name} на '{status}'.")
 
-                # Строим SQL запрос для обновления. Обновляем все поля времени явно.
+                # Получаем текущие значения времени, чтобы не перезаписывать их
+                cursor = db.execute('''
+                    SELECT start_time, end_time FROM section_stage_statuses
+                    WHERE section_id = ? AND stage_name = ?
+                ''', (section_id, stage_name))
+                current_times = cursor.fetchone()
+                
+                # Сохраняем существующие значения времени, если они есть
+                if current_times:
+                    existing_start_time = current_times['start_time']
+                    existing_end_time = current_times['end_time']
+                    
+                    # Обновляем start_time только если его нет или если новый статус требует его установки
+                    if start_time_val is not None:
+                        final_start_time = start_time_val
+                    elif existing_start_time is not None:
+                        final_start_time = existing_start_time
+                    else:
+                        final_start_time = None
+                    
+                    # Обновляем end_time только если новый статус требует его установки
+                    if end_time_val is not None:
+                        final_end_time = end_time_val
+                    elif existing_end_time is not None:
+                        final_end_time = existing_end_time
+                    else:
+                        final_end_time = None
+                else:
+                    final_start_time = start_time_val
+                    final_end_time = end_time_val
+
+                # Строим SQL запрос для обновления с сохранением времени
                 db.execute('''
                     UPDATE section_stage_statuses
                     SET status = ?, model_name = ?, error_message = ?, start_time = ?, end_time = ?
                     WHERE section_id = ? AND stage_name = ?
-                ''', (status, model_name, error_message, start_time_val, end_time_val,
+                ''', (status, model_name, error_message, final_start_time, final_end_time,
                       section_id, stage_name))
 
             else:
@@ -623,12 +654,43 @@ def update_book_stage_status_workflow(book_id, stage_name, status, model_name=No
             start_time_val = current_time if status in ('processing', 'queued') else None
             end_time_val = current_time if status in ('completed', 'error') else None # Book-level statuses don't have cached/completed_empty
 
-            # Строим SQL запрос для обновления. Обновляем все поля времени явно.
+            # Получаем текущие значения времени, чтобы не перезаписывать их
+            cursor = db.execute('''
+                SELECT start_time, end_time FROM book_stage_statuses
+                WHERE book_id = ? AND stage_name = ?
+            ''', (book_id, stage_name))
+            current_times = cursor.fetchone()
+            
+            # Сохраняем существующие значения времени, если они есть
+            if current_times:
+                existing_start_time = current_times['start_time']
+                existing_end_time = current_times['end_time']
+                
+                # Обновляем start_time только если его нет или если новый статус требует его установки
+                if start_time_val is not None:
+                    final_start_time = start_time_val
+                elif existing_start_time is not None:
+                    final_start_time = existing_start_time
+                else:
+                    final_start_time = None
+                
+                # Обновляем end_time только если новый статус требует его установки
+                if end_time_val is not None:
+                    final_end_time = end_time_val
+                elif existing_end_time is not None:
+                    final_end_time = existing_end_time
+                else:
+                    final_end_time = None
+            else:
+                final_start_time = start_time_val
+                final_end_time = end_time_val
+
+            # Строим SQL запрос для обновления с сохранением времени
             cursor = db.execute('''
                 UPDATE book_stage_statuses
                 SET status = ?, model_name = ?, error_message = ?, start_time = ?, end_time = ?
                 WHERE book_id = ? AND stage_name = ?
-            ''', (status, model_name, error_message, start_time_val, end_time_val,
+            ''', (status, model_name, error_message, final_start_time, final_end_time,
                   book_id, stage_name))
 
             # Если обновление не затронуло ни одной строки, значит записи не было, вставляем

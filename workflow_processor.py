@@ -149,7 +149,7 @@ def process_section_summarization(book_id: str, section_id: int):
                  workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'error', error_message='Book not found')
                  return False
 
-            # 2. Обновляем статус секции в БД на 'processing'
+            # 2. Обновляем статус секции в БД на 'processing' (это установит start_time)
             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'processing')
 
         # 3. Получаем контент секции из EPUB
@@ -174,9 +174,9 @@ def process_section_summarization(book_id: str, section_id: int):
         if len(clean_text) < MIN_SECTION_LENGTH:
             print(f"[WorkflowProcessor] Секция {section_epub_id} (ID: {section_id}) слишком короткая ({len(clean_text)} < {MIN_SECTION_LENGTH} символов). Пропускаем суммаризацию.")
             with current_app.app_context():
-                 workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(clean_text)} chars)')
-                 # Сохраняем пустой результат в кэш для единообразия
-                 workflow_cache_manager.save_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME, "") # Сохраняем пустой результат
+                workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(clean_text)} chars)')
+                # Сохраняем пустой результат в кэш для единообразия
+                workflow_cache_manager.save_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME, "") # Сохраняем пустой результат
             return True # Секция успешно пропущена
         # --- КОНЕЦ НОВОГО БЛОКА ---
 
@@ -194,20 +194,29 @@ def process_section_summarization(book_id: str, section_id: int):
         for attempt in range(MAX_RETRIES + 1):
             print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для секции {section_id} (суммаризация)...")
             try:
-                summarized_text = workflow_translation_module.translate_text(
+                result = workflow_translation_module.translate_text(
                     text_to_translate=section_content,
                     target_language=target_language_for_summarization,
                     model_name=model_name,
                     operation_type=operation_type,
                     prompt_ext=prompt_ext,
                     book_id=book_id,
-                    section_id=section_id
+                    section_id=section_id,
+                    return_model=True
                 )
+                
+                if isinstance(result, tuple):
+                    summarized_text, used_model = result
+                else:
+                    summarized_text = result
+                    used_model = None
 
                 if summarized_text is not None and summarized_text.strip() != "":
                     status = 'completed'
                     error_message = None
                     print(f"[WorkflowProcessor] Модель вернула непустой результат на попытке {attempt + 1}.")
+                    if used_model:
+                        print(f"[WorkflowProcessor] Использована модель: {used_model}")
                     # Проверка времени после обновления статуса
                     try:
                         with current_app.app_context():
@@ -302,7 +311,9 @@ def process_section_summarization(book_id: str, section_id: int):
 
         # 6. Обновляем статус секции в БД
         with current_app.app_context():
-            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, status, error_message=error_message)
+            # Если у нас есть информация о реальной модели, используем её
+            model_to_save = used_model if 'used_model' in locals() and used_model else None
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, status, model_name=model_to_save, error_message=error_message)
 
         print(f"[WorkflowProcessor] Суммаризация для секции ID {section_id} книги {book_id} завершена со статусом: {status}.")
 
@@ -325,6 +336,17 @@ def process_section_summarization(book_id: str, section_id: int):
              traceback.print_exc()
 
         return False
+    finally:
+        # Освобождение памяти после суммаризации секции
+        try:
+            if 'section_text' in locals():
+                del section_text
+            if 'summarized_text' in locals():
+                del summarized_text
+            import gc
+            gc.collect()
+        except Exception as mem_err:
+            print(f"[WorkflowProcessor] ОШИБКА при освобождении памяти после суммаризации секции {section_id}: {mem_err}")
 
 # --- New Helper Function for Stage Transition ---
 def transition_section_to_next_stage(book_id: str, section_id: int, current_stage_name: str):
@@ -344,7 +366,7 @@ def transition_section_to_next_stage(book_id: str, section_id: int, current_stag
             current_stage_status = stage_statuses.get(current_stage_name, {}).get('status')
 
             # Проверяем, успешно ли завершен текущий этап (включая пропущенные и пустые результаты)
-            if current_stage_status in ['completed', 'completed_empty', 'skipped']:
+            if current_stage_status in ['completed', 'completed_empty', 'skipped', 'passed']:
                 # Получаем имя следующего посекционного этапа
                 next_stage_name = workflow_db_manager.get_next_per_section_stage_name_workflow(current_stage_name)
 
@@ -452,7 +474,7 @@ def start_book_workflow(book_id: str, app_instance: Flask):
         
         print(f"[WorkflowProcessor] Проверяем этап {stage_name}: статус книги = {current_stage_status}")
         
-        if current_stage_status not in ['completed', 'completed_empty', 'skipped']:
+        if current_stage_status not in ['completed', 'completed_empty', 'skipped', 'passed']:
             first_incomplete_stage = stage_name
             print(f"[WorkflowProcessor] Найден первый незавершенный этап книги: {stage_name}")
             break
@@ -497,7 +519,7 @@ def start_book_workflow(book_id: str, app_instance: Flask):
                     book_stage_statuses = book_info.get('book_stage_statuses', {})
                     current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
                     
-                    if current_stage_status not in ['completed', 'completed_empty', 'skipped']:
+                    if current_stage_status not in ['completed', 'completed_empty', 'skipped', 'passed']:
                         stages_to_reset.append(stage_name)
                         print(f"[WorkflowProcessor] Этап {stage_name} будет сброшен (статус: {current_stage_status})")
                     else:
@@ -552,8 +574,8 @@ def start_book_workflow(book_id: str, app_instance: Flask):
         book_stage_statuses = book_info.get('book_stage_statuses', {})
         current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
         print(f"[WorkflowProcessor] Текущий статус этапа '{stage_name}' для книги {book_id}: '{current_stage_status}'.")
-        if current_stage_status == 'completed':
-            print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен со статусом 'completed'. Пропускаем обработку и переходим к следующему.")
+        if current_stage_status in ['completed', 'completed_empty', 'skipped', 'passed']:
+            print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен со статусом '{current_stage_status}'. Пропускаем обработку и переходим к следующему.")
             continue
         # Запускаем обработку этапа
         if is_per_section_stage:
@@ -719,16 +741,27 @@ def process_book_analysis(book_id: str):
             print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для анализа книги {book_id}...")
             try:
                  print(f"[WorkflowProcessor] Вызов analyze_with_summarization для анализа книги {book_id} ({model_name} -> {target_language})")
-                 analysis_result = workflow_translation_module.analyze_with_summarization(
+                 result = workflow_translation_module.analyze_with_summarization(
                      text_to_analyze=collected_summary_text, # Pass the collected summary text
                      target_language=target_language,
                      model_name=model_name,
                      prompt_ext="", # prompt_ext всегда пустой для анализа
                      dict_data=None, # dict_data не нужен для анализа
                      summarization_model=None, # Будет взята из workflow_model_config.py
-                     book_id=book_id # Передаем book_id для сохранения суммаризации в кэш
+                     book_id=book_id, # Передаем book_id для сохранения суммаризации в кэш
+                     return_model=True
                  )
+                 
+                 # Получаем результат и модель
+                 if isinstance(result, tuple) and len(result) == 2:
+                     analysis_result, used_model = result
+                 else:
+                     analysis_result = result
+                     used_model = None
+                     
                  print(f"[WorkflowProcessor] Результат analyze_with_summarization: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
+                 if used_model:
+                     print(f"[WorkflowProcessor] Использована модель: {used_model}")
 
                  if analysis_result is not None and analysis_result.strip() != "":
                       status = 'completed'
@@ -785,7 +818,7 @@ def process_book_analysis(book_id: str):
              print(f"[WorkflowProcessor] Модель анализа вернула пустой результат после ретраев для книги {book_id}. Статус: error.")
 
         # 5. Обновляем финальный статус этапа анализа книги
-        workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, status, error_message=error_message)
+        workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, status, model_name=used_model, error_message=error_message)
         print(f"[WorkflowProcessor] Этап анализа для книги {book_id} завершён со статусом: {status}.")
 
         # --- ВМЕСТО копирования статуса из одной секции ---
@@ -801,6 +834,17 @@ def process_book_analysis(book_id: str):
         workflow_db_manager.update_book_stage_status_workflow(book_id, ANALYSIS_STAGE_NAME, f"error_unknown", error_message=f"Необработанная ошибка: {e}{chr(10)}{tb}")
         update_overall_workflow_book_status(book_id)
         return False
+    finally:
+        # Освобождение памяти после анализа книги
+        try:
+            if 'collected_summary_text' in locals():
+                del collected_summary_text
+            if 'analysis_result' in locals():
+                del analysis_result
+            import gc
+            gc.collect()
+        except Exception as mem_err:
+            print(f"[WorkflowProcessor] ОШИБКА при освобождении памяти после анализа книги {book_id}: {mem_err}")
 
 # --- New function for Section-level Translation ---
 def process_section_translate(book_id: str, section_id: int):
@@ -819,7 +863,7 @@ def process_section_translate(book_id: str, section_id: int):
     error_message = 'Unknown error'
     translated_text = None
     try:
-        # 1. Обновляем статус секции на 'processing'
+        # 1. Обновляем статус секции на 'processing' (это установит start_time)
         workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'processing', error_message=None)
 
         # 2. Извлекаем текст секции
@@ -855,7 +899,7 @@ def process_section_translate(book_id: str, section_id: int):
 
         # 5. Вызываем перевод
         print(f"[WorkflowProcessor] Вызов translate_text для секции {section_id} ({model_name} -> {target_language})")
-        translated_text = workflow_translation_module.translate_text(
+        result = workflow_translation_module.translate_text(
             text_to_translate=section_text,
             target_language=target_language,
             model_name=model_name,
@@ -863,9 +907,20 @@ def process_section_translate(book_id: str, section_id: int):
             operation_type='translate',
             dict_data=dict_data,
             book_id=book_id,
-            section_id=section_id
+            section_id=section_id,
+            return_model=True
         )
+        
+        # Получаем результат и модель
+        if isinstance(result, tuple) and len(result) == 2:
+            translated_text, used_model = result
+        else:
+            translated_text = result
+            used_model = None
+            
         print(f"[WorkflowProcessor] Результат translate_text: {translated_text[:100] if translated_text else 'None'}... (длина {len(translated_text) if translated_text is not None else 'None'})")
+        if used_model:
+            print(f"[WorkflowProcessor] Использована модель: {used_model}")
 
         # 6. Сохраняем результат и обновляем статус
         section_text_length = len(section_text.strip()) if section_text else 0
@@ -911,7 +966,7 @@ def process_section_translate(book_id: str, section_id: int):
                     print(f"[WorkflowProcessor] Warning: Model returned empty result или неизвестную ошибку.")
                 workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
 
-        workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, error_message=error_message)
+        workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, model_name=used_model, error_message=error_message)
 
         # --- ВМЕСТО копирования статуса из одной секции ---
         recalculate_book_stage_status(book_id, 'translate')
@@ -929,6 +984,17 @@ def process_section_translate(book_id: str, section_id: int):
             print(f"[WorkflowProcessor] ОШИБКА при попытке записать статус ошибки для секции {section_id}: {db_err}")
             traceback.print_exc()
         return False
+    finally:
+        # Освобождение памяти после перевода секции
+        try:
+            if 'section_text' in locals():
+                del section_text
+            if 'translated_text' in locals():
+                del translated_text
+            import gc
+            gc.collect()
+        except Exception as mem_err:
+            print(f"[WorkflowProcessor] ОШИБКА при освобождении памяти после перевода секции {section_id}: {mem_err}")
 
 # --- New function for Book-level EPUB Creation ---
 def process_book_epub_creation(book_id: str):
@@ -1166,8 +1232,9 @@ def process_book_epub_creation(book_id: str):
                     chapter_title = f"{default_title_prefix} {chapter_index}"
                 
                 chapter_title_escaped = html.escape(chapter_title)
-                # Убираем заголовок из содержимого - он будет только в метаданных главы
-                final_html_body_content = ""
+                # Добавляем заголовок главы (как в рабочей версии)
+                header_html = f"<h1>{chapter_title_escaped}</h1>\n"
+                final_html_body_content = header_html
                 
                 section_data = sections_data_map.get(section_id)
                 section_status = section_data.get("status", "unknown") if section_data else "unknown"
@@ -1178,11 +1245,16 @@ def process_book_epub_creation(book_id: str):
                 
                 if translated_text is not None:
                     # Обработка параграфов и сносок (упрощенная версия)
+                    print(f"      [DEBUG] Обрабатываем сноски для секции {section_id}")
+                    print(f"      [DEBUG] Длина переведенного текста: {len(translated_text)}")
+                    
                     note_definitions = defaultdict(list)
                     note_targets_found = set()
                     note_paragraph_indices = set()
                     reference_markers_data = []
                     original_paragraphs = translated_text.split('\n\n')
+                    
+                    print(f"      [DEBUG] Количество параграфов: {len(original_paragraphs)}")
                     
                     # Этап 1: Сбор информации о сносках
                     for para_idx, para_text_raw in enumerate(original_paragraphs):
@@ -1201,6 +1273,7 @@ def process_book_epub_creation(book_id: str):
                                 if note_num > 0:
                                     note_definitions[note_num].append(note_text)
                                     note_targets_found.add(note_num)
+                                    print(f"      [DEBUG] Найдено определение сноски {note_num}: {note_text[:50]}...")
                         if is_definition_para:
                             note_paragraph_indices.add(para_idx)
                         # Ищем ссылки-маркеры
@@ -1209,6 +1282,10 @@ def process_book_epub_creation(book_id: str):
                             note_num = get_int_from_superscript(marker)
                             if note_num > 0:
                                 reference_markers_data.append((para_idx, match, note_num))
+                                print(f"      [DEBUG] Найдена ссылка на сноску {note_num} в параграфе {para_idx}")
+                    
+                    print(f"      [DEBUG] Найдено определений сносок: {len(note_targets_found)}")
+                    print(f"      [DEBUG] Найдено ссылок на сноски: {len(reference_markers_data)}")
                     
                     # Этап 2: Генерация HTML
                     final_content_blocks = []
@@ -1284,6 +1361,9 @@ def process_book_epub_creation(book_id: str):
                                     current_para_html = current_para_html[:start] + replacement + current_para_html[end:]
                                     offset += len(replacement) - (end - start)
                                     processed_markers_count += 1
+                                    print(f"      [DEBUG] Заменен маркер {marker} на ссылку к {note_anchor_id}")
+                                elif note_num > 0:
+                                    print(f"      [DEBUG] Маркер {marker} (сноска {note_num}) найден, но определение не найдено")
                             processed_html = current_para_html.replace('\n', '<br/>')
                             final_para_html = f"<p>{processed_html}</p>"
                             final_content_blocks.append(final_para_html)
@@ -1381,6 +1461,30 @@ def process_book_epub_creation(book_id: str):
                         os.remove(temp_epub_path)
                     except OSError as os_err:
                         print(f"  ОШИБКА удаления temp file {temp_epub_path}: {os_err}")
+                
+                # Явное освобождение памяти
+                print("  Освобождение памяти...")
+                try:
+                    # Очищаем большие объекты
+                    if 'book' in locals():
+                        del book
+                    if 'original_book' in locals():
+                        del original_book
+                    if 'chapters' in locals():
+                        del chapters
+                    if 'epub_book_info' in locals():
+                        del epub_book_info
+                    if 'sections_data_map' in locals():
+                        del sections_data_map
+                    if 'toc_data' in locals():
+                        del toc_data
+                    
+                    # Принудительная сборка мусора
+                    import gc
+                    gc.collect()
+                    print("  Память освобождена")
+                except Exception as mem_err:
+                    print(f"  ОШИБКА при освобождении памяти: {mem_err}")
         
         epub_bytes = create_workflow_epub(epub_book_info, target_language)
         
@@ -1398,6 +1502,20 @@ def process_book_epub_creation(book_id: str):
         if not epub_file_path:
             raise Exception("Failed to create EPUB file")
         print(f"[WorkflowProcessor] EPUB успешно создан: {epub_file_path}")
+        
+        # Освобождаем память после сохранения
+        print("[WorkflowProcessor] Освобождение памяти после создания EPUB...")
+        try:
+            if 'epub_bytes' in locals():
+                del epub_bytes
+            if 'epub_book_info' in locals():
+                del epub_book_info
+            import gc
+            gc.collect()
+            print("[WorkflowProcessor] Память освобождена")
+        except Exception as mem_err:
+            print(f"[WorkflowProcessor] ОШИБКА при освобождении памяти: {mem_err}")
+        
         status_to_set = 'completed'
         error_message_to_set = None
 
@@ -1453,7 +1571,7 @@ def recalculate_book_stage_status(book_id, stage_name):
         status = 'processing'
     elif any(isinstance(s, str) and s.startswith('error') for s in statuses):
         status = 'completed_with_errors'
-    elif all(s in ['completed', 'completed_empty', 'skipped'] for s in statuses):
+    elif all(s in ['completed', 'completed_empty', 'skipped', 'passed'] for s in statuses):
         status = 'completed'
     else:
         status = 'processing'

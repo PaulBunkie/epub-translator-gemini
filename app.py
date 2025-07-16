@@ -1661,7 +1661,7 @@ def get_workflow_book_status(book_id):
         for stage in stages_ordered:
             stage_name = stage['stage_name']
             status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
-            if status not in ['completed', 'completed_empty', 'skipped']:
+            if status not in ['completed', 'completed_empty', 'skipped', 'passed']:
                 all_completed = False
                 break
         

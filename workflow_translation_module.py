@@ -241,6 +241,44 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Предупреждение: Не удалось импортировать workflow_model_config")
             return None
 
+    def _save_model_to_db(self, book_id: str, section_id: int, operation_type: str, model_name: str):
+        """
+        Сохраняет информацию о модели в базу данных.
+        Только обновляет модель, не меняя статус.
+        """
+        if not book_id:
+            return
+            
+        try:
+            import workflow_db_manager
+            if section_id:
+                # Для секций - только обновляем модель, не меняя статус
+                print(f"[WorkflowTranslator] Сохраняем реальную модель в БД: {model_name} для секции {section_id}, этап {operation_type}")
+                # Получаем текущий статус
+                section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
+                if section_info and 'stage_statuses' in section_info and operation_type in section_info['stage_statuses']:
+                    current_status = section_info['stage_statuses'][operation_type].get('status', 'completed')
+                    current_error = section_info['stage_statuses'][operation_type].get('error_message')
+                    workflow_db_manager.update_section_stage_status_workflow(
+                        book_id, section_id, operation_type, current_status, 
+                        model_name=model_name, error_message=current_error
+                    )
+                else:
+                    # Если не можем получить текущий статус, используем 'completed'
+                    workflow_db_manager.update_section_stage_status_workflow(
+                        book_id, section_id, operation_type, 'completed', 
+                        model_name=model_name, error_message=None
+                    )
+            else:
+                # Для book-level операций (например, анализ)
+                print(f"[WorkflowTranslator] Сохраняем реальную модель в БД: {model_name} для книги {book_id}, этап {operation_type}")
+                workflow_db_manager.update_book_stage_status_workflow(
+                    book_id, operation_type, 'completed', 
+                    model_name=model_name, error_message=None
+                )
+        except Exception as e:
+            print(f"[WorkflowTranslator] Ошибка сохранения model_name в БД: {e}")
+
     def get_system_instruction(self, operation_type: str, target_language: str) -> str:
         """
         Provides system-level instructions for the model based on the operation type.
@@ -928,8 +966,9 @@ class WorkflowTranslator:
         operation_type: str = 'translate',
         dict_data: dict | None = None,
         book_id: str = None,
-        section_id: int = None
-    ) -> str | None:
+        section_id: int = None,
+        return_model: bool = False
+    ) -> str | None | tuple[str | None, str | None]:
         """
         Ф3 - Fallback контроллер: пытается с тремя уровнями моделей.
         Уровень 1: primary -> Уровень 2: fallback_level1 -> Уровень 3: fallback_level2
@@ -959,16 +998,12 @@ class WorkflowTranslator:
             dict_data
         )
         if result:
-            # Сохраняем имя модели в БД при успехе
-            if book_id and section_id:
-                try:
-                    import workflow_db_manager
-                    workflow_db_manager.update_section_stage_status_workflow(
-                        book_id, section_id, operation_type, 'completed', 
-                        model_name=model_name, error_message=None
-                    )
-                except Exception as e:
-                    print(f"[WorkflowTranslator] Ошибка сохранения model_name в БД: {e}")
+            # Сохраняем модель для book-level операций (когда section_id=None)
+            if not section_id and book_id:
+                self._save_model_to_db(book_id, section_id, operation_type, model_name)
+            # Для section-level операций модель будет сохранена в process_section_translate
+            if return_model:
+                return result, model_name
             return result
         
         # Уровень 2: Пытаемся с fallback_level1
@@ -983,6 +1018,12 @@ class WorkflowTranslator:
                 dict_data
             )
             if result:
+                # Сохраняем модель для book-level операций (когда section_id=None)
+                if not section_id and book_id:
+                    self._save_model_to_db(book_id, section_id, operation_type, fallback_model)
+                # Для section-level операций модель будет сохранена в process_section_translate
+                if return_model:
+                    return result, fallback_model
                 return result
             
             # Уровень 3: Пытаемся с fallback_level2
@@ -997,9 +1038,17 @@ class WorkflowTranslator:
                     dict_data
                 )
                 if result:
+                    # Сохраняем модель для book-level операций (когда section_id=None)
+                    if not section_id and book_id:
+                        self._save_model_to_db(book_id, section_id, operation_type, fallback_model2)
+                    # Для section-level операций модель будет сохранена в process_section_translate
+                    if return_model:
+                        return result, fallback_model2
                     return result
         
         print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех трех уровнях")
+        if return_model:
+            return None, None
         return None
 
     def _summarize_to_fit_chunk(self, text: str, target_language: str, model_name: str, prompt_ext: Optional[str] = None) -> str:
@@ -1095,8 +1144,9 @@ def translate_text(
     operation_type: str = 'translate',
     dict_data: dict | None = None, # !!! ИЗМЕНЕНО: workflow_data -> dict_data !!!
     book_id: str = None,
-    section_id: int = None
-) -> str | None:
+    section_id: int = None,
+    return_model: bool = False
+) -> str | None | tuple[str | None, str | None]:
     """
     Публичная точка входа для перевода/обработки в workflow.
     Создает экземпляр WorkflowTranslator и вызывает его метод translate_text.
@@ -1112,7 +1162,8 @@ def translate_text(
         operation_type=operation_type,
         dict_data=dict_data, # !!! Передаем dict_data дальше !!!
         book_id=book_id,
-        section_id=section_id
+        section_id=section_id,
+        return_model=return_model
     )
 
 # --- ПУБЛИЧНАЯ ФУНКЦИЯ ДЛЯ АНАЛИЗА С АВТОМАТИЧЕСКОЙ СУММАРИЗАЦИЕЙ ---
@@ -1123,8 +1174,9 @@ def analyze_with_summarization(
     prompt_ext: Optional[str] = None,
     dict_data: dict | None = None,
     summarization_model: str = None,
-    book_id: str = None
-) -> str | None:
+    book_id: str = None,
+    return_model: bool = False
+) -> str | None | tuple[str | None, str | None]:
     """
     Анализирует текст с автоматической суммаризацией, если текст слишком большой.
     Гарантирует, что на анализ попадает текст, помещающийся в один чанк.
@@ -1213,14 +1265,22 @@ def analyze_with_summarization(
     
     # Теперь анализируем подготовленный текст с моделью анализа
     print(f"[WorkflowModule] Вызываем translate_text для анализа...")
-    return translator.translate_text(
+    result = translator.translate_text(
         text_to_translate=text_to_analyze,
         target_language=target_language,
         model_name=model_name,  # Используем модель анализа
         prompt_ext=prompt_ext,
         operation_type='analyze',
-        dict_data=dict_data
+        dict_data=dict_data,
+        book_id=book_id,  # Передаем book_id для сохранения модели в БД
+        section_id=None,  # Анализ выполняется на уровне книги, не секции
+        return_model=return_model
     )
+    
+    if return_model and isinstance(result, tuple) and len(result) == 2:
+        return result
+    else:
+        return result
 
 # TODO: Возможно, потребуется реализовать другие функции, аналогичные translation_module,
 # например, get_models_list, load_models_on_startup, configure_api,
