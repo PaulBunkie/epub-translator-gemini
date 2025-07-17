@@ -295,10 +295,11 @@ def extract_section_text(epub_filepath, section_id):
             for element in body.find_all(recursive=False):
                 # Проверяем, содержит ли элемент заголовок
                 if element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-                    # Если содержит заголовок, оборачиваем в bold
+                    # Если содержит заголовок, оборачиваем в bold и добавляем дополнительный перевод строки
                     text = element.get_text(separator=' ', strip=True)
                     if text:
                         text_parts.append(f"**{text}**")
+                        text_parts.append('\n\n')  # Дополнительный перевод строки после заголовка
                 else:
                     # Обычный текст - используем пробел вместо \n\n чтобы не разрывать слова
                     text = element.get_text(separator=' ', strip=True)

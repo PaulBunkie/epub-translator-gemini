@@ -1298,9 +1298,10 @@ def process_book_epub_creation(book_id: str):
                     for para_idx, para_original_raw in enumerate(original_paragraphs):
                         para_strip = para_original_raw.strip()
                         if not para_strip:
+                            # Добавляем пустой параграф с неразрывным пробелом, если исходная строка не была пустой
                             if para_original_raw:
                                 final_content_blocks.append("<p> </p>")
-                            continue
+                            continue # Пропускаем полностью пустые строки
                         
                         # Проверяем, содержит ли параграф определения сносок
                         is_footnote_para = False
