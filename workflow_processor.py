@@ -788,6 +788,15 @@ def process_book_analysis(book_id: str):
                       error_message = "API returned CONTEXT_LIMIT_ERROR."
                       print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR on attempt {attempt + 1}. No retry.")
                       break
+                 elif analysis_result and len(collected_summary_text) > 5000:
+                      # Проверяем размер анализа только для больших текстов
+                      # TODO: Нужно получить размер исходного текста
+                      # Пока что используем размер собранного текста как приближение
+                      if len(analysis_result) > len(collected_summary_text):
+                          error_message = "Анализ больше исходного текста."
+                          print(f"[WorkflowProcessor] Error: Анализ ({len(analysis_result)}) больше исходного текста ({len(collected_summary_text)}) на попытке {attempt + 1}. Ретрай.")
+                          # Продолжаем ретрай с фоллбэками
+                          continue
                  else: # None or empty string after stripping whitespace
                      error_message = "Model returned empty result (None or empty string)."
                      print(f"[WorkflowProcessor] Warning: Model returned empty result on attempt {attempt + 1}.")
