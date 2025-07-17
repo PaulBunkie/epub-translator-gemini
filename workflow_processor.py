@@ -641,11 +641,13 @@ def start_book_workflow(book_id: str, app_instance: Flask):
     if book_info:
         book_stage_statuses = book_info.get('book_stage_statuses', {})
         all_completed = True
+        has_errors = False
         for stage_name, stage_data in book_stage_statuses.items():
             status = stage_data.get('status', 'pending')
             if status not in ['completed', 'completed_empty', 'skipped', 'passed']:
                 all_completed = False
-                break
+            if status in ['error'] or (isinstance(status, str) and status.startswith('error')):
+                has_errors = True
         
         if all_completed:
             workflow_db_manager.update_book_workflow_status(book_id, 'completed')
@@ -653,6 +655,13 @@ def start_book_workflow(book_id: str, app_instance: Flask):
             
             # Отправляем уведомление в Telegram
             send_telegram_notification(book_id, 'completed')
+        elif has_errors:
+            # Если есть ошибки, отправляем уведомление об ошибке
+            workflow_db_manager.update_book_workflow_status(book_id, 'completed_with_errors')
+            print(f"[WorkflowProcessor] Перевод завершен с ошибками. Статус книги {book_id} обновлен на 'completed_with_errors'.")
+            
+            # Отправляем уведомление об ошибке в Telegram
+            send_telegram_notification(book_id, 'completed_with_errors')
         else:
             print(f"[WorkflowProcessor] Не все этапы завершены. Статус книги {book_id} остается текущим.")
     

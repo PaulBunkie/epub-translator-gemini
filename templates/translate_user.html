@@ -298,10 +298,15 @@
             </div>
             
             <!-- Секция результата -->
-            <div id="resultSection" class="result-section {% if book_info and book_info.current_workflow_status == 'completed' %}active{% endif %}">
+            <div id="resultSection" class="result-section {% if book_info and (book_info.current_workflow_status == 'completed' or book_info.current_workflow_status == 'completed_with_errors') %}active{% endif %}">
                 <div class="success">
-                    <h3>✅ Перевод готов!</h3>
-                    <p>Ваша книга успешно переведена.</p>
+                    {% if book_info and book_info.current_workflow_status == 'completed' %}
+                        <h3>✅ Перевод готов!</h3>
+                        <p>Ваша книга успешно переведена.</p>
+                    {% elif book_info and book_info.current_workflow_status == 'completed_with_errors' %}
+                        <h3>⚠️ Перевод завершён с ошибками</h3>
+                        <p>Часть книги переведена, но были ошибки. Проверьте результат.</p>
+                    {% endif %}
                 </div>
                 
                 <div class="status-details">
