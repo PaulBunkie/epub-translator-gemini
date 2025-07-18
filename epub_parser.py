@@ -299,7 +299,7 @@ def extract_section_text(epub_filepath, section_id):
                     text = element.get_text(separator=' ', strip=True)
                     if text:
                         text_parts.append(f"**{text}**")
-                        text_parts.append('\n\n')  # Дополнительный перевод строки после заголовка
+                        text_parts.append('\n\n\n')  # Дополнительный перевод строки после заголовка
                 else:
                     # Обычный текст - используем пробел вместо \n\n чтобы не разрывать слова
                     text = element.get_text(separator=' ', strip=True)
