@@ -172,7 +172,7 @@ class TelegramBotHandler:
 🔔 Вы получите уведомление когда перевод будет готов.
 
 📱 <b>Команды:</b>
-/progress {book_id} - Проверить прогресс перевода
+📊 <code>/progress {book_id}</code> - Проверить прогресс перевода
 /unsubscribe - Отписаться от уведомлений
             """.strip()
             
@@ -227,7 +227,9 @@ class TelegramBotHandler:
             
             # Получаем статус книги через API
             import requests
-            api_url = f"http://localhost:5000/workflow_book_status/{book_id}"
+            # Используем тот же BASE_URL, что и в telegram_notifier
+            BASE_URL = "https://itube.lol"
+            api_url = f"{BASE_URL}/workflow_book_status/{book_id}"
             response = requests.get(api_url, timeout=10)
             
             if response.status_code != 200:
@@ -620,7 +622,7 @@ class TelegramBotHandler:
                 args = parts[1] if len(parts) > 1 else ""
                 
                 # Команды, доступные всем пользователям
-                public_commands = ["/start", "/unsubscribe"]
+                public_commands = ["/start", "/unsubscribe", "/progress"]
                 
                 # Проверяем доступ только для административных команд
                 if command not in public_commands and str(chat_id) not in self.allowed_chat_ids:
