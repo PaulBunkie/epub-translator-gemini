@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from telegram_notifier import telegram_notifier
 
+# Базовый URL для API запросов
+BASE_URL = os.getenv("SITE_URL", "https://itube.lol")
+
 class TelegramBotHandler:
     """
     Расширенный обработчик Telegram бота с командами управления системой
@@ -62,8 +65,8 @@ class TelegramBotHandler:
             print(f"[TelegramBot] Ошибка получения обновлений: {e}")
             return []
     
-    def send_message(self, chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
-        """Отправляет сообщение"""
+    def send_message(self, chat_id: str, text: str, parse_mode: str = "HTML", reply_markup: dict = None) -> bool:
+        """Отправляет сообщение с опциональными кнопками"""
         try:
             url = f"{self.api_url}{self.bot_token}/sendMessage"
             payload = {
@@ -71,6 +74,9 @@ class TelegramBotHandler:
                 "text": text,
                 "parse_mode": parse_mode
             }
+            
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
             
             response = requests.post(url, json=payload, timeout=10)
             return response.status_code == 200
@@ -163,7 +169,17 @@ class TelegramBotHandler:
             if not success:
                 return "❌ Ошибка при добавлении подписки. Попробуйте позже."
             
-            return f"""
+            # Создаем inline-кнопку для проверки прогресса
+            reply_markup = {
+                "inline_keyboard": [[
+                    {
+                        "text": "📊 Проверить прогресс",
+                        "callback_data": f"progress_{book_id}"
+                    }
+                ]]
+            }
+            
+            message_text = f"""
 ✅ <b>Подписка активирована!</b>
 
 📚 <b>Книга:</b> {filename}
@@ -172,9 +188,12 @@ class TelegramBotHandler:
 🔔 Вы получите уведомление когда перевод будет готов.
 
 📱 <b>Команды:</b>
-📊 <code>/progress {book_id}</code> - Проверить прогресс перевода
 /unsubscribe - Отписаться от уведомлений
             """.strip()
+            
+            # Отправляем сообщение с кнопкой
+            self.send_message(chat_id, message_text, reply_markup=reply_markup)
+            return None  # Возвращаем None, так как сообщение уже отправлено
             
         except Exception as e:
             print(f"[TelegramBot] Ошибка при подписке пользователя {chat_id}: {e}")
@@ -199,6 +218,8 @@ class TelegramBotHandler:
     
     def cmd_progress(self, chat_id: str, book_id: str) -> str:
         """Команда /progress для проверки прогресса перевода"""
+        print(f"[TelegramBot] cmd_progress вызвана: chat_id={chat_id}, book_id={book_id}")
+        
         if not book_id:
             return "❌ Укажите ID книги. Использование: /progress [book_id]"
         
@@ -225,17 +246,13 @@ class TelegramBotHandler:
             if not user_has_access:
                 return "❌ У вас нет доступа к этой книге. Используйте /start [токен] для подписки."
             
-            # Получаем статус книги через API
-            import requests
-            # Используем тот же BASE_URL, что и в telegram_notifier
-            BASE_URL = "https://itube.lol"
-            api_url = f"{BASE_URL}/workflow_book_status/{book_id}"
-            response = requests.get(api_url, timeout=10)
+            # Получаем статус книги напрямую из БД
+            print(f"[TelegramBot] Получаем статус книги {book_id} из БД")
             
-            if response.status_code != 200:
-                return "❌ Ошибка при получении статуса книги."
-            
-            data = response.json()
+            # Получаем данные напрямую из workflow_db_manager
+            data = workflow_db_manager.get_workflow_book_status(book_id)
+            if not data:
+                return "❌ Книга не найдена в базе данных."
             
             # Рассчитываем прогресс по той же формуле, что и в веб-интерфейсе
             stages = data.get('book_stage_statuses', {})
@@ -608,30 +625,43 @@ class TelegramBotHandler:
         updates = self.get_updates()
         
         for update in updates:
+            # Обрабатываем сообщения
             message = update.get("message", {})
-            chat_id = message.get("chat", {}).get("id")
-            text = message.get("text", "")
+            if message:
+                chat_id = message.get("chat", {}).get("id")
+                text = message.get("text", "")
+                
+                if chat_id and text:
+                    # Обрабатываем команды
+                    if text.startswith("/"):
+                        parts = text.split(" ", 1)
+                        command = parts[0]
+                        args = parts[1] if len(parts) > 1 else ""
+                        
+                        # Команды, доступные всем пользователям
+                        public_commands = ["/start", "/unsubscribe", "/progress"]
+                        
+                        # Проверяем доступ только для административных команд
+                        if command not in public_commands and str(chat_id) not in self.allowed_chat_ids:
+                            self.send_message(chat_id, "❌ Доступ запрещен")
+                            continue
+                        
+                        response = self.handle_command(chat_id, command, args)
+                        if response:  # Если response не None
+                            self.send_message(chat_id, response)
             
-            if not chat_id or not text:
-                continue
-            
-            # Обрабатываем команды
-            if text.startswith("/"):
-                parts = text.split(" ", 1)
-                command = parts[0]
-                args = parts[1] if len(parts) > 1 else ""
+            # Обрабатываем callback-запросы от кнопок
+            callback_query = update.get("callback_query", {})
+            if callback_query:
+                chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
+                callback_data = callback_query.get("data", "")
                 
-                # Команды, доступные всем пользователям
-                public_commands = ["/start", "/unsubscribe", "/progress"]
-                
-                # Проверяем доступ только для административных команд
-                if command not in public_commands and str(chat_id) not in self.allowed_chat_ids:
-                    self.send_message(chat_id, "❌ Доступ запрещен")
-                    continue
-                
-                response = self.handle_command(chat_id, command, args)
-                
-                self.send_message(chat_id, response)
+                if chat_id and callback_data:
+                    if callback_data.startswith("progress_"):
+                        book_id = callback_data[9:]  # Убираем "progress_"
+                        response = self.cmd_progress(chat_id, book_id)
+                        if response:
+                            self.send_message(chat_id, response)
     
     def run_polling(self):
         """Запускает polling для получения обновлений"""
