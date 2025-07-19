@@ -1037,6 +1037,21 @@ def remove_telegram_user(user_id: str) -> bool:
         print(f"[WorkflowDB] Ошибка удаления пользователя Telegram {user_id}: {e}")
         return False
 
+def get_telegram_user_subscriptions(user_id: str) -> list:
+    """Получает все подписки пользователя Telegram"""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("""
+            SELECT tu.access_token, tu.created_at, tu.is_active, b.book_id, b.filename, b.target_language
+            FROM telegram_users tu
+            JOIN books b ON tu.access_token = b.access_token
+            WHERE tu.user_id = ? AND tu.is_active = TRUE
+        """, (user_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка получения подписок пользователя Telegram {user_id}: {e}")
+        return []
+
 # --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
 
 # --- ФУНКЦИИ ДЛЯ РАБОТЫ С ПОЛЬЗОВАТЕЛЬСКИМИ СЕССИЯМИ ---
