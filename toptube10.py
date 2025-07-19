@@ -241,11 +241,11 @@ class TopTubeManager:
             duration = isodate.parse_duration(duration_str)
             duration_seconds = duration.total_seconds()
             
-            if duration_seconds < 3000:  # 50 минут = 3000 секунд
+            if duration_seconds < 5400:  # 1.5 часа = 5400 секунд (90 минут)
                 print(f"[TopTube] Видео слишком короткое: {duration_seconds//60} мин — пропускаем")
                 return False
             
-            if duration_seconds > 14400:  # 4 часа = 14400 секунд
+            if duration_seconds > 18000:  # 5 часов = 18000 секунд
                 print(f"[TopTube] Видео слишком длинное: {duration_seconds//60} мин — пропускаем (Яндекс не справляется)")
                 return False
             

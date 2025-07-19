@@ -106,6 +106,9 @@ class TelegramBotHandler:
         elif command == "/unsubscribe":
             return self.cmd_unsubscribe(chat_id)
         
+        elif command == "/progress":
+            return self.cmd_progress(chat_id, args)
+        
         else:
             return "❌ Неизвестная команда. Используйте /help для списка команд."
     
@@ -169,6 +172,7 @@ class TelegramBotHandler:
 🔔 Вы получите уведомление когда перевод будет готов.
 
 📱 <b>Команды:</b>
+/progress {book_id} - Проверить прогресс перевода
 /unsubscribe - Отписаться от уведомлений
             """.strip()
             
@@ -193,6 +197,151 @@ class TelegramBotHandler:
             print(f"[TelegramBot] Ошибка при отписке пользователя {chat_id}: {e}")
             return "❌ Ошибка при отписке. Попробуйте позже."
     
+    def cmd_progress(self, chat_id: str, book_id: str) -> str:
+        """Команда /progress для проверки прогресса перевода"""
+        if not book_id:
+            return "❌ Укажите ID книги. Использование: /progress [book_id]"
+        
+        try:
+            # Проверяем подписку пользователя
+            import workflow_db_manager
+            user_subscriptions = workflow_db_manager.get_telegram_user_subscriptions(chat_id)
+            
+            if not user_subscriptions:
+                return "❌ Вы не подписаны на уведомления. Используйте /start [токен] для подписки."
+            
+            # Проверяем, что пользователь подписан на эту книгу
+            book_info = workflow_db_manager.get_book_workflow(book_id)
+            if not book_info:
+                return "❌ Книга не найдена или у вас нет доступа к ней."
+            
+            # Проверяем, что пользователь подписан на эту книгу
+            user_has_access = False
+            for subscription in user_subscriptions:
+                if subscription.get('book_id') == book_id:
+                    user_has_access = True
+                    break
+            
+            if not user_has_access:
+                return "❌ У вас нет доступа к этой книге. Используйте /start [токен] для подписки."
+            
+            # Получаем статус книги через API
+            import requests
+            api_url = f"http://localhost:5000/workflow_book_status/{book_id}"
+            response = requests.get(api_url, timeout=10)
+            
+            if response.status_code != 200:
+                return "❌ Ошибка при получении статуса книги."
+            
+            data = response.json()
+            
+            # Рассчитываем прогресс по той же формуле, что и в веб-интерфейсе
+            stages = data.get('book_stage_statuses', {})
+            total_sections = data.get('total_sections_count', 0)
+            sections_summary = data.get('sections_status_summary', {})
+            
+            # Расчет прогресса
+            score = 0
+            max_score = 5 + 3 + total_sections + 1  # суммаризация + анализ + перевод + epub
+            
+            # Суммаризация (пропорционально секциям)
+            summarized_sections = 0
+            if sections_summary.get('summarize'):
+                summary = sections_summary['summarize']
+                summarized_sections = (summary.get('completed', 0) + 
+                                     summary.get('completed_empty', 0) + 
+                                     summary.get('skipped', 0))
+            if total_sections > 0:
+                score += (5 / total_sections) * summarized_sections
+            
+            # Анализ
+            analyze_status = stages.get('analyze', {}).get('status')
+            if analyze_status in ["completed", "completed_empty", "skipped"]:
+                score += 3
+            
+            # Перевод
+            translated_sections = 0
+            if sections_summary.get('translate'):
+                summary = sections_summary['translate']
+                translated_sections = (summary.get('completed', 0) + 
+                                     summary.get('completed_empty', 0) + 
+                                     summary.get('skipped', 0))
+            score += translated_sections
+            
+            # EPUB
+            epub_status = stages.get('epub_creation', {}).get('status')
+            if epub_status in ["completed", "completed_empty", "skipped"]:
+                score += 1
+            
+            progress_percent = (score / max_score * 100) if max_score > 0 else 0
+            
+            # Формируем ответ
+            book_title = data.get('book_title', data.get('filename', 'Неизвестная книга'))
+            current_status = data.get('current_workflow_status', 'unknown')
+            
+            if current_status == 'completed':
+                result = f"""
+📚 <b>{book_title}</b>
+✅ <b>Перевод завершен: 100% ({total_sections}/{total_sections} секций)</b>
+
+📥 <b>Скачать:</b> /download {book_id}
+                """.strip()
+            else:
+                # Детали по этапам
+                stage_details = []
+                
+                # Суммаризация
+                if sections_summary.get('summarize'):
+                    summary = sections_summary['summarize']
+                    completed = (summary.get('completed', 0) + 
+                               summary.get('completed_empty', 0) + 
+                               summary.get('skipped', 0))
+                    stage_details.append(f"✅ Суммаризация: {completed}/{total_sections}")
+                else:
+                    stage_details.append("⏳ Суммаризация: ожидает")
+                
+                # Перевод
+                if sections_summary.get('translate'):
+                    summary = sections_summary['translate']
+                    completed = (summary.get('completed', 0) + 
+                               summary.get('completed_empty', 0) + 
+                               summary.get('skipped', 0))
+                    stage_details.append(f"🔄 Перевод: {completed}/{total_sections}")
+                else:
+                    stage_details.append("⏳ Перевод: ожидает")
+                
+                # Анализ
+                analyze_status = stages.get('analyze', {}).get('status', 'pending')
+                if analyze_status in ["completed", "completed_empty", "skipped"]:
+                    stage_details.append("✅ Анализ: завершен")
+                elif analyze_status == "processing":
+                    stage_details.append("🔄 Анализ: в процессе")
+                else:
+                    stage_details.append("⏳ Анализ: ожидает")
+                
+                # EPUB
+                epub_status = stages.get('epub_creation', {}).get('status', 'pending')
+                if epub_status in ["completed", "completed_empty", "skipped"]:
+                    stage_details.append("✅ EPUB: готов")
+                elif epub_status == "processing":
+                    stage_details.append("🔄 EPUB: создается")
+                else:
+                    stage_details.append("⏳ EPUB: ожидает")
+                
+                result = f"""
+📚 <b>{book_title}</b>
+🔄 <b>Перевод в процессе: {progress_percent:.1f}% ({translated_sections}/{total_sections} секций)</b>
+
+📋 <b>Этапы:</b>
+{chr(10).join(stage_details)}
+                """.strip()
+            
+            return result
+            
+        except Exception as e:
+            print(f"[TelegramBot] Ошибка при получении прогресса для книги {book_id}: {e}")
+            return "❌ Ошибка при получении статуса перевода. Попробуйте позже."
+    
     def cmd_help(self) -> str:
         """Команда /help"""
         return """
@@ -208,6 +357,11 @@ class TelegramBotHandler:
 
 ⚡ <b>Управление:</b>
 /restart - Перезапускает систему (требует подтверждения)
+
+📖 <b>Перевод книг:</b>
+/progress [book_id] - Проверить прогресс перевода книги
+/start [токен] - Подписаться на уведомления о переводе
+/unsubscribe - Отписаться от уведомлений
 
 📊 <b>Автоматические уведомления:</b>
 • Ошибки токенов Yandex API
