@@ -156,10 +156,11 @@ def process_section_summarization(book_id: str, section_id: int):
         epub_filepath = book_info['filepath']
         section_epub_id = section_info['section_epub_id']
 
-        # --- ИЗМЕНЕНИЕ: Используем существующую функцию extract_section_text с section_epub_id ---
+        # --- ИЗМЕНЕНИЕ: Используем существующую функцию extract_section_text с section_epub_id и TOC ---
         # TODO: Реализовать получение контента секции по epub_filepath и section_epub_id в epub_parser DONE
         # Возможно, потребуется создать новый метод, который открывает EPUB по пути и извлекает контент конкретного файла по его ID DONE
-        section_content = epub_parser.extract_section_text(epub_filepath, section_epub_id)
+        toc_data = book_info.get('toc', [])
+        section_content = epub_parser.extract_section_text(epub_filepath, section_epub_id, toc_data)
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         if not section_content:
@@ -902,7 +903,8 @@ def process_section_translate(book_id: str, section_id: int):
             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=error_message)
             return False
         epub_path = book_info['filepath']
-        section_text = extract_section_text(epub_path, section_epub_id)
+        toc_data = book_info.get('toc', [])
+        section_text = extract_section_text(epub_path, section_epub_id, toc_data)
         if not section_text or not section_text.strip():
             error_message = "Section text is empty."
             print(f"[WorkflowProcessor] {error_message}")

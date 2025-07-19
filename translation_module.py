@@ -412,8 +412,9 @@ class OpenRouterTranslator(BaseTranslator):
         if CHUNK_SIZE_LIMIT_CHARS <= 0:
             CHUNK_SIZE_LIMIT_CHARS = context_chars_limit // 2
         
-        # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ---
-        CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
+        # --- ПРИНУДИТЕЛЬНОЕ ОГРАНИЧЕНИЕ: максимум 30000 символов ТОЛЬКО ДЛЯ ПЕРЕВОДА ---
+        if operation_type == 'translate':
+            CHUNK_SIZE_LIMIT_CHARS = min(CHUNK_SIZE_LIMIT_CHARS, 30000)
         # --- КОНЕЦ ПРИНУДИТЕЛЬНОГО ОГРАНИЧЕНИЯ ---
         
         # Разбиваем текст на чанки методом пузырька

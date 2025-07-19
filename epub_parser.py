@@ -261,9 +261,10 @@ def _parse_ncx_navpoint(nav_point, level, toc_list, processed_hrefs, id_to_href_
             _parse_ncx_navpoint(child_nav_point, level + 1, toc_list, processed_hrefs, id_to_href_map)
 
 
-def extract_section_text(epub_filepath, section_id):
+def extract_section_text(epub_filepath, section_id, toc_data=None):
     """
     Извлекает "чистый" текст из указанного раздела (по ID) EPUB файла.
+    Если передан toc_data, ищет заголовки-ссылки в начале секции.
     """
     if not os.path.exists(epub_filepath):
         print(f"ОШИБКА: Файл EPUB не найден: {epub_filepath}")
@@ -291,20 +292,48 @@ def extract_section_text(epub_filepath, section_id):
         # Ищем тег body
         body = soup.find('body')
         if body:
+            # Ищем заголовок-ссылку в начале секции, если передан TOC
+            section_title_from_toc = None
+            if toc_data:
+                for toc_item in toc_data:
+                    if toc_item.get('id') == section_id:
+                        section_title_from_toc = toc_item.get('title')
+                        break
+            
             # Итерируемся по всем прямым потомкам body
             for element in body.find_all(recursive=False):
-                # Проверяем, содержит ли элемент заголовок
+                # Проверяем, содержит ли элемент заголовок (старая логика)
                 if element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
                     # Если содержит заголовок, оборачиваем в bold и добавляем дополнительный перевод строки
                     text = element.get_text(separator=' ', strip=True)
                     if text:
                         text_parts.append(f"**{text}**")
                         text_parts.append('\n\n\n')  # Дополнительный перевод строки после заголовка
-                else:
-                    # Обычный текст - используем пробел вместо \n\n чтобы не разрывать слова
-                    text = element.get_text(separator=' ', strip=True)
-                    if text:
-                        text_parts.append(text)
+                # НОВАЯ ЛОГИКА: Ищем ссылку в начале секции
+                elif section_title_from_toc and element.find('a'):
+                    # Ищем первую ссылку в элементе
+                    first_link = element.find('a')
+                    if first_link:
+                        link_text = first_link.get_text(strip=True)
+                        # Проверяем, совпадает ли текст ссылки с заголовком из TOC (более гибкое сравнение)
+                        if link_text and (link_text == section_title_from_toc or 
+                                        link_text.replace(' ', '') == section_title_from_toc.replace(' ', '') or
+                                        section_title_from_toc in link_text or link_text in section_title_from_toc):
+                            # Это заголовок-ссылка! Обрабатываем как заголовок
+                            text_parts.append(f"**{link_text}**")
+                            text_parts.append('\n\n\n')  # Дополнительный перевод строки после заголовка
+                            
+                            # Удаляем ссылку из элемента и добавляем остальной текст
+                            first_link.extract()
+                            remaining_text = element.get_text(separator='\n', strip=True)  # Используем \n для сохранения переносов
+                            if remaining_text:
+                                text_parts.append(remaining_text)
+                            continue  # Переходим к следующему элементу
+                
+                # Обычный текст - используем \n для сохранения структуры параграфов
+                text = element.get_text(separator='\n', strip=True)
+                if text:
+                    text_parts.append(text)
             # Если внутри body не нашлось прямых потомков с текстом,
             # но сам body не пустой, попробуем взять весь текст из body
             if not text_parts and body.get_text(strip=True):
@@ -320,13 +349,8 @@ def extract_section_text(epub_filepath, section_id):
                 text_parts.append(full_text)
 
 
-        # Объединяем части, добавляя перевод строки после каждого параграфа
-        final_parts = []
-        for part in text_parts:
-            final_parts.append(part)
-            final_parts.append('\n\n')
-        
-        extracted_text = "".join(final_parts)
+        # Объединяем части, сохраняя структуру параграфов
+        extracted_text = "\n\n".join(text_parts)
 
         # Дополнительная очистка от лишних пробелов и пустых строк
         extracted_text = re.sub(r'\n{3,}', '\n\n', extracted_text).strip()

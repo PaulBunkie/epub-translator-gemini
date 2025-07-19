@@ -51,8 +51,8 @@ Your translation must follow these principles strictly:
   - Use footnotes sparingly.
 
 # LANGUAGE-SPECIFIC RULES
-{{russian_dialogue_rule}}
-{{russian_formatting_rule}}
+ - {{russian_dialogue_rule}}
+ - {{russian_formatting_rule}}
 
 # GENERAL GUIDELINES
 {{prompt_ext_section}}
@@ -509,6 +509,11 @@ class WorkflowTranslator:
         # Заменяем переносы строк на \n
         text = text.replace('\r\n', '\n').replace('\r', '\n')
         
+        # Удаляем HTML теги выделения литер (например, <span class="cotx1_caps">N</span>)
+        import re
+        text = re.sub(r'<span[^>]*class="[^"]*caps[^"]*"[^>]*>([^<]*)</span>', r'\1', text, flags=re.IGNORECASE)
+        text = re.sub(r'<span[^>]*class="[^"]*calibre[^"]*"[^>]*>([^<]*)</span>', r'\1', text, flags=re.IGNORECASE)
+        
         # Удаляем BOM и другие невидимые символы
         text = text.encode('utf-8', 'ignore').decode('utf-8')
         
@@ -541,8 +546,8 @@ class WorkflowTranslator:
         if operation_type == 'translate':
             # Языкозависимые правила
             if target_language.lower() == "russian":
-                formatted_vars['russian_dialogue_rule'] = "For dialogue in Russian, use appropriate punctuation for direct speech (e.g., em dash for conversational breaks)."
-                formatted_vars['russian_formatting_rule'] = "For Russian text formatting: do not add line breaks before or after bold (**text**) and italic (*text*) formatting. Keep the formatting inline with the text flow, unlike English typography where formatting is often separated by line breaks. Example: 'Это **важный** текст' not 'Это\n**важный**\nтекст'."
+                formatted_vars['russian_dialogue_rule'] = "When formatting dialogue, use the Russian style with em dashes (—), not quotation marks."
+                formatted_vars['russian_formatting_rule'] = "For text formatting: do not add line breaks before or after bold (**text**) and italic (*text*) formatting. Keep the formatting inline with the text flow, unlike English typography where formatting is often separated by line breaks. Example: 'Это **важный** текст' not 'Это\n**важный**\nтекст'."
                 formatted_vars['translator_notes_heading'] = 'Примечания переводчика'
             else:
                 formatted_vars['russian_dialogue_rule'] = ""
