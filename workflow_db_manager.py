@@ -1052,6 +1052,68 @@ def get_telegram_user_subscriptions(user_id: str) -> list:
         print(f"[WorkflowDB] Ошибка получения подписок пользователя Telegram {user_id}: {e}")
         return []
 
+def get_workflow_book_status(book_id: str) -> dict:
+    """Получает полный статус книги для Telegram бота (аналог API endpoint)"""
+    try:
+        book_info = get_book_workflow(book_id)
+        if not book_info:
+            return None
+        
+        # Получаем конфигурацию этапов
+        stages_config = get_all_stages_ordered_workflow()
+        stages_config_map = {stage['stage_name']: stage for stage in stages_config}
+        
+        # Получаем секции
+        sections = get_sections_for_book_workflow(book_id)
+        total_sections = len(sections)
+        
+        # Формируем ответ в том же формате, что и API
+        response_data = {
+            "book_id": book_info.get('book_id'),
+            "filename": book_info.get('filename'),
+            "book_title": book_info.get('book_title', book_info.get('filename')),
+            "target_language": book_info.get('target_language'),
+            "current_workflow_status": book_info.get('current_workflow_status'),
+            "book_stage_statuses": {},
+            "total_sections_count": total_sections,
+            "sections_status_summary": {}
+        }
+        
+        # Добавляем статусы этапов
+        book_stage_statuses = book_info.get('book_stage_statuses', {})
+        for stage_name, stage_data in book_stage_statuses.items():
+            response_data['book_stage_statuses'][stage_name] = stage_data
+            config = stages_config_map.get(stage_name)
+            response_data['book_stage_statuses'][stage_name]['is_per_section'] = config.get('is_per_section', False) if config else False
+        
+        # Формируем сводку статусов секций для посекционных этапов
+        for stage_name, stage_config in stages_config_map.items():
+            if stage_config.get('is_per_section'):
+                sections_status_summary = {
+                    'total': total_sections,
+                    'completed': 0,
+                    'completed_empty': 0,
+                    'processing': 0,
+                    'queued': 0,
+                    'error': 0,
+                    'skipped': 0,
+                    'pending': 0,
+                    'cached': 0,
+                }
+                
+                for section in sections:
+                    section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
+                    if section_stage_status in sections_status_summary:
+                        sections_status_summary[section_stage_status] += 1
+                
+                response_data['sections_status_summary'][stage_name] = sections_status_summary
+        
+        return response_data
+        
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка получения статуса книги {book_id}: {e}")
+        return None
+
 # --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
 
 # --- ФУНКЦИИ ДЛЯ РАБОТЫ С ПОЛЬЗОВАТЕЛЬСКИМИ СЕССИЯМИ ---
