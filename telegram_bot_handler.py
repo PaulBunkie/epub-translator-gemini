@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from telegram_notifier import telegram_notifier
+import workflow_db_manager
 
 # Базовый URL для API запросов
 BASE_URL = os.getenv("SITE_URL", "https://itube.lol")
@@ -150,9 +151,6 @@ class TelegramBotHandler:
             return self.cmd_start()
         
         try:
-            # Импортируем workflow_db_manager
-            import workflow_db_manager
-            
             # Проверяем существование токена
             book_info = workflow_db_manager.get_book_by_access_token(token)
             
@@ -202,8 +200,6 @@ class TelegramBotHandler:
     def cmd_unsubscribe(self, chat_id: str) -> str:
         """Команда /unsubscribe для отписки от уведомлений"""
         try:
-            import workflow_db_manager
-            
             # Удаляем пользователя
             success = workflow_db_manager.remove_telegram_user(chat_id)
             
@@ -225,7 +221,6 @@ class TelegramBotHandler:
         
         try:
             # Проверяем подписку пользователя
-            import workflow_db_manager
             user_subscriptions = workflow_db_manager.get_telegram_user_subscriptions(chat_id)
             
             if not user_subscriptions:
@@ -258,6 +253,9 @@ class TelegramBotHandler:
             stages = data.get('book_stage_statuses', {})
             total_sections = data.get('total_sections_count', 0)
             sections_summary = data.get('sections_status_summary', {})
+            
+            # Получаем правильный порядок этапов
+            stages_ordered = workflow_db_manager.get_all_stages_ordered_workflow()
             
             # Расчет прогресса
             score = 0
@@ -306,50 +304,47 @@ class TelegramBotHandler:
 📥 <b>Скачать:</b> /download {book_id}
                 """.strip()
             else:
-                # Детали по этапам
+                # Детали по этапам в правильном порядке
                 stage_details = []
                 
-                # Суммаризация
-                if sections_summary.get('summarize'):
-                    summary = sections_summary['summarize']
-                    completed = (summary.get('completed', 0) + 
-                               summary.get('completed_empty', 0) + 
-                               summary.get('skipped', 0))
-                    stage_details.append(f"✅ Суммаризация: {completed}/{total_sections}")
-                else:
-                    stage_details.append("⏳ Суммаризация: ожидает")
-                
-                # Перевод
-                if sections_summary.get('translate'):
-                    summary = sections_summary['translate']
-                    completed = (summary.get('completed', 0) + 
-                               summary.get('completed_empty', 0) + 
-                               summary.get('skipped', 0))
-                    stage_details.append(f"🔄 Перевод: {completed}/{total_sections}")
-                else:
-                    stage_details.append("⏳ Перевод: ожидает")
-                
-                # Анализ
-                analyze_status = stages.get('analyze', {}).get('status', 'pending')
-                if analyze_status in ["completed", "completed_empty", "skipped"]:
-                    stage_details.append("✅ Анализ: завершен")
-                elif analyze_status == "processing":
-                    stage_details.append("🔄 Анализ: в процессе")
-                else:
-                    stage_details.append("⏳ Анализ: ожидает")
-                
-                # EPUB
-                epub_status = stages.get('epub_creation', {}).get('status', 'pending')
-                if epub_status in ["completed", "completed_empty", "skipped"]:
-                    stage_details.append("✅ EPUB: готов")
-                elif epub_status == "processing":
-                    stage_details.append("🔄 EPUB: создается")
-                else:
-                    stage_details.append("⏳ EPUB: ожидает")
+                # Проходим по этапам в правильном порядке
+                for stage in stages_ordered:
+                    stage_name = stage['stage_name']
+                    stage_data = stages.get(stage_name, {})
+                    stage_status = stage_data.get('status', 'pending')
+                    is_per_section = stage.get('is_per_section', False)
+                    
+                    # Определяем иконку и текст для этапа
+                    if stage_status in ["completed", "completed_empty", "skipped"]:
+                        icon = "✅"
+                        if is_per_section and sections_summary.get(stage_name):
+                            summary = sections_summary[stage_name]
+                            completed = (summary.get('completed', 0) + 
+                                       summary.get('completed_empty', 0) + 
+                                       summary.get('skipped', 0))
+                            stage_details.append(f"{icon} {stage_name.title()}: {completed}/{total_sections}")
+                        else:
+                            stage_details.append(f"{icon} {stage_name.title()}: завершен")
+                    elif stage_status == "processing":
+                        icon = "🔄"
+                        if is_per_section and sections_summary.get(stage_name):
+                            summary = sections_summary[stage_name]
+                            completed = (summary.get('completed', 0) + 
+                                       summary.get('completed_empty', 0) + 
+                                       summary.get('skipped', 0))
+                            stage_details.append(f"{icon} {stage_name.title()}: {completed}/{total_sections}")
+                        else:
+                            stage_details.append(f"{icon} {stage_name.title()}: в процессе")
+                    else:
+                        icon = "⏳"
+                        if is_per_section:
+                            stage_details.append(f"{icon} {stage_name.title()}: ожидает")
+                        else:
+                            stage_details.append(f"{icon} {stage_name.title()}: ожидает")
                 
                 result = f"""
 📚 <b>{book_title}</b>
-🔄 <b>Перевод в процессе: {progress_percent:.1f}% ({translated_sections}/{total_sections} секций)</b>
+🔄 <b>Перевод в процессе: {progress_percent:.1f}% ({translated_sections}/{total_sections})</b>
 
 📋 <b>Этапы:</b>
 {chr(10).join(stage_details)}
