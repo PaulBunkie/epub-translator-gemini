@@ -325,13 +325,13 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
                             
                             # Удаляем ссылку из элемента и добавляем остальной текст
                             first_link.extract()
-                            remaining_text = element.get_text(separator='\n', strip=True)  # Используем \n для сохранения переносов
+                            remaining_text = element.get_text(separator=' ', strip=True)  # Используем пробел для слов
                             if remaining_text:
                                 text_parts.append(remaining_text)
                             continue  # Переходим к следующему элементу
                 
-                # Обычный текст - используем \n для сохранения структуры параграфов
-                text = element.get_text(separator='\n', strip=True)
+                # Обычный текст - используем пробел для слов, но сохраняем структуру параграфов
+                text = element.get_text(separator=' ', strip=True)
                 if text:
                     text_parts.append(text)
             # Если внутри body не нашлось прямых потомков с текстом,
@@ -350,6 +350,7 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
 
 
         # Объединяем части, сохраняя структуру параграфов
+        # Каждый элемент из body становится отдельным параграфом
         extracted_text = "\n\n".join(text_parts)
 
         # Дополнительная очистка от лишних пробелов и пустых строк
