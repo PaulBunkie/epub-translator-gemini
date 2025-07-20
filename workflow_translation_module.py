@@ -701,11 +701,11 @@ class WorkflowTranslator:
             from translation_module import get_context_length, get_model_output_token_limit
             model_total_context_limit = get_context_length(model_name) if model_name else 2048
             model_declared_output_limit = get_model_output_token_limit(model_name) if model_name else None
-            # Формируем промпт для оценки длины
+            # Формируем промпт для оценки длины - считаем ВСЕ сообщения
             prompt_text = ""
-            if messages and isinstance(messages, list) and len(messages) > 0:
-                # Берём только user-сообщения (или первое)
-                prompt_text = messages[0].get('content', '')
+            if messages and isinstance(messages, list):
+                for message in messages:
+                    prompt_text += message.get('content', '')
             input_prompt_tokens = len(prompt_text) // 3
             # Если max_completion_tokens не указан, используем половину размера контекста
             if not model_declared_output_limit:
@@ -745,6 +745,17 @@ class WorkflowTranslator:
                     # --- Обработка успешного ответа ---
                     if response.status_code == 200:
                         response_json = response.json()
+                        
+                        # Логируем информацию о провайдере
+                        if 'usage' in response_json:
+                            usage = response_json['usage']
+                            print(f"[OpenRouterTranslator] Использование токенов: prompt={usage.get('prompt_tokens', 'N/A')}, completion={usage.get('completion_tokens', 'N/A')}, total={usage.get('total_tokens', 'N/A')}")
+                        
+                        # Логируем информацию о провайдере
+                        if 'model' in response_json:
+                            actual_model = response_json['model']
+                            print(f"[OpenRouterTranslator] Фактически использованная модель: {actual_model}")
+                        
                         if 'choices' in response_json and len(response_json['choices']) > 0:
                             choice = response_json['choices'][0]
                             if 'message' in choice and 'content' in choice['message']:
@@ -964,7 +975,7 @@ class WorkflowTranslator:
             chunk_limit = 30000
         
         # Применяем ограничения в зависимости от операции
-        if operation_type == 'analyze':
+        if operation_type in ['analyze', 'summarize']:
             chunk_limit = min(chunk_limit, ANALYSIS_CHUNK_SIZE_LIMIT_CHARS)
         elif operation_type == 'translate_toc':
             chunk_limit = 1000
