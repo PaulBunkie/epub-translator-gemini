@@ -86,11 +86,26 @@ class TelegramBotHandler:
             print(f"[TelegramBot] Ошибка отправки сообщения: {e}")
             return False
     
+    def send_main_menu(self, chat_id: str) -> bool:
+        """Отправляет главное меню команд"""
+        reply_markup = {
+            "keyboard": [
+                [{"text": "📊 Прогресс"}, {"text": "❓ Помощь"}],
+                [{"text": "🔔 Подписаться"}, {"text": "🚫 Отписаться"}]
+            ],
+            "resize_keyboard": True,
+            "one_time_keyboard": False
+        }
+        return self.send_message(chat_id, "🤖 Выберите действие:", reply_markup=reply_markup)
+    
     def handle_command(self, chat_id: str, command: str, args: str = "") -> str:
         """Обрабатывает команды бота"""
         
         if command == "/start":
-            return self.cmd_start_with_token(chat_id, args)
+            if args:
+                return self.cmd_start_with_token(chat_id, args)
+            else:
+                return self.cmd_start(chat_id)
         
         elif command == "/help":
             return self.cmd_help()
@@ -119,9 +134,9 @@ class TelegramBotHandler:
         else:
             return "❌ Неизвестная команда. Используйте /help для списка команд."
     
-    def cmd_start(self) -> str:
+    def cmd_start(self, chat_id: str = None) -> str:
         """Команда /start без токена"""
-        return """
+        message = """
 🤖 <b>AI Tube Notification Bot</b>
 
 Добро пожаловать! Я помогу вам управлять системой анализа видео.
@@ -144,6 +159,12 @@ class TelegramBotHandler:
 
 Например: <code>/start LutIqOTUHttP35cjjQo1F1PY3Bh1qFpIUC5HRIWUd9M</code>
         """.strip()
+        
+        # Если передан chat_id, отправляем меню
+        if chat_id:
+            self.send_main_menu(chat_id)
+        
+        return message
     
     def cmd_start_with_token(self, chat_id: str, token: str) -> str:
         """Команда /start с токеном для подписки на уведомления"""
@@ -627,7 +648,7 @@ class TelegramBotHandler:
                 text = message.get("text", "")
                 
                 if chat_id and text:
-                    # Обрабатываем команды
+                    # Обрабатываем команды и текстовые кнопки
                     if text.startswith("/"):
                         parts = text.split(" ", 1)
                         command = parts[0]
@@ -644,6 +665,21 @@ class TelegramBotHandler:
                         response = self.handle_command(chat_id, command, args)
                         if response:  # Если response не None
                             self.send_message(chat_id, response)
+                    
+                    # Обрабатываем текстовые кнопки меню
+                    elif text == "📊 Прогресс":
+                        self.send_message(chat_id, "📝 Отправьте ID книги для проверки прогресса:\n\nПример: <code>5cebf171a8eb300c13d381b6f180a4b2</code>")
+                    
+                    elif text == "❓ Помощь":
+                        response = self.cmd_help()
+                        self.send_message(chat_id, response)
+                    
+                    elif text == "🔔 Подписаться":
+                        self.send_message(chat_id, "🔗 Отправьте токен для подписки:\n\nПример: <code>/start LutIqOTUHttP35cjjQo1F1PY3Bh1qFpIUC5HRIWUd9M</code>")
+                    
+                    elif text == "🚫 Отписаться":
+                        response = self.cmd_unsubscribe(chat_id)
+                        self.send_message(chat_id, response)
             
             # Обрабатываем callback-запросы от кнопок
             callback_query = update.get("callback_query", {})
