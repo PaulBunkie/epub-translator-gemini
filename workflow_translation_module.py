@@ -874,7 +874,10 @@ class WorkflowTranslator:
         chunk_limit = self._get_chunk_limit_for_operation(operation_type, model_name)
         
         # Разбиваем текст на чанки по лимиту ЭТОЙ модели
-        chunks = self._smart_chunk_text_for_reduction(text_to_process, chunk_limit)
+        if operation_type == 'analyze':
+            chunks = self._smart_chunk_text_for_reduction(text_to_process, chunk_limit)
+        else:
+            chunks = self._bubble_chunk_text(text_to_process, chunk_limit)
         if not chunks:
             print(f"[WorkflowTranslator] Нет чанков для {operation_type}")
             return None
