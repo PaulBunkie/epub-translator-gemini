@@ -354,7 +354,9 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
         extracted_text = "\n\n".join(text_parts)
 
         # Дополнительная очистка от лишних пробелов и пустых строк
-        extracted_text = re.sub(r'\n{3,}', '\n\n', extracted_text).strip()
+        # НЕ удаляем переводы строк после заголовков (которые содержат **)
+        # Заменяем только последовательности из 4+ переводов строк на 3
+        extracted_text = re.sub(r'\n{4,}', '\n\n\n', extracted_text).strip()
 
         print(f"Извлечено ~{len(extracted_text)} символов текста.")
         # Возвращаем пустую строку, если ничего не извлекли, но не None
