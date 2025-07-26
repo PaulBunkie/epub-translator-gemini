@@ -300,66 +300,132 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
                         section_title_from_toc = toc_item.get('title')
                         break
             
-            # Итерируемся по всем прямым потомкам body
+            # Рекурсивно извлекаем текст с сохранением структуры
+            def extract_text_recursive(element, level=0):
+                """Рекурсивно извлекает текст с правильным форматированием"""
+                from bs4 import NavigableString, Tag
+                
+                # Если это текстовый узел (NavigableString), просто возвращаем его текст
+                if isinstance(element, NavigableString):
+                    text = str(element).strip()
+                    return [text] if text else []
+                
+                # Если это не Tag, пропускаем
+                if not isinstance(element, Tag):
+                    return []
+                
+                parts = []
+                
+                # Блочные элементы, которые должны создавать переносы строк
+                block_elements = ['p', 'div', 'section', 'article', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 
+                                'li', 'blockquote', 'pre', 'table', 'tr', 'td', 'th']
+                
+                # Элементы, которые должны создавать отступы (списки)
+                list_elements = ['ul', 'ol', 'dl']
+                
+                # Элементы, которые мы игнорируем (но обрабатываем их содержимое)
+                ignore_elements = ['span', 'em', 'strong', 'i', 'b', 'small', 'sub', 'sup']
+                
+                # Обрабатываем заголовки
+                if element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                    text = element.get_text(strip=True)
+                    if text:
+                        parts.append(f"**{text}**")
+                    return parts
+                
+                # Обрабатываем списки
+                elif element.name in ['li']:
+                    text = element.get_text(' ', strip=True)
+                    if text:
+                        indent = "  " * level  # Отступ для вложенности
+                        parts.append(f"{indent}• {text}")
+                    return parts
+                
+                # Элементы переноса строки
+                elif element.name in ['br']:
+                    parts.append("")
+                    return parts
+                
+                # Блочные элементы
+                elif element.name in block_elements:
+                    # Если элемент содержит только текст без дочерних тегов
+                    if not any(isinstance(child, Tag) for child in element.children):
+                        text = element.get_text(' ', strip=True)
+                        if text:
+                            parts.append(text)
+                    else:
+                        # Рекурсивно обрабатываем дочерние элементы
+                        for child in element.children:
+                            child_parts = extract_text_recursive(child, level + 1)
+                            parts.extend(child_parts)
+                    return parts
+                
+                # Списочные контейнеры
+                elif element.name in list_elements:
+                    for child in element.children:
+                        if isinstance(child, Tag):
+                            child_parts = extract_text_recursive(child, level)
+                            parts.extend(child_parts)
+                    return parts
+                
+                # Игнорируемые элементы - просто извлекаем текст
+                elif element.name in ignore_elements:
+                    text = element.get_text(' ', strip=True)
+                    if text:
+                        parts.append(text)
+                    return parts
+                
+                # Для всех остальных элементов - рекурсивно обрабатываем содержимое
+                else:
+                    for child in element.children:
+                        child_parts = extract_text_recursive(child, level)
+                        parts.extend(child_parts)
+                    return parts
+            
+            # Обрабатываем специальные заголовки-ссылки из TOC
+            processed_first_link = False
             for element in body.find_all(recursive=False):
-                # Сначала проверяем, есть ли ссылка-заголовок из TOC
-                if section_title_from_toc and element.find('a'):
+                # Проверяем первую ссылку на соответствие TOC
+                if not processed_first_link and section_title_from_toc and element.find('a'):
                     first_link = element.find('a')
                     if first_link:
                         link_text = first_link.get_text(strip=True)
-                        # Проверяем, совпадает ли текст ссылки с заголовком из TOC
                         if link_text and (link_text == section_title_from_toc or 
                                         link_text.replace(' ', '') == section_title_from_toc.replace(' ', '') or
                                         section_title_from_toc in link_text or link_text in section_title_from_toc):
-                            # Это заголовок-ссылка! Обрабатываем как заголовок
-                            text_parts.append(f"**{link_text}**\n\n\n")
-                            
-                            # Удаляем ссылку из элемента и добавляем остальной текст
-                            first_link.extract()
-                            remaining_text = element.get_text(separator=' ', strip=True)
-                            if remaining_text:
-                                text_parts.append(remaining_text)
-                            continue  # Переходим к следующему элементу
+                            text_parts.append(f"**{link_text}**")
+                            first_link.extract()  # Удаляем ссылку
+                            processed_first_link = True
                 
-                # Проверяем, содержит ли элемент обычный заголовок (h1-h6)
-                if element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-                    text = element.get_text(separator=' ', strip=True)
-                    if text:
-                        text_parts.append(f"**{text}**\n\n\n")
-                else:
-                    # Обычный текст - используем пробел для слов, но сохраняем структуру параграфов
-                    text = element.get_text(separator=' ', strip=True)
-                    if text:
-                        text_parts.append(text)
-            # Если внутри body не нашлось прямых потомков с текстом,
-            # но сам body не пустой, попробуем взять весь текст из body
+                # Извлекаем текст из элемента
+                element_parts = extract_text_recursive(element)
+                text_parts.extend(element_parts)
+            
+            # Если не удалось извлечь текст обычным способом
             if not text_parts and body.get_text(strip=True):
-                 print("Предупреждение: Не найдены прямые потомки с текстом в body, извлекаем весь текст.")
-                 body_text = body.get_text(separator=' ', strip=True)
-                 if body_text:
-                      text_parts.append(body_text)
+                print("Предупреждение: Не найдены элементы с текстом в body, извлекаем весь текст.")
+                # Используем рекурсивную функцию для всего body
+                text_parts = extract_text_recursive(body)
         else:
             print("Предупреждение: Тег body не найден, пытаемся извлечь текст из всего документа.")
-            # Если нет body, пытаемся взять текст из всего документа
-            full_text = soup.get_text(separator=' ', strip=True)
-            if full_text:
-                text_parts.append(full_text)
+            # Если нет body, извлекаем из всего документа
+            text_parts = extract_text_recursive(soup) if soup else []
 
-
-        # Объединяем части, сохраняя структуру параграфов
-        # Каждый элемент из body становится отдельным параграфом
-        extracted_text = "\n\n".join(text_parts)
+        # Объединяем части с правильными переносами строк
+        extracted_text = "\n\n".join(part for part in text_parts if part.strip())
 
         # Очистка от лишних пробелов и пустых строк
-        extracted_text = re.sub(r'\n{4,}', '\n\n\n', extracted_text).strip()
+        extracted_text = re.sub(r'\n{4,}', '\n\n\n', extracted_text)
+        extracted_text = re.sub(r'[ \t]+', ' ', extracted_text)  # Убираем лишние пробелы
+        extracted_text = extracted_text.strip()
 
         print(f"Извлечено ~{len(extracted_text)} символов текста.")
-        # Возвращаем пустую строку, если ничего не извлекли, но не None
         return extracted_text if extracted_text else ""
 
     except Exception as e:
         print(f"ОШИБКА: Не удалось извлечь текст из раздела '{section_id}': {e}")
-        # Возвращаем пустую строку в случае ошибки парсинга
+        import traceback
+        traceback.print_exc()
         return ""
 
 

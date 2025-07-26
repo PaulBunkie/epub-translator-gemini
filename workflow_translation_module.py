@@ -246,6 +246,40 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] Предупреждение: Не удалось импортировать workflow_model_config")
             return None
 
+    def _save_translation_debug(self, section_id: int, model_name: str, translation_text: str, original_text: str = None, book_id: str = None):
+        """
+        Сохраняет результат перевода в файл для отладки
+        """
+        try:
+            if not book_id:
+                print(f"[WorkflowTranslator] Не удалось сохранить отладочный файл: нет book_id")
+                return
+                
+            # Используем тот же путь что и для кэша переводов
+            from workflow_cache_manager import _get_cache_dir_for_stage
+            debug_dir = _get_cache_dir_for_stage(book_id, 'translate')
+            os.makedirs(debug_dir, exist_ok=True)
+            
+            # Формируем имя файла: {section_id}_{timestamp}_{model_name}.txt
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+            safe_model_name = model_name.replace('/', '_').replace(':', '_')
+            filename = f"{section_id}_{timestamp}_{safe_model_name}.txt"
+            filepath = os.path.join(debug_dir, filename)
+            
+            # Сохраняем исходный текст и перевод
+            with open(filepath, 'w', encoding='utf-8') as f:
+                if original_text:
+                    f.write("=== ИСХОДНЫЙ ТЕКСТ ===\n")
+                    f.write(original_text)
+                    f.write("\n\n=== ПЕРЕВОД ===\n")
+                f.write(translation_text)
+            
+            print(f"[WorkflowTranslator] Результат перевода сохранен в файл: {filepath}")
+            
+        except Exception as e:
+            print(f"[WorkflowTranslator] Ошибка сохранения отладочного файла: {e}")
+
     def _save_model_to_db(self, book_id: str, section_id: int, operation_type: str, model_name: str):
         """
         Сохраняет информацию о модели в базу данных.
@@ -283,61 +317,6 @@ class WorkflowTranslator:
                 )
         except Exception as e:
             print(f"[WorkflowTranslator] Ошибка сохранения model_name в БД: {e}")
-
-    def get_system_instruction(self, operation_type: str, target_language: str) -> str:
-        """
-        Provides system-level instructions for the model based on the operation type.
-        """
-        if operation_type == 'translate':
-            return (
-                f"You are a professional literary translator. Your task is to translate the given text into {target_language} "
-                "with high fidelity, preserving the original tone, voice, and stylistic nuance. "
-                "Ensure consistency in the rendering of names, terms, and grammatical gender. "
-                "Preserve formatting, punctuation, and structure, including any markup or annotation. "
-                "Adapt culturally sensitive references only when required for clarity or natural flow in the target language. "
-                "Use provided context or glossary if available; do not invent information."
-            )
-
-        elif operation_type == 'summarize':
-            return (
-                "You are a high-precision summarization engine. Your task is to produce a clear, concise summary "
-                "of the given text in its original language. "
-            )
-
-        elif operation_type == 'analyze':
-            return (
-                f"You are a literary analyst and terminology specialist. Your task is to analyze the provided text "
-            )
-
-        elif operation_type == 'translate_toc':
-            return SYSTEM_PROMPT_TEMPLATES['translate_toc']['system'].format(target_language=target_language)
-
-        else:
-            return ""
-
-    def _convert_glossary_to_markdown_table(self, glossary_data: List[Dict]) -> str:
-        """
-        Converts a list of glossary dictionaries into a Markdown table string.
-        Assumes each dict has 'Term', 'Type', 'Gender', 'Translation', 'Comment' keys.
-        """
-        if not glossary_data:
-            return "No glossary terms provided."
-
-        headers = ["Term", "Type", "Gender", "Translation", "Comment"]
-        table_lines = [" | ".join(headers), " | ".join(["---"] * len(headers))]
-
-        for item in glossary_data:
-            row = [
-                item.get('Term', ''),
-                item.get('Type', ''),
-                item.get('Gender', ''),
-                item.get('Translation', ''),
-                item.get('Comment', '')
-            ]
-            # Escape pipes within content to avoid breaking markdown table
-            row = [cell.replace('|', '\\|') for cell in row]
-            table_lines.append(" | ".join(row))
-        return "\n".join(table_lines)
 
     def _smart_chunk_text_for_reduction(self, text: str, target_chunk_size: int = ANALYSIS_CHUNK_SIZE_LIMIT_CHARS) -> List[str]:
         """
@@ -610,6 +589,8 @@ class WorkflowTranslator:
         messages: List[Dict[str, Any]],
         operation_type: str = 'translate',
         chunk_text: str = None,
+        section_id: int = None,
+        book_id: str = None,
         #temperature: float = 0.3,
         max_retries: int = 3, # Количество попыток
         retry_delay_seconds: int = 5 # Начальная задержка
@@ -735,7 +716,7 @@ class WorkflowTranslator:
             for attempt in range(max_retries):
                 try:
                     print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries}). URL: {url}")
-                    response = requests.post(url, headers=headers, data=json.dumps(data, ensure_ascii=False))
+                    response = requests.post(url, headers=headers, data=json.dumps(data, ensure_ascii=False), timeout=600)  # 10 минут таймаут
 
                     # --- Проверка заголовков лимитов (опционально) ---
                     if 'X-Ratelimit-Remaining' in response.headers:
@@ -760,6 +741,11 @@ class WorkflowTranslator:
                             choice = response_json['choices'][0]
                             if 'message' in choice and 'content' in choice['message']:
                                 output_content = choice['message']['content'].strip()
+                                
+                                # Сохраняем результат в файл для отладки (СРАЗУ после получения ответа!)
+                                if chunk_text and section_id:
+                                    self._save_translation_debug(section_id, model_name, output_content, chunk_text, book_id)
+                                
                                 # Проверка на обрезание ответа
                                 finish_reason = choice.get('finish_reason')
                                 print(f"[WorkflowTranslator] finish_reason: {finish_reason}")
@@ -781,11 +767,11 @@ class WorkflowTranslator:
                                     input_char_len = len(chunk_text)
                                     output_char_len = len(output_content)
                                     # Проверяем только для достаточно длинных текстов (>50 символов)
-                                    if input_char_len > 50 and output_char_len < input_char_len * 0.8:
-                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<80%). Возвращаем None для ретрая.")
+                                    if input_char_len > 50 and output_char_len < input_char_len * 0.6:
+                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<60%). Возвращаем None для ретрая.")
                                         return None
                                 
-                                print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")
+                                print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")                                                                
                                 return output_content
                         else:
                             print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствуют choices).")
@@ -841,8 +827,20 @@ class WorkflowTranslator:
 
                         return None
 
+                except requests.exceptions.Timeout as e:
+                    # Специальная обработка таймаутов
+                    print(f"[OpenRouterTranslator] ТАЙМАУТ запроса к API на попытке {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                         print(f"[OpenRouterTranslator] Повторная попытка через {current_delay} сек...")
+                         time.sleep(current_delay)
+                         current_delay *= 2  # Экспоненциальное увеличение задержки
+                         continue # Перейти к следующей попытке
+                    else:
+                        print("[OpenRouterTranslator] Максимальное количество попыток запроса исчерпано из-за таймаутов.")
+                        return None # Возвращаем None при неустранимой ошибке запроса
+                        
                 except requests.exceptions.RequestException as e:
-                    # Обработка ошибок сети, таймаутов и т.п.
+                    # Обработка других ошибок сети
                     print(f"[OpenRouterTranslator] Ошибка запроса к API на попытке {attempt + 1}: {e}")
                     if attempt < max_retries - 1:
                          print(f"[OpenRouterTranslator] Повторная попытка через {current_delay} сек...")
@@ -874,7 +872,9 @@ class WorkflowTranslator:
         model_name: str,
         operation_type: str,
         prompt_ext: Optional[str] = None,
-        dict_data: dict | None = None
+        dict_data: dict | None = None,
+        section_id: int = None,
+        book_id: str = None
     ) -> str | None:
         """
         Ф1 - Перевод сегмента: определяет лимит для модели, разбивает на чанки, переводит каждый.
@@ -906,7 +906,9 @@ class WorkflowTranslator:
                 model_name,
                 operation_type,
                 prompt_ext,
-                dict_data
+                dict_data,
+                section_id,
+                book_id
             )
             
             if not result:
@@ -927,7 +929,9 @@ class WorkflowTranslator:
         model_name: str,
         operation_type: str,
         prompt_ext: Optional[str] = None,
-        dict_data: dict | None = None
+        dict_data: dict | None = None,
+        section_id: int = None,
+        book_id: str = None
     ) -> str | None:
         """
         Ф2 - Перевод чанка: просто вызывает API с ретраями.
@@ -944,7 +948,7 @@ class WorkflowTranslator:
         # Пытаемся обработать чанк с ретраями
         max_retries = 2
         for attempt in range(max_retries + 1):
-            result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk)
+            result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id)
             if result is not None and result != CONTEXT_LIMIT_ERROR:
                 return result
             
@@ -1023,7 +1027,9 @@ class WorkflowTranslator:
             model_name,
             operation_type,
             prompt_ext,
-            dict_data
+            dict_data,
+            section_id,
+            book_id
         )
         if result:
             # Сохраняем модель для book-level операций (когда section_id=None)
@@ -1043,7 +1049,9 @@ class WorkflowTranslator:
                 fallback_model,
                 operation_type,
                 prompt_ext,
-                dict_data
+                dict_data,
+                section_id,
+                book_id
             )
             if result:
                 # Сохраняем модель для book-level операций (когда section_id=None)
@@ -1063,7 +1071,9 @@ class WorkflowTranslator:
                     fallback_model2,
                     operation_type,
                     prompt_ext,
-                    dict_data
+                    dict_data,
+                    section_id,
+                    book_id
                 )
                 if result:
                     # Сохраняем модель для book-level операций (когда section_id=None)

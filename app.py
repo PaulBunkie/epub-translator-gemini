@@ -105,22 +105,23 @@ scheduler = BackgroundScheduler(daemon=True)
 is_fly_io = os.getenv("FLY_APP_NAME") is not None
 
 # Модель для перевода новостей, настраиваемая через переменные окружения
-NEWS_MODEL_NAME = os.getenv("NEWS_TRANSLATION_MODEL", "meta-llama/llama-4-maverick:free")
-
-# Добавляем задачу обновления кеша новостей, выполняться каждый час
-scheduler.add_job(
-    alice_handler.update_translated_news_cache,
-    'interval',
-    hours=1,
-    args=[NEWS_MODEL_NAME],   # Передаем имя модели в задачу
-    id='bbc_news_updater_job', # Даем ID для управления
-    replace_existing=True     # Заменять задачу, если она уже есть с таким ID
-)
+NEWS_MODEL_NAME = os.getenv("NEWS_TRANSLATION_MODEL", "google/gemma-3-27b-it:free")
 
 # --- ФОНОВЫЕ ЗАДАЧИ ТОЛЬКО НА FLY.IO ---
 if is_fly_io:
     print("[Scheduler] 🚀 Запуск на fly.io - добавляем фоновые задачи")
     
+    # Добавляем задачу обновления кеша новостей, выполняться каждый час
+    scheduler.add_job(
+        alice_handler.update_translated_news_cache,
+        'interval',
+        hours=1,
+        args=[NEWS_MODEL_NAME],   # Передаем имя модели в задачу
+        id='bbc_news_updater_job', # Даем ID для управления
+        replace_existing=True     # Заменять задачу, если она уже есть с таким ID
+    )
+    print("[Scheduler] ✅ Задание 'bbc_news_updater_job' добавлено (обновление новостей каждый час)")
+
     # --- ЗАДАНИЕ для обновления локаций персон ---
     if hasattr(location_finder, 'update_locations_for_predefined_persons'):
         scheduler.add_job(
