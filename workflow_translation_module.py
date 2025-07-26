@@ -248,8 +248,16 @@ class WorkflowTranslator:
 
     def _save_translation_debug(self, section_id: int, model_name: str, translation_text: str, original_text: str = None, book_id: str = None):
         """
-        Сохраняет результат перевода в файл для отладки
+        Сохраняет результат перевода в файл для отладки.
+        На fly.io (продакшене) файлы отладки не сохраняются для экономии места.
         """
+        # Проверяем, что мы не на fly.io (продакшене)
+        import os
+        is_fly_io = os.getenv("FLY_APP_NAME") is not None
+        if is_fly_io:
+            # На продакшене не сохраняем отладочные файлы
+            return
+            
         try:
             if not book_id:
                 print(f"[WorkflowTranslator] Не удалось сохранить отладочный файл: нет book_id")
