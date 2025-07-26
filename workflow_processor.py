@@ -905,6 +905,7 @@ def process_section_translate(book_id: str, section_id: int):
         epub_path = book_info['filepath']
         toc_data = book_info.get('toc', [])
         section_text = extract_section_text(epub_path, section_epub_id, toc_data)
+        
         if not section_text or not section_text.strip():
             error_message = "Section text is empty."
             print(f"[WorkflowProcessor] {error_message}")

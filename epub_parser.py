@@ -302,38 +302,35 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
             
             # Итерируемся по всем прямым потомкам body
             for element in body.find_all(recursive=False):
-                # Проверяем, содержит ли элемент заголовок (старая логика)
-                if element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
-                    # Если содержит заголовок, оборачиваем в bold и добавляем дополнительный перевод строки
-                    text = element.get_text(separator=' ', strip=True)
-                    if text:
-                        text_parts.append(f"**{text}**")
-                        text_parts.append('\n\n\n')  # Дополнительный перевод строки после заголовка
-                # НОВАЯ ЛОГИКА: Ищем ссылку в начале секции
-                elif section_title_from_toc and element.find('a'):
-                    # Ищем первую ссылку в элементе
+                # Сначала проверяем, есть ли ссылка-заголовок из TOC
+                if section_title_from_toc and element.find('a'):
                     first_link = element.find('a')
                     if first_link:
                         link_text = first_link.get_text(strip=True)
-                        # Проверяем, совпадает ли текст ссылки с заголовком из TOC (более гибкое сравнение)
+                        # Проверяем, совпадает ли текст ссылки с заголовком из TOC
                         if link_text and (link_text == section_title_from_toc or 
                                         link_text.replace(' ', '') == section_title_from_toc.replace(' ', '') or
                                         section_title_from_toc in link_text or link_text in section_title_from_toc):
                             # Это заголовок-ссылка! Обрабатываем как заголовок
-                            text_parts.append(f"**{link_text}**")
-                            text_parts.append('\n\n\n')  # Дополнительный перевод строки после заголовка
+                            text_parts.append(f"**{link_text}**\n\n\n")
                             
                             # Удаляем ссылку из элемента и добавляем остальной текст
                             first_link.extract()
-                            remaining_text = element.get_text(separator=' ', strip=True)  # Используем пробел для слов
+                            remaining_text = element.get_text(separator=' ', strip=True)
                             if remaining_text:
                                 text_parts.append(remaining_text)
                             continue  # Переходим к следующему элементу
                 
-                # Обычный текст - используем пробел для слов, но сохраняем структуру параграфов
-                text = element.get_text(separator=' ', strip=True)
-                if text:
-                    text_parts.append(text)
+                # Проверяем, содержит ли элемент обычный заголовок (h1-h6)
+                if element.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                    text = element.get_text(separator=' ', strip=True)
+                    if text:
+                        text_parts.append(f"**{text}**\n\n\n")
+                else:
+                    # Обычный текст - используем пробел для слов, но сохраняем структуру параграфов
+                    text = element.get_text(separator=' ', strip=True)
+                    if text:
+                        text_parts.append(text)
             # Если внутри body не нашлось прямых потомков с текстом,
             # но сам body не пустой, попробуем взять весь текст из body
             if not text_parts and body.get_text(strip=True):
@@ -353,9 +350,7 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
         # Каждый элемент из body становится отдельным параграфом
         extracted_text = "\n\n".join(text_parts)
 
-        # Дополнительная очистка от лишних пробелов и пустых строк
-        # НЕ удаляем переводы строк после заголовков (которые содержат **)
-        # Заменяем только последовательности из 4+ переводов строк на 3
+        # Очистка от лишних пробелов и пустых строк
         extracted_text = re.sub(r'\n{4,}', '\n\n\n', extracted_text).strip()
 
         print(f"Извлечено ~{len(extracted_text)} символов текста.")

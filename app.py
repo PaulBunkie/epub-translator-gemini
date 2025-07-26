@@ -101,6 +101,9 @@ alice_handler.initialize_alice_handler(executor)
 # --- ИЗМЕНЕНИЕ: Настройка и запуск APScheduler ---
 scheduler = BackgroundScheduler(daemon=True)
 
+# Проверяем, что мы на fly.io
+is_fly_io = os.getenv("FLY_APP_NAME") is not None
+
 # Модель для перевода новостей, настраиваемая через переменные окружения
 NEWS_MODEL_NAME = os.getenv("NEWS_TRANSLATION_MODEL", "meta-llama/llama-4-maverick:free")
 
@@ -113,48 +116,50 @@ scheduler.add_job(
     id='bbc_news_updater_job', # Даем ID для управления
     replace_existing=True     # Заменять задачу, если она уже есть с таким ID
 )
-# --- ИЗМЕНЕНИЕ: НЕ ЗАПУСКАЕМ задачу немедленно при старте ---
-# Убираем блок с initial_update_thread.start()
 
-# --- НОВОЕ ЗАДАНИЕ для обновления локаций персон ---
-# Убедимся, что location_finder импортирован
-if hasattr(location_finder, 'update_locations_for_predefined_persons'):
+# --- ФОНОВЫЕ ЗАДАЧИ ТОЛЬКО НА FLY.IO ---
+if is_fly_io:
+    print("[Scheduler] 🚀 Запуск на fly.io - добавляем фоновые задачи")
+    
+    # --- ЗАДАНИЕ для обновления локаций персон ---
+    if hasattr(location_finder, 'update_locations_for_predefined_persons'):
+        scheduler.add_job(
+            location_finder.update_locations_for_predefined_persons,
+            trigger='interval', # Тип триггера - интервал
+            hours=1,            # Выполнять каждый час
+            id='person_locations_updater_job', # Уникальный ID задания
+            replace_existing=True, # Заменять существующее задание с таким ID
+            misfire_grace_time=600 # Секунд, на которые может опоздать выполнение (10 минут)
+        )
+        print("[Scheduler] ✅ Задание 'person_locations_updater_job' добавлено (обновление локаций персон каждый час)")
+    else:
+        print("[Scheduler] ❌ Функция 'update_locations_for_predefined_persons' не найдена в location_finder")
+
+    # --- ЗАДАНИЯ ДЛЯ TOPTUBE (анализ видео) ---
     scheduler.add_job(
-        location_finder.update_locations_for_predefined_persons,
-        trigger='interval', # Тип триггера - интервал
-        hours=1,            # Выполнять каждый час
-        id='person_locations_updater_job', # Уникальный ID задания
-        replace_existing=True, # Заменять существующее задание с таким ID
-        misfire_grace_time=600 # Секунд, на которые может опоздать выполнение (10 минут)
+        toptube10.full_workflow_task,
+        trigger='interval',
+        hours=2,  # Полный рабочий процесс каждые 2 часа
+        id='toptube_full_workflow_job',
+        replace_existing=True,
+        misfire_grace_time=1800  # 30 минут grace time для длительного процесса
     )
-    print("[Scheduler] Задание 'person_locations_updater_job' добавлено (обновление локаций персон каждый час).")
+    print("[Scheduler] ✅ Задание 'toptube_full_workflow_job' добавлено (анализ видео каждые 2 часа)")
+
+    # --- ЗАДАНИЕ ДЛЯ ОЧИСТКИ ИСТЕКШИХ СЕССИЙ ---
+    scheduler.add_job(
+        workflow_db_manager.delete_expired_sessions,
+        trigger='interval',
+        hours=6,  # Очистка каждые 6 часов
+        id='cleanup_expired_sessions_job',
+        replace_existing=True,
+        misfire_grace_time=600  # 10 минут grace time
+    )
+    print("[Scheduler] ✅ Задание 'cleanup_expired_sessions_job' добавлено (очистка истекших сессий каждые 6 часов)")
+    
 else:
-    print("[Scheduler] ОШИБКА: Функция 'update_locations_for_predefined_persons' не найдена в location_finder. Задание не добавлено.")
-# --- КОНЕЦ НОВОГО ЗАДАНИЯ ---
-
-# --- ЗАДАНИЯ ДЛЯ TOPTUBE ---
-scheduler.add_job(
-    toptube10.full_workflow_task,
-    trigger='interval',
-    hours=2,  # Полный рабочий процесс каждые 2 часа
-    id='toptube_full_workflow_job',
-    replace_existing=True,
-    misfire_grace_time=1800  # 30 минут grace time для длительного процесса
-)
-print("[Scheduler] Задание 'toptube_full_workflow_job' добавлено (полный рабочий процесс каждые 2 часа).")
-# --- КОНЕЦ ЗАДАНИЙ ДЛЯ TOPTUBE ---
-
-# --- ЗАДАНИЕ ДЛЯ ОЧИСТКИ ИСТЕКШИХ СЕССИЙ ---
-scheduler.add_job(
-    workflow_db_manager.delete_expired_sessions,
-    trigger='interval',
-    hours=6,  # Очистка каждые 6 часов
-    id='cleanup_expired_sessions_job',
-    replace_existing=True,
-    misfire_grace_time=600  # 10 минут grace time
-)
-print("[Scheduler] Задание 'cleanup_expired_sessions_job' добавлено (очистка истекших сессий каждые 6 часов).")
-# --- КОНЕЦ ЗАДАНИЯ ДЛЯ ОЧИСТКИ СЕССИЙ ---
+    print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
+    print("[Scheduler] 📍 Поиск локаций и анализ видео доступны только через API")
 
 try:
     scheduler.start()
@@ -2028,26 +2033,26 @@ def start_telegram_bot():
     if TELEGRAM_BOT_AVAILABLE and os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID") and is_fly_io:
         try:
             telegram_bot = TelegramBotHandler()
-            print("[App] Telegram бот инициализирован")
+            print("[App] 🤖 Telegram бот инициализирован")
             
             # Запускаем бота в отдельном потоке
             def bot_polling():
                 try:
                     telegram_bot.run_polling()
                 except Exception as e:
-                    print(f"[App] Ошибка в Telegram боте: {e}")
+                    print(f"[App] ❌ Ошибка в Telegram боте: {e}")
             
             telegram_bot_thread = threading.Thread(target=bot_polling, daemon=True)
             telegram_bot_thread.start()
-            print("[App] Telegram бот запущен в фоновом режиме")
+            print("[App] ✅ Telegram бот запущен в фоновом режиме")
             
         except Exception as e:
-            print(f"[App] Ошибка запуска Telegram бота: {e}")
+            print(f"[App] ❌ Ошибка запуска Telegram бота: {e}")
     else:
         if not is_fly_io:
-            print("[App] Telegram бот не запущен (локальная среда)")
+            print("[App] 🏠 Telegram бот не запущен (локальная среда)")
         else:
-            print("[App] Telegram бот не запущен (отсутствуют токен или chat_id)")
+            print("[App] ⚠️ Telegram бот не запущен (отсутствуют токен или chat_id)")
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОИСКА КНИГИ ПО ACCESS_TOKEN ---
 @app.route('/workflow_book_by_token/<access_token>', methods=['GET'])
@@ -2104,7 +2109,13 @@ def check_telegram_subscription():
 
 # --- Запуск приложения ---
 if __name__ == '__main__':
-    print("Запуск Flask приложения...")
+    # Проверяем среду запуска
+    is_fly_io = os.getenv("FLY_APP_NAME") is not None
+    environment = "🚀 PRODUCTION (fly.io)" if is_fly_io else "🏠 LOCAL"
+    
+    print(f"Запуск Flask приложения... {environment}")
+    print("=" * 60)
+    
     # use_reloader=False рекомендуется при использовании APScheduler в режиме отладки,
     # чтобы избежать двойного запуска планировщика. Но можно попробовать и без него.
     try:
@@ -2114,9 +2125,15 @@ if __name__ == '__main__':
         # Запускаем Telegram бота
         start_telegram_bot()
 
+        print(f"\n🌐 Веб-сервер запускается на http://0.0.0.0:5000")
+        if is_fly_io:
+            print("📋 Фоновые задачи активны: поиск локаций, анализ видео")
+        else:
+            print("📋 Фоновые задачи отключены (локальный режим)")
+        
         app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
     except ValueError as e:
-        print(f"Ошибка конфигурации API: {e}")
+        print(f"❌ Ошибка конфигурации API: {e}")
         # Возможно, стоит явно выйти из приложения или как-то иначе сообщить об ошибке
         exit(1)
 
