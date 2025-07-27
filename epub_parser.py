@@ -348,13 +348,34 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
                 
                 # Блочные элементы
                 elif element.name in block_elements:
-                    # Если элемент содержит только текст без дочерних тегов
-                    if not any(isinstance(child, Tag) for child in element.children):
+                    # Проверяем есть ли inline теги форматирования
+                    has_inline_formatting = any(isinstance(child, Tag) and child.name in ['em', 'i', 'strong', 'b'] 
+                                              for child in element.children)
+                    
+                    if has_inline_formatting:
+                        # Обрабатываем как единый текст с сохранением inline форматирования
+                        text_parts = []
+                        for child in element.children:
+                            if isinstance(child, NavigableString):
+                                text_parts.append(str(child))
+                            elif isinstance(child, Tag):
+                                if child.name in ['em', 'i']:
+                                    text_parts.append(f"*{child.get_text()}*")
+                                elif child.name in ['strong', 'b']:
+                                    text_parts.append(f"**{child.get_text()}**")
+                                else:
+                                    text_parts.append(child.get_text())
+                        
+                        combined_text = ''.join(text_parts).strip()
+                        if combined_text:
+                            parts.append(combined_text)
+                    elif not any(isinstance(child, Tag) for child in element.children):
+                        # Только текст без дочерних тегов
                         text = element.get_text(' ', strip=True)
                         if text:
                             parts.append(text)
                     else:
-                        # Рекурсивно обрабатываем дочерние элементы
+                        # Рекурсивно обрабатываем дочерние элементы (нет inline форматирования)
                         for child in element.children:
                             child_parts = extract_text_recursive(child, level + 1)
                             parts.extend(child_parts)

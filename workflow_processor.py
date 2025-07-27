@@ -1239,6 +1239,48 @@ def process_book_epub_creation(book_id: str):
             else:
                 print("  [WARN] Нет данных TOC.")
             
+            def remove_duplicate_title_from_text(text: str, expected_title: str) -> str:
+                """
+                Удаляет дублирующийся заголовок из начала переведенного текста.
+                Проверяет различные форматы: обычный текст, **bold**, # heading
+                """
+                if not text or not expected_title:
+                    return text
+                
+                # Нормализуем ожидаемый заголовок для сравнения
+                normalized_title = expected_title.strip().lower()
+                
+                # Разбиваем текст на параграфы
+                paragraphs = text.split('\n\n')
+                if not paragraphs:
+                    return text
+                
+                first_para = paragraphs[0].strip()
+                if not first_para:
+                    return text
+                
+                # Проверяем различные форматы заголовка в первом параграфе
+                first_para_clean = first_para
+                
+                # Удаляем markdown форматирование для сравнения
+                # **bold** → bold
+                clean_for_comparison = re.sub(r'\*\*(.*?)\*\*', r'\1', first_para_clean)
+                # *italic* → italic  
+                clean_for_comparison = re.sub(r'\*(.*?)\*', r'\1', clean_for_comparison)
+                # # heading → heading
+                clean_for_comparison = re.sub(r'^#+\s*', '', clean_for_comparison)
+                # Убираем лишние пробелы
+                clean_for_comparison = clean_for_comparison.strip().lower()
+                
+                # Если заголовки совпадают - удаляем первый параграф
+                if clean_for_comparison == normalized_title:
+                    print(f"      Удален дублирующийся заголовок из текста: '{first_para[:50]}...'")
+                    # Возвращаем текст без первого параграфа
+                    remaining_paragraphs = paragraphs[1:]
+                    return '\n\n'.join(remaining_paragraphs).strip()
+                
+                return text
+
             print(f"  Обработка {len(section_ids)} секций книги...")
             for i, section_id in enumerate(section_ids):
                 chapter_index = i + 1
@@ -1256,8 +1298,9 @@ def process_book_epub_creation(book_id: str):
                     chapter_title = f"{default_title_prefix} {chapter_index}"
                 
                 chapter_title_escaped = html.escape(chapter_title)
-                # НЕ добавляем заголовок главы - он не нужен в тексте
-                final_html_body_content = ""
+                # Добавляем заголовок главы как H1 (как в классическом подходе)
+                header_html = f"<h1>{chapter_title_escaped}</h1>\n"
+                final_html_body_content = header_html
                 
                 section_data = sections_data_map.get(section_id)
                 section_status = section_data.get("status", "unknown") if section_data else "unknown"
@@ -1267,6 +1310,8 @@ def process_book_epub_creation(book_id: str):
                 translated_text = section_data.get("translated_text") if section_data else None
                 
                 if translated_text is not None:
+                    # Удаляем дублирующийся заголовок из переведенного текста
+                    translated_text = remove_duplicate_title_from_text(translated_text, chapter_title)
                     # Обработка параграфов и сносок (упрощенная версия)
                     print(f"      [DEBUG] Обрабатываем сноски для секции {section_id}")
                     print(f"      [DEBUG] Длина переведенного текста: {len(translated_text)}")
