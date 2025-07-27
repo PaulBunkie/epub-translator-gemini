@@ -40,7 +40,10 @@ class TelegramBotHandler:
                     self.allowed_chat_ids.add(user_id)
         
         if not self.bot_token:
-            raise ValueError("TELEGRAM_BOT_TOKEN не установлен")
+            print("[TelegramBot] TELEGRAM_BOT_TOKEN не установлен - работаем в режиме заглушки")
+            self.is_stub = True
+        else:
+            self.is_stub = False
     
     def get_updates(self, timeout: int = 30) -> list:
         """Получает обновления от Telegram API"""
@@ -660,6 +663,10 @@ class TelegramBotHandler:
     
     def run_polling(self):
         """Запускает polling для получения обновлений"""
+        if self.is_stub:
+            print("[TelegramBot] Режим заглушки - polling отключен")
+            return
+            
         print("[TelegramBot] Запуск polling...")
         
         while True:
