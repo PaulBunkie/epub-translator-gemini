@@ -255,19 +255,19 @@ class TopTubeManager:
             if published_dt <= datetime.now().astimezone() - timedelta(days=DAYS):
                 return False
             
-            # Проверяем количество подписчиков (минимум 1 миллион)
+            # Проверяем количество подписчиков (минимум 3 миллиона)
             channel_id = video["snippet"]["channelId"]
             channel_info = channels_dict.get(channel_id)
             if not channel_info:
                 return False
             
             subs = int(channel_info["statistics"].get("subscriberCount", 0))
-            if subs < 1_000_000:
+            if subs < 3_000_000:
                 return False
             
-            # Проверяем количество просмотров (минимум 100 тысяч)
+            # Проверяем количество просмотров (минимум 200 тысяч)
             views = int(video["statistics"].get("viewCount", 0))
-            if views < 100_000:
+            if views < 200_000:
                 return False
             
             return True
