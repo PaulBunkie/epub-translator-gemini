@@ -9,7 +9,7 @@ import json
 import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
-from telegram_notifier import telegram_notifier
+from telegram_notifier import telegram_notifier, make_download_link
 import workflow_db_manager
 
 # Базовый URL для API запросов
@@ -300,11 +300,15 @@ class TelegramBotHandler:
             current_status = data.get('current_workflow_status', 'unknown')
             
             if current_status == 'completed':
+                # Получаем access_token для создания ссылки
+                access_token = book_info.get('access_token', '')
+                download_link = make_download_link(access_token) if access_token else f"/download {book_id}"
+                
                 result = f"""
 📚 <b>{book_title}</b>
 ✅ <b>Перевод завершен: 100% ({total_sections}/{total_sections} секций)</b>
 
-📥 <b>Скачать:</b> /download {book_id}
+🔗 {download_link}
                 """.strip()
             else:
                 # Детали по этапам в правильном порядке
