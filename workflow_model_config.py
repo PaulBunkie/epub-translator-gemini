@@ -15,8 +15,8 @@ MODEL_CONFIG = {
         'fallback_level2': 'models/gemini-2.5-flash-preview-05-20'
     },
     'translate': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level1': 'microsoft/mai-ds-r1:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'reduce': {
@@ -25,8 +25,8 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level1': 'microsoft/mai-ds-r1:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     }
 }
