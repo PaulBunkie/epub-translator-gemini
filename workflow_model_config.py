@@ -5,7 +5,7 @@
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'qwen/qwen3-235b-a22b:free',
+        'primary': 'qwen/qwen-2.5-72b-instruct:free',
         'fallback_level1': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
@@ -20,7 +20,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'reduce': {
-        'primary': 'qwen/qwen3-235b-a22b:free',
+        'primary': 'meta-llama/llama-3.1-405b-instruct:free',
         'fallback_level1': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
