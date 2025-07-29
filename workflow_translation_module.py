@@ -710,7 +710,7 @@ class WorkflowTranslator:
             data = {
                 "model": model_name,
                 "messages": messages,
-                "temperature": 0.5, # УСТАНОВКА ТЕМПЕРАТУРЫ
+                #"temperature": 0.5, # УСТАНОВКА ТЕМПЕРАТУРЫ
                 "stream": False #, # Убеждаемся, что не ждем стриминг
                 #"reasoning": {
                 #    "exclude": True
