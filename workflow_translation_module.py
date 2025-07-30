@@ -775,12 +775,12 @@ class WorkflowTranslator:
                                 # --- ПРОВЕРКА МАРКЕРА ЗАВЕРШЕНИЯ ПЕРЕВОДА ---
                                 if operation_type == 'translate' and chunk_text:
                                     completion_marker = "$$$$$"
-                                    if not output_content.endswith(completion_marker):
+                                    if completion_marker not in output_content:
                                         print(f"[OpenRouterTranslator] Предупреждение: Отсутствует маркер завершения перевода '{completion_marker}'. Перевод может быть неполным. Возвращаем None для ретрая.")
                                         return None
                                     else:
-                                        # Убираем маркер из финального результата
-                                        output_content = output_content[:-len(completion_marker)].rstrip()
+                                        # Убираем маркер из финального результата (может быть в любом месте)
+                                        output_content = output_content.replace(completion_marker, "").strip()
                                         print(f"[OpenRouterTranslator] Найден маркер завершения. Убираем маркер, финальная длина: {len(output_content)} символов.")
                                 
                                 print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")                                                                
