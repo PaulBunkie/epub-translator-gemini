@@ -776,8 +776,8 @@ class WorkflowTranslator:
                                     input_char_len = len(chunk_text)
                                     output_char_len = len(output_content)
                                     # Проверяем только для достаточно длинных текстов (>50 символов)
-                                    if input_char_len > 50 and output_char_len < input_char_len * 0.6:
-                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<60%). Возвращаем None для ретрая.")
+                                    if input_char_len > 50 and output_char_len < input_char_len * 0.8:
+                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<70%). Возвращаем None для ретрая.")
                                         return None
                                 
                                 print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")                                                                

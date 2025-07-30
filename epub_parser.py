@@ -7,6 +7,8 @@ import os
 import re
 import uuid
 
+
+
 def get_epub_structure(epub_filepath):
     """
     Читает EPUB файл и возвращает упорядоченный список идентификаторов
@@ -314,6 +316,47 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
                 if not isinstance(element, Tag):
                     return []
                 
+                # Обрабатываем стандартный тег <hr>
+                if element.name == 'hr':
+                    return ["***"]
+
+                # УНИВЕРСАЛЬНАЯ проверка специальных блоков для ВСЕХ элементов
+                # Ключевые слова для поиска разделителей
+                break_keywords = ['break', 'divider', 'separator', 'scene']
+                
+                # Проверяемая функция для class и id
+                def is_break_element(attr_value):
+                    if not attr_value:
+                        return False
+                    if isinstance(attr_value, str):
+                        attr_text = attr_value.lower()
+                        return any(keyword in attr_text for keyword in break_keywords)
+                    elif isinstance(attr_value, list):
+                        for item in attr_value:
+                            item_text = str(item).lower()
+                            if any(keyword in item_text for keyword in break_keywords):
+                                return True
+                    return False
+                
+                # Проверяем class и id атрибуты
+                element_classes = element.get('class')
+                element_id = element.get('id')
+                
+                if is_break_element(element_classes) or is_break_element(element_id):
+                    print(f"НАЙДЕН СПЕЦБЛОК-РАЗДЕЛИТЕЛЬ: {element.name} class={element_classes} id={element_id}")
+                    return ["***", element.get_text(strip=True)]
+                
+                # Проверяем содержимое на символы-разделители
+                element_text = element.get_text(strip=True)
+                if element_text and len(element_text) <= 20:  # Короткий текст
+                    # Удаляем пробелы и проверяем на паттерны разделителей
+                    clean_text = element_text.replace(' ', '').replace('\n', '').replace('\t', '')
+                    divider_patterns = ['***', '* * *', '═══', '---', '—————', '• • •', '◆ ◆ ◆', '∗ ∗ ∗']
+                    if clean_text in divider_patterns or clean_text == '*' * len(clean_text):
+                        print(f"НАЙДЕН СИМВОЛЬНЫЙ РАЗДЕЛИТЕЛЬ: '{element_text}' в {element.name}")
+                        return ["***", element_text]
+                
+                
                 parts = []
                 
                 # Блочные элементы, которые должны создавать переносы строк
@@ -340,14 +383,15 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
                         indent = "  " * level  # Отступ для вложенности
                         parts.append(f"{indent}• {text}")
                     return parts
-                
+                                
                 # Элементы переноса строки
                 elif element.name in ['br']:
                     parts.append("")
                     return parts
-                
+                                
                 # Блочные элементы
                 elif element.name in block_elements:
+                    
                     # Проверяем есть ли inline теги форматирования
                     has_inline_formatting = any(isinstance(child, Tag) and child.name in ['em', 'i', 'strong', 'b'] 
                                               for child in element.children)
