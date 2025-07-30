@@ -60,7 +60,9 @@ Your translation must follow these principles strictly:
 
 # OUTPUT REQUIREMENTS
 - Your response must contain ONLY the translation and, if necessary, the footnotes section.
-- DO NOT add any titles, headers, metadata, or any other introductory text (e.g., "Translation:", "Результат:") that is not part of the translation itself. Start directly with the translated text."""
+- DO NOT add any titles, headers, metadata, or any other introductory text (e.g., "Translation:", "Результат:") that is not part of the translation itself. Start directly with the translated text.
+- **CRITICAL:** You MUST end your response with the completion marker consisting of 5 dollar signs: $$$$$
+- This marker confirms you have finished the complete translation. Do not omit it under any circumstances."""
     },
     'summarize': {
         'system': f"""You are a professional literary summarizer. Your task is to produce concise and accurate summaries of literary texts while preserving the original language, tone, narrative style, and key ideas. The summary must always be written in the **same language as the input text**.
@@ -770,15 +772,16 @@ class WorkflowTranslator:
                                     print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой текст. Возвращаем None для ретрая.")
                                     return None
                                 
-                                # --- ЭВРИСТИКА определения потенциально неполного перевода ---
+                                # --- ПРОВЕРКА МАРКЕРА ЗАВЕРШЕНИЯ ПЕРЕВОДА ---
                                 if operation_type == 'translate' and chunk_text:
-                                    # Честная проверка: сравниваем длину перевода и исходного текста (оба только текст)
-                                    input_char_len = len(chunk_text)
-                                    output_char_len = len(output_content)
-                                    # Проверяем только для достаточно длинных текстов (>50 символов)
-                                    if input_char_len > 50 and output_char_len < input_char_len * 0.8:
-                                        print(f"[OpenRouterTranslator] Предупреждение: Перевод ({output_char_len} симв.) значительно короче исходного текста ({input_char_len} симв.) (<70%). Возвращаем None для ретрая.")
+                                    completion_marker = "$$$$$"
+                                    if not output_content.endswith(completion_marker):
+                                        print(f"[OpenRouterTranslator] Предупреждение: Отсутствует маркер завершения перевода '{completion_marker}'. Перевод может быть неполным. Возвращаем None для ретрая.")
                                         return None
+                                    else:
+                                        # Убираем маркер из финального результата
+                                        output_content = output_content[:-len(completion_marker)].rstrip()
+                                        print(f"[OpenRouterTranslator] Найден маркер завершения. Убираем маркер, финальная длина: {len(output_content)} символов.")
                                 
                                 print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")                                                                
                                 return output_content
