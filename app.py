@@ -882,6 +882,10 @@ def workflow_upload_file():
     # Целевой язык пока берем из формы или сессии (по аналогии со старым)
     form_language = request.form.get('target_language') # TODO: Убедиться, что форма на новой главной странице передает язык
     target_language = form_language or session.get('target_language', 'russian')
+    
+    # Читаем параметр admin из формы
+    admin = request.form.get('admin') == 'true'
+    print(f"Admin mode in workflow_upload: {admin}")
 
     original_filename = secure_filename(file.filename)
     temp_dir = app.config['UPLOAD_FOLDER']
@@ -979,8 +983,8 @@ def workflow_upload_file():
                  with app.app_context(): # 'app' is the global Flask app instance
                      current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
                      # Теперь start_book_workflow принимает только app_instance.
-# Workflow автоматически определяет, с какого этапа начать.
-                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object())
+                     # Workflow автоматически определяет, с какого этапа начать.
+                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), admin=admin)
              threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
              # --- КОНЕЦ ИЗМЕНЕНИЯ ---
              print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
@@ -1149,6 +1153,8 @@ def user_upload_file():
 
              # ВОЗВРАЩАЕМ РЕДИРЕКТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ
              redirect_url = url_for('translate_page', access_token=access_token)
+             if admin:
+                 redirect_url += '?admin=true'
              response = redirect(redirect_url)
              if session_id:
                  response.set_cookie(
@@ -1161,12 +1167,12 @@ def user_upload_file():
                  )
              return response
         else:
-             # Если не удалось создать запись книги в БД, удаляем файл
-             print(f"ОШИБКА: Не удалось сохранить книгу '{book_id}' в Workflow DB! Удаляем файл.")
-             if filepath and os.path.exists(filepath):
-                 try: os.remove(filepath)
-                 except OSError as e: print(f"  Не удалось удалить файл {filepath} после ошибки БД: {e}")
-             return "Ошибка сервера при сохранении информации о книге в Workflow DB.", 500
+            # Если не удалось создать запись книги в БД, удаляем файл
+            print(f"ОШИБКА: Не удалось сохранить книгу '{book_id}' в Workflow DB! Удаляем файл.")
+            if filepath and os.path.exists(filepath):
+                try: os.remove(filepath)
+                except OSError as e: print(f"  Не удалось удалить файл {filepath} после ошибки БД: {e}")
+            return "Ошибка сервера при сохранении информации о книге в Workflow DB.", 500
 
     except Exception as e:
         print(f"ОШИБКА при обработке загрузки для пользователя: {e}"); traceback.print_exc()
@@ -1187,6 +1193,10 @@ def user_upload_file():
 def workflow_index():
     """ Отображает страницу со списком книг в новом рабочем процессе. """
     print("Загрузка страницы списка книг рабочего процесса...")
+    
+    # Проверяем параметр admin
+    admin = request.args.get('admin') == 'true'
+    print(f"Admin режим в workflow: {admin}")
 
     workflow_books = []
     try:
@@ -1231,7 +1241,7 @@ def workflow_index():
     # TODO: Добавить передачу языка и модели по умолчанию, если они нужны на этой странице
     # TODO: Добавить логику получения списка доступных моделей, если форма загрузки будет использовать выбор модели
 
-    resp = make_response(render_template('workflow_index.html', workflow_books=workflow_books))
+    resp = make_response(render_template('workflow_index.html', workflow_books=workflow_books, admin=admin))
     # Наследуем CSP политику от основной страницы
     csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
     resp.headers['Content-Security-Policy'] = csp_policy
@@ -1825,7 +1835,9 @@ def api_analyze_video():
 @app.route('/', methods=['GET'])
 def toptube_page():
     """Отображает страницу с проанализированными видео."""
-    return render_template('toptube.html')
+    # Проверяем параметр admin
+    admin = request.args.get('admin') == 'true'
+    return render_template('toptube.html', admin=admin)
 
 @app.route('/api/toptube/videos', methods=['GET'])
 def api_get_toptube_videos():

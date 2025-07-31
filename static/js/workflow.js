@@ -1,6 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     // console.log('workflow.js loaded.'); // Убрана отладочная строка
 
+    // Читаем admin параметр из URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const admin = urlParams.get('admin') === 'true';
+
     const uploadForm = document.querySelector('.upload-form form');
     const progressOverlay = document.getElementById('progressOverlay');
     const progressText = document.getElementById('progressText');
