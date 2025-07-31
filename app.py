@@ -1051,6 +1051,10 @@ def user_upload_file():
     # Целевой язык пока берем из формы или сессии
     form_language = request.form.get('target_language')
     target_language = form_language or session.get('target_language', 'russian')
+    
+    # Читаем параметр admin из формы
+    admin = request.form.get('admin') == 'true'
+    print(f"Admin mode in user_upload: {admin}")
 
     original_filename = secure_filename(file.filename)
     temp_dir = app.config['UPLOAD_FOLDER']
@@ -1131,7 +1135,7 @@ def user_upload_file():
              def run_workflow_in_context(book_id):
                  with app.app_context():
                      current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
-                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object())
+                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), admin=admin)
              threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
              print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
 
@@ -1365,7 +1369,7 @@ def workflow_download_analysis(book_id):
     book_stage_statuses = book_info.get('book_stage_statuses', {})
     analysis_stage_status = book_stage_statuses.get('analyze', {}).get('status')
 
-    if analysis_stage_status not in ['completed', 'completed_with_errors']:
+    if analysis_stage_status not in ['completed', 'completed_with_errors', 'awaiting_edit']:
          print(f"  [DownloadAnalysis] Этап анализа для книги {book_id} не завершен. Статус: {analysis_stage_status}")
          return f"Analysis not complete (Status: {analysis_stage_status}).", 409
 
@@ -1450,6 +1454,10 @@ def translate_page(access_token):
     """Универсальная страница для пользователей - показывает форму загрузки или прогресс/результат"""
     print(f"Запрос пользовательской страницы для токена: {access_token}")
     
+    # Проверяем параметр admin
+    admin = request.args.get('admin') == 'true'
+    print(f"Admin режим в translate_page: {admin}")
+    
     # --- ПРОВЕРЯЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
     session_id = request.cookies.get('user_session')
     user_access_token = None
@@ -1480,7 +1488,8 @@ def translate_page(access_token):
             access_token = book_info['access_token']
         return render_template('translate_user.html', 
                              access_token=effective_token, 
-                             book_info=None)
+                             book_info=None,
+                             admin=admin)
         
         if not session_id and effective_token == access_token:
             # Создаем новую сессию для пользователя
@@ -1504,7 +1513,8 @@ def translate_page(access_token):
         print(f"Книга не найдена для токена {effective_token}, показываем форму загрузки")
         return render_template('translate_user.html', 
                              access_token=effective_token, 
-                             book_info=None)
+                             book_info=None,
+                             admin=admin)
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ---
 
@@ -1512,6 +1522,10 @@ def translate_page(access_token):
 def user_main_page():
     """Главная страница пользователя - перенаправляет на книгу пользователя или показывает форму загрузки"""
     print("Запрос главной страницы пользователя")
+    
+    # Проверяем параметр admin
+    admin = request.args.get('admin') == 'true'
+    print(f"Admin режим: {admin}")
     
     # --- ПРОВЕРЯЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
     session_id = request.cookies.get('user_session')
@@ -1521,17 +1535,21 @@ def user_main_page():
         user_access_token = workflow_db_manager.get_session_access_token(session_id)
         if user_access_token:
             print(f"Сессия активна, перенаправляем на книгу пользователя")
-            return redirect(url_for('translate_page', access_token=user_access_token))
+            # Передаем параметр admin в redirect
+            redirect_url = url_for('translate_page', access_token=user_access_token)
+            if admin:
+                redirect_url += '?admin=true'
+            return redirect(redirect_url)
         else:
             print(f"Сессия истекла или недействительна: {session_id}")
             # Очищаем недействительную сессию из cookie
-            response = make_response(render_template('translate_user.html', access_token=None, book_info=None))
+            response = make_response(render_template('translate_user.html', access_token=None, book_info=None, admin=admin))
             response.delete_cookie('user_session')
             return response
     
     # Если нет активной сессии, показываем форму загрузки
     print("Нет активной сессии, показываем форму загрузки")
-    return render_template('translate_user.html', access_token=None, book_info=None)
+    return render_template('translate_user.html', access_token=None, book_info=None, admin=admin)
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ГЛАВНОЙ СТРАНИЦЫ ПОЛЬЗОВАТЕЛЯ ---
 
@@ -1722,10 +1740,29 @@ def workflow_delete_book_request(book_id):
 def workflow_start_existing_book(book_id):
     current_app.logger.info(f"Запрос на запуск рабочего процесса для существующей книги: {book_id}")
     try:
+        # Читаем параметры из JSON body
+        request_data = request.get_json() or {}
+        admin = request_data.get('admin', False)
+        continue_after_edit = request_data.get('continue_after_edit', False)
+        edited_analysis = request_data.get('edited_analysis')
+        
+        # Если это продолжение после редактирования, сохраняем отредактированный анализ
+        if continue_after_edit and edited_analysis:
+            try:
+                import workflow_cache_manager
+                workflow_cache_manager.save_book_stage_result(book_id, 'analyze', edited_analysis)
+                # Обновляем статус анализа на completed
+                import workflow_db_manager
+                workflow_db_manager.update_book_stage_status_workflow(book_id, 'analyze', 'completed')
+                current_app.logger.info(f"Отредактированный анализ сохранен для книги {book_id}")
+            except Exception as e:
+                current_app.logger.error(f"Ошибка сохранения отредактированного анализа для книги {book_id}: {e}")
+                return jsonify({'status': 'error', 'message': f'Ошибка сохранения анализа: {str(e)}'}), 500
+        
         from app import app as global_app
         def run_workflow_in_context(book_id):
             with global_app.app_context():
-                workflow_processor.start_book_workflow(book_id, global_app)
+                workflow_processor.start_book_workflow(book_id, global_app, admin=admin)
         executor.submit(run_workflow_in_context, book_id)
         return jsonify({'status': 'success', 'message': 'Workflow started in background'}), 200
     except Exception as e:

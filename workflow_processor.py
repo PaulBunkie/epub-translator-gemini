@@ -450,10 +450,15 @@ def update_overall_workflow_book_status(book_id):
     return True
 
 # TODO: Добавить функцию start_book_workflow для запуска процесса для всей книги DONE
-def start_book_workflow(book_id: str, app_instance: Flask):
+def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
     """
     Запускает полный рабочий процесс для книги, начиная с указанного этапа (или с самого начала).
     После завершения каждого этапа автоматически переходит к следующему.
+    
+    Args:
+        book_id: ID книги
+        app_instance: Экземпляр Flask приложения
+        admin: Остановиться после анализа для редактирования (по умолчанию False)
     """
     print(f"[WorkflowProcessor] Запуск рабочего процесса для книги ID: {book_id}")
 
@@ -619,6 +624,12 @@ def start_book_workflow(book_id: str, app_instance: Flask):
             result = True  # По умолчанию успех
             if stage_name == 'analyze':
                 result = process_book_analysis(book_id)
+                # Проверяем флаг admin после завершения анализа
+                if result and admin:
+                    print(f"[WorkflowProcessor] Анализ завершен. Флаг admin установлен. Останавливаем workflow для редактирования.")
+                    workflow_db_manager.update_book_stage_status_workflow(book_id, 'analyze', 'awaiting_edit')
+                    update_overall_workflow_book_status(book_id)
+                    return True  # Возвращаем True, но workflow остановлен для редактирования
             elif stage_name == 'epub_creation':
                 result = process_book_epub_creation(book_id)
             elif stage_name == 'reduce_text':

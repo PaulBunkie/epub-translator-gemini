@@ -186,7 +186,7 @@
         }
     </style>
 </head>
-<body>
+<body data-admin="{% if admin %}true{% else %}false{% endif %}">
     <div class="container">
         <div class="header">
             <h1>📚 EPUB Translator</h1>
@@ -358,10 +358,29 @@
         </div>
     </div>
     
+    <!-- Overlay for analysis editing (only shown in admin mode) -->
+    <div id="editAnalysisOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); z-index: 1000; justify-content: center; align-items: center;">
+        <div style="background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); width: 80%; height: 80%; max-width: 90%; max-height: 90%; overflow-y: auto;">
+            <h2>Редактирование результатов анализа</h2>
+            <p>Отредактируйте результаты анализа книги и нажмите "Продолжить" для запуска перевода.</p>
+            
+            <div style="margin: 20px 0;">
+                <label for="analysisTextArea"><strong>Результаты анализа:</strong></label>
+                <textarea id="analysisTextArea" style="width: 100%; height: 400px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; resize: vertical;"></textarea>
+            </div>
+            
+            <div style="margin-top: 20px; text-align: center;">
+                <button id="continueAfterEdit" style="padding: 10px 20px; margin-right: 10px; background-color: #28a745; color: white; border: none; cursor: pointer; border-radius: 4px;">Продолжить workflow</button>
+                <button id="cancelEdit" style="padding: 10px 20px; background-color: #6c757d; color: white; border: none; cursor: pointer; border-radius: 4px;">Отменить</button>
+            </div>
+        </div>
+    </div>
+    
     <script type="text/javascript">
         // @ts-nocheck
         var accessToken = "{{ access_token if access_token and access_token != 'None' else '' }}";
         var bookInfo = "{{ book_info | tojson | default('') | safe }}";
+        var admin = document.body.getAttribute('data-admin') === 'true';
         if (bookInfo === "" || bookInfo === "null") { bookInfo = null; } else { bookInfo = JSON.parse(bookInfo); }
         // Обработка формы загрузки
         document.getElementById('epubForm').addEventListener('submit', async function(event) {
@@ -369,6 +388,9 @@
             
             const formData = new FormData(this);
             formData.append('access_token', accessToken);
+            if (admin) {
+                formData.append('admin', 'true');
+            }
             
             // Показываем прогресс
             document.getElementById('uploadForm').classList.remove('active');
@@ -445,6 +467,14 @@
                     const data = await response.json();
                     
                     updateProgress(data);
+                    
+                    // Проверяем статус анализа для админского режима
+                    if (admin && data.book_stage_statuses && data.book_stage_statuses.analyze && 
+                        data.book_stage_statuses.analyze.status === 'awaiting_edit') {
+                        clearInterval(progressInterval);
+                        showAnalysisEditForm(bookId);
+                        return;
+                    }
                     
                     if (data.current_workflow_status === 'completed') {
                         clearInterval(progressInterval);
@@ -693,6 +723,108 @@
                 });
             }
         });
+
+        // Helper function to update progress text
+        function updateProgressText(message) {
+            const statusMessage = document.getElementById('statusMessage');
+            if (statusMessage) {
+                statusMessage.textContent = message;
+            }
+        }
+
+        // Analysis editing functions (for admin mode)
+        function showAnalysisEditForm(bookId) {
+            loadAnalysisForEdit(bookId);
+        }
+        
+        async function loadAnalysisForEdit(bookId) {
+            try {
+                const response = await fetch(`/workflow_download_analysis/${bookId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const analysisText = await response.text();
+                
+                document.getElementById('analysisTextArea').value = analysisText;
+                document.getElementById('editAnalysisOverlay').dataset.bookId = bookId;
+                document.getElementById('editAnalysisOverlay').style.display = 'flex';
+                
+            } catch (error) {
+                console.error('Error loading analysis for edit:', error);
+                showError(`Ошибка загрузки анализа: ${error.message}`);
+            }
+        }
+        
+        function hideAnalysisEditForm() {
+            document.getElementById('editAnalysisOverlay').style.display = 'none';
+            document.getElementById('analysisTextArea').value = '';
+            delete document.getElementById('editAnalysisOverlay').dataset.bookId;
+        }
+        
+        async function continueAfterEdit() {
+            const editOverlay = document.getElementById('editAnalysisOverlay');
+            const bookId = editOverlay.dataset.bookId;
+            const editedAnalysis = document.getElementById('analysisTextArea').value;
+            
+            if (!bookId) {
+                showError('Ошибка: не найден ID книги');
+                return;
+            }
+            
+            try {
+                console.log(`Continuing workflow with edited analysis for book ${bookId}`);
+                hideAnalysisEditForm();
+                
+                // Показываем прогресс
+                document.getElementById('resultSection').classList.remove('active');
+                document.getElementById('progressSection').classList.add('active');
+                updateProgressText('Сохраняем отредактированный анализ...');
+                
+                const response = await fetch(`/workflow_start_existing_book/${bookId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        continue_after_edit: true,
+                        edited_analysis: editedAnalysis 
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Network response was not ok.');
+                }
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    updateProgressText('Анализ сохранен. Продолжаем workflow...');
+                    // Перезапускаем отслеживание прогресса
+                    startProgressTracking(bookId);
+                } else {
+                    showError(`Ошибка: ${data.message || 'Unknown error'}`);
+                }
+                
+            } catch (error) {
+                console.error('Error continuing after edit:', error);
+                showError(`Ошибка: ${error.message}`);
+            }
+        }
+        
+        // Event listeners for analysis editing
+        if (admin) {
+            const continueBtn = document.getElementById('continueAfterEdit');
+            const cancelBtn = document.getElementById('cancelEdit');
+            
+            if (continueBtn) {
+                continueBtn.addEventListener('click', continueAfterEdit);
+            }
+            
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', hideAnalysisEditForm);
+            }
+        }
 
         // Проверка подписки на Telegram
         async function checkTelegramSubscription() {

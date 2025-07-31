@@ -7,6 +7,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const bookList = document.querySelector('.book-list');
     const toggleBookListBtn = document.getElementById('toggleBookListBtn');
     const bookListContainer = document.getElementById('bookListContainer');
+    
+    // Edit analysis overlay elements
+    const editAnalysisOverlay = document.getElementById('editAnalysisOverlay');
+    const analysisTextArea = document.getElementById('analysisTextArea');
+    const continueAfterEditBtn = document.getElementById('continueAfterEdit');
+    const cancelEditBtn = document.getElementById('cancelEdit');
 
     // Use a Map to store polling intervals for each book
     const activePollingIntervals = new Map(); // Map<book_id, interval_id>
@@ -39,6 +45,104 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Function to update progress text ---
     function updateProgressText(message) {
         progressText.textContent = message;
+    }
+
+    // --- Functions for edit analysis overlay ---
+    function showEditAnalysisOverlay(bookId, analysisText) {
+        console.log(`Showing edit analysis overlay for book ${bookId}`);
+        analysisTextArea.value = analysisText || '';
+        
+        // Store bookId for later use
+        editAnalysisOverlay.dataset.bookId = bookId;
+        
+        // Hide progress overlay and show edit overlay
+        hideProgressOverlay();
+        editAnalysisOverlay.style.display = 'flex';
+    }
+
+    function hideEditAnalysisOverlay() {
+        editAnalysisOverlay.style.display = 'none';
+        analysisTextArea.value = '';
+        delete editAnalysisOverlay.dataset.bookId;
+    }
+
+    // --- Function to load analysis for editing ---
+    async function loadAnalysisForEdit(bookId) {
+        try {
+            console.log(`Loading analysis for edit: book ${bookId}`);
+            showProgressOverlay('Загружаем результаты анализа...');
+            
+            const response = await fetch(`/workflow_download_analysis/${bookId}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const analysisText = await response.text();
+            console.log(`Analysis loaded for book ${bookId}, length: ${analysisText.length}`);
+            
+            showEditAnalysisOverlay(bookId, analysisText);
+            
+        } catch (error) {
+            console.error('Error loading analysis for edit:', error);
+            updateProgressText(`Ошибка загрузки анализа: ${error.message}`);
+            setTimeout(hideProgressOverlay, 3000);
+        }
+    }
+
+    // --- Event listeners for edit analysis buttons ---
+    if (continueAfterEditBtn) {
+        continueAfterEditBtn.addEventListener('click', async function() {
+            const bookId = editAnalysisOverlay.dataset.bookId;
+            const editedAnalysis = analysisTextArea.value;
+            
+            if (!bookId) {
+                alert('Ошибка: не найден ID книги');
+                return;
+            }
+            
+            try {
+                console.log(`Continuing workflow with edited analysis for book ${bookId}`);
+                hideEditAnalysisOverlay();
+                showProgressOverlay('Сохраняем отредактированный анализ...');
+                
+                const response = await fetch(`/workflow_start_existing_book/${bookId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        continue_after_edit: true,
+                        edited_analysis: editedAnalysis 
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Network response was not ok.');
+                }
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    updateProgressText('Анализ сохранен. Продолжаем workflow...');
+                    startPolling(bookId);
+                } else {
+                    updateProgressText(`Ошибка: ${data.message || 'Unknown error'}`);
+                    setTimeout(hideProgressOverlay, 3000);
+                }
+                
+            } catch (error) {
+                console.error('Error continuing after edit:', error);
+                updateProgressText(`Ошибка: ${error.message}`);
+                setTimeout(hideProgressOverlay, 3000);
+            }
+        });
+    }
+    
+    if (cancelEditBtn) {
+        cancelEditBtn.addEventListener('click', function() {
+            console.log('Edit analysis cancelled');
+            hideEditAnalysisOverlay();
+        });
     }
 
     // --- Function to handle form submission ---
@@ -165,7 +269,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log(`[updateBookListItem] Book ${bookId} - summaryStageStatusData:`, summaryStageStatusData); // NEW LOG: Check summary stage status data
                     console.log(`[updateBookListItem] Book ${bookId} - summarySectionCountsData:`, summarySectionCountsData); // NEW LOG: Check summary section counts data
 
-                     console.log(`[updateBookListItem] Analysis Stage Data for ${bookId}:`, analysisStageData); // Keep existing log
+                    console.log(`[updateBookListItem] Analysis Stage Data for ${bookId}:`, analysisStageData); // Keep existing log
+                    
+                    // --- ПРОВЕРКА НА СТАТУС AWAITING_EDIT ---
+                    if (analysisStageData && analysisStageData.status === 'awaiting_edit') {
+                        console.log(`Analysis is awaiting edit for book ${bookId}. Showing edit form.`);
+                        clearInterval(intervalId);
+                        activePollingIntervals.delete(bookId);
+                        
+                        // Загружаем результаты анализа и показываем форму редактирования
+                        loadAnalysisForEdit(bookId);
+                        return; // Останавливаем дальнейшую обработку
+                    }
 
                     const totalSections = statusData.total_sections_count || 0;
                     const completedSummary = summaryStageStatusData ? 
@@ -467,30 +582,32 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.start-workflow-button').forEach(button => {
         button.addEventListener('click', function() {
             const bookId = this.dataset.bookId;
-            // TODO: Для начала жестко зададим этап 'analyze'.
-            // В будущем здесь может быть выпадающий список или модальное окно для выбора этапа.
-            const startFromStage = 'analyze'; // <--- ЖЕСТКО ЗАДАЕМ 'analyze'
-
-            startWorkflowForExistingBook(bookId, startFromStage);
+            
+            // Проверяем URL параметр admin
+            const urlParams = new URLSearchParams(window.location.search);
+            const admin = urlParams.get('admin') === 'true';
+            
+            console.log(`Starting workflow for book ${bookId}, admin: ${admin}`);
+            startWorkflowForExistingBook(bookId, admin);
         });
     });
 
     // Function to start workflow for an existing book
-    function startWorkflowForExistingBook(bookId, startFromStage = null) {
+    function startWorkflowForExistingBook(bookId, admin = false) {
         const overlay = document.getElementById('progressOverlay');
         const progressText = document.getElementById('progressText');
 
         overlay.style.display = 'flex';
         progressText.textContent = `Starting workflow for book ${bookId}...`;
 
-        console.log(`Starting workflow for book ID: ${bookId}, starting from stage: ${startFromStage}`);
+        console.log(`Starting workflow for book ID: ${bookId}, admin: ${admin}`);
 
         fetch(`/workflow_start_existing_book/${bookId}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json' // <--- ВАЖНО: Указываем, что отправляем JSON
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ start_from_stage: startFromStage }) // <--- Отправляем JSON-тело
+            body: JSON.stringify({ admin: admin })
         })
         .then(response => {
             if (!response.ok) {
