@@ -110,7 +110,6 @@ It is a creative neologism or a unique compound word.
 Its translation relies on a metaphor or a deeper concept, not just a literal meaning.
 It is a piece of in-universe terminology critical to understanding the world (a fictional race, unique technology, specific material, etc.).
 It represents a conscious, non-obvious decision, such as choosing a standard word over a literal but awkward equivalent.
-Explicit Exclusion Rule: Actively ignore and exclude standard vocabulary, direct literal translations of common concepts, and universally accepted genre terms.
 
 Output Format (Task 1):
 A Markdown table with the following three columns:
@@ -126,7 +125,6 @@ The character, location, or entity is a main or major recurring element.
 The name is ambiguous in its transliteration, allowing for multiple valid options.
 The name's gender is not obvious and requires contextual analysis to assign correctly for grammatical purposes.
 The name is a complex compound that requires a specific rule for handling its parts.
-Explicit Exclusion Rule: Exclude minor, one-off characters or locations unless they present a clear ambiguity.
 
 Rules for Assigning Gender:
 For characters (including non-binary ones), follow this strict hierarchy:
