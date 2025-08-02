@@ -10,7 +10,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
-        'primary': 'microsoft/mai-ds-r1:free',
+        'primary': 'models/gemini-2.5-flash-preview-05-20' #'microsoft/mai-ds-r1:free',
         'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level2': 'models/gemini-2.5-flash-preview-05-20'
     },

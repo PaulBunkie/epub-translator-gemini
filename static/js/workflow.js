@@ -269,15 +269,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const summarySectionCountsData = statusData.sections_status_summary ? statusData.sections_status_summary.summarize : null; // Summarization section counts
 
                     const analysisStageData = statusData.book_stage_statuses ? statusData.book_stage_statuses.analyze : null; // Analysis stage data
-
-                    console.log(`[updateBookListItem] Book ${bookId} - summaryStageStatusData:`, summaryStageStatusData); // NEW LOG: Check summary stage status data
-                    console.log(`[updateBookListItem] Book ${bookId} - summarySectionCountsData:`, summarySectionCountsData); // NEW LOG: Check summary section counts data
-
-                    console.log(`[updateBookListItem] Analysis Stage Data for ${bookId}:`, analysisStageData); // Keep existing log
                     
                     // --- ПРОВЕРКА НА СТАТУС AWAITING_EDIT ---
-                    if (analysisStageData && analysisStageData.status === 'awaiting_edit') {
-                        console.log(`Analysis is awaiting edit for book ${bookId}. Showing edit form.`);
+                    if (admin && analysisStageData && analysisStageData.status === 'awaiting_edit') {
                         clearInterval(intervalId);
                         activePollingIntervals.delete(bookId);
                         
