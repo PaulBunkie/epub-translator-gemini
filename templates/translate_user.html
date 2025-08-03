@@ -350,7 +350,7 @@
                 </div>
                 <!-- Кнопка загрузки новой книги -->
                 <div style="text-align: center; margin: 20px 0;">
-                    <button onclick="window.location.href='/reset_session'" class="btn" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); max-width: 300px;">
+                    <button onclick="window.location.href='/reset_session' + (admin ? '?admin=true' : '')" class="btn" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); max-width: 300px;">
                         📚 Загрузить новую книгу
                     </button>
                 </div>

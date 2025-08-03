@@ -12,7 +12,7 @@ MODEL_CONFIG = {
     'analyze': {
         'primary': 'microsoft/mai-ds-r1:free',
         'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'models/gemini-2.5-flash-preview-05-20'
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'translate': {
         'primary': 'deepseek/deepseek-chat-v3-0324:free',

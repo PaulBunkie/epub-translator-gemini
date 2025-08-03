@@ -2138,7 +2138,13 @@ def get_workflow_book_by_token(access_token):
 
 @app.route('/reset_session', methods=['GET'])
 def reset_session():
-    response = redirect('/user')
+    # Сохраняем admin параметр при сбросе сессии
+    admin = request.args.get('admin') == 'true'
+    redirect_url = '/user'
+    if admin:
+        redirect_url += '?admin=true'
+    
+    response = redirect(redirect_url)
     response.delete_cookie('user_session', path='/')
     return response
 
