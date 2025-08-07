@@ -59,7 +59,7 @@ class TopTubeManager:
             
             for page_num in range(1, pages_to_fetch + 1):
                 params = {
-                    "part": "snippet,contentDetails,statistics",
+                    "part": "snippet,contentDetails,statistics,liveStreamingDetails",
                     "chart": "mostPopular",
                     "regionCode": region,
                     "maxResults": 50,
@@ -125,7 +125,7 @@ class TopTubeManager:
                 search_video_ids = [item["id"]["videoId"] for item in search_items if "videoId" in item["id"]]
                 if search_video_ids:
                     details_params = {
-                        "part": "snippet,contentDetails,statistics",
+                        "part": "snippet,contentDetails,statistics,liveStreamingDetails",
                         "id": ",".join(search_video_ids),
                         "key": self.api_key
                     }
@@ -330,16 +330,21 @@ class TopTubeManager:
             'league of legends', 'dota', 'cs:go', 'counter-strike', 'overwatch',
             'world of warcraft', 'wow', 'call of duty', 'cod', 'apex legends',
             'among us', 'fall guys', 'rocket league', 'cyberpunk', 'witcher',
+            'resident evil', 'silent hill', 'final fantasy', 'zelda', 'mario',
+            'pokemon', 'skyrim', 'fallout', 'assassin\'s creed', 'battlefield',
+            'destiny', 'elden ring', 'dark souls', 'sekiro', 'bloodborne',
             
             # Игровые термины на русском (исключили общие слова)
             'играю', 'геймплей', 'летсплей', 'прохождение',
             'обзор игры', 'игровой', 'геймер', 'пвп', 'рейд', 'данж', 'квест',
             'майнкрафт', 'роблокс', 'фортнайт', 'танки', 'варфейс', 'дота',
+            'челлендж', 'марафон', 'турнир',
             
             # Игровые термины на английском
             'gameplay', 'gaming', 'playthrough', 'walkthrough', 'lets play',
             'game review', 'gaming setup', 'speedrun', 'boss fight', 'pvp',
             'mmo', 'rpg', 'fps', 'moba', 'battle royale', 'esports',
+            'challenge', 'marathon', 'tournament', 'ranked', 'grinding',
             
             # Игровые платформы
             'steam', 'epic games', 'battle.net', 'playstation', 'xbox', 'nintendo switch',
@@ -357,6 +362,19 @@ class TopTubeManager:
         
         # 3. Анализ названия канала
         channel_title = video["snippet"]["channelTitle"].lower()
+        
+        # Известные игровые стримеры/каналы
+        known_gaming_channels = [
+            'jynxzi', 'penguinz0', 'moistcr1tikal', 'xqc', 'shroud', 'ninja',
+            'pokimane', 'tfue', 'summit1g', 'lirik', 'sodapoppin', 'asmongold',
+            'игромания', 'stopgame', 'gameland', 'caramba tv', 'treshbox'
+        ]
+        
+        # Проверяем известных геймеров
+        for known_channel in known_gaming_channels:
+            if known_channel in channel_title:
+                return True
+        
         gaming_channel_indicators = [
             'gaming', 'games', 'gamer', 'play', 'stream', 'esports',
             'игры', 'геймер', 'игровой', 'плей', 'стрим'
@@ -377,6 +395,10 @@ class TopTubeManager:
             r'\b(новая|new)\s+(игра|game)\b',        # "новая игра"
             r'\b(лучшие|best)\s+(игры|games)\b',     # "лучшие игры"
             r'\bтоп\s+\d+\s+игр\b',                  # "топ 10 игр"
+            r'\b\w+\s+vs\s+\w+.*challenge\b',       # "X vs Y challenge"
+            r'\b\w+\s+marathon\b',                   # "game marathon"
+            r'\b(99-0|100-0|no death)\s+challenge\b', # "99-0 challenge"
+            r'\b\w+\s+(турнир|tournament)\b',        # игровые турниры
         ]
         
         for pattern in gaming_patterns:
@@ -394,6 +416,21 @@ class TopTubeManager:
                 print(f"[TopTube] Видео является стримом (API): {video['snippet']['title'][:50]}... — пропускаем")
                 return False
             
+            # Проверяем liveStreamingDetails - исключаем ЗАВЕРШЕННЫЕ стримы
+            live_streaming_details = video.get("liveStreamingDetails", {})
+            if live_streaming_details:
+                # Если есть actualEndTime - это завершенный стрим
+                actual_end_time = live_streaming_details.get("actualEndTime")
+                if actual_end_time:
+                    print(f"[TopTube] Видео является завершенным стримом (liveStreamingDetails): {video['snippet']['title'][:50]}... — пропускаем")
+                    return False
+                
+                # Если есть actualStartTime но нет actualEndTime - активный стрим
+                actual_start_time = live_streaming_details.get("actualStartTime")
+                if actual_start_time and not actual_end_time:
+                    print(f"[TopTube] Видео является активным стримом (liveStreamingDetails): {video['snippet']['title'][:50]}... — пропускаем")
+                    return False
+            
             # Дополнительная проверка по названию (запасной вариант)
             title = video["snippet"]["title"]
             if self._is_stream_video(title):
@@ -406,10 +443,24 @@ class TopTubeManager:
             if self._is_gaming_video(video, channel_info):
                 print(f"[TopTube] Видео является игровым контентом: {title[:50]}... — пропускаем")
                 return False
-            # Проверяем длительность (минимум 50 минут, максимум 4 часа)
+            
+            # Проверяем длительность (минимум 90 минут, максимум 5 часов)
             duration_str = video["contentDetails"]["duration"]
             duration = isodate.parse_duration(duration_str)
             duration_seconds = duration.total_seconds()
+            
+            # Дополнительная проверка на подозрительно длинные видео (возможные стримы)
+            if duration_seconds > 14400:  # 4 часа
+                # Дополнительные проверки для длинных видео
+                suspicious_long_patterns = [
+                    r'\bvs\b', r'\bchallenge\b', r'\bmarathon\b', r'\btournament\b',
+                    r'\branked\b', r'\bgrinding\b', r'\b\d+-\d+\b',  # счёт типа "99-0"
+                ]
+                import re
+                for pattern in suspicious_long_patterns:
+                    if re.search(pattern, title.lower()):
+                        print(f"[TopTube] Подозрительно длинное видео со стрим-паттерном: {title[:50]}... — пропускаем")
+                        return False
             
             if duration_seconds < 5400:  # 1.5 часа = 5400 секунд (90 минут)
                 print(f"[TopTube] Видео слишком короткое: {duration_seconds//60} мин — пропускаем")
