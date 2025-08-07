@@ -51,6 +51,8 @@ class TopTubeManager:
         published_after = (datetime.now().astimezone() - timedelta(days=DAYS)).strftime('%Y-%m-%dT%H:%M:%SZ')
         
         # Сбор mostPopular по регионам
+        # ПРИМЕЧАНИЕ: параметр eventType не поддерживается для mostPopular, 
+        # поэтому фильтрацию стримов делаем в _should_save_video()
         for region in regions:
             page_token = None
             print(f"[TopTube] Сбор mostPopular для региона {region}")
@@ -100,9 +102,14 @@ class TopTubeManager:
                     "q": Q_TEMPLATE,
                     "order": "viewCount",
                     "videoDuration": "long",
+                    "eventType": "completed",  # Исключает активные и предстоящие стримы
                     "maxResults": 100,
                     "key": self.api_key
                 }
+                
+                # Исключаем игровые видео - категория Gaming имеет ID 20
+                # Но параметр videoCategoryId работает только как включающий фильтр,
+                # поэтому фильтрацию игр делаем в _should_save_video()
                 
                 if search_page_token:
                     search_params["pageToken"] = search_page_token
@@ -233,9 +240,172 @@ class TopTubeManager:
         
         return channels_dict
     
+    def _is_stream_video(self, title: str) -> bool:
+        """Проверяет, является ли видео стримом по названию."""
+        title_lower = title.lower()
+        
+        # Сильные индикаторы стрима (если есть - точно стрим)
+        strong_stream_indicators = [
+            'прямой эфир', 'в прямом эфире', 'прямая трансляция', 
+            'онлайн трансляция', 'live stream', 'livestream',
+            'going live', 'streaming now', 'стримим'
+        ]
+        
+        for indicator in strong_stream_indicators:
+            if indicator in title_lower:
+                return True
+        
+        # Проверяем эмодзи live (красный круг)
+        if '🔴' in title:
+            return True
+        
+        # Контекстные проверки для "стрим" и "stream"
+        import re
+        
+        # Паттерны для стримов
+        stream_patterns = [
+            r'\bстрим\b.*\b(запись|завершен|окончен|закончен)\b',  # "стрим запись", "завершенный стрим"
+            r'\b(завершен|окончен|закончен).*\bстрим\b',            # "завершенный стрим"
+            r'\bстрим\b.*\b(прямо|сейчас|онлайн)\b',                # "стрим прямо сейчас"
+            r'\b(полный|весь)\s+стрим\b',                           # "полный стрим"
+            r'\bстрим\s+(по|игр|ночи|до)\b',                       # "стрим по игре", "стрим всю ночь"
+            r'\bstream\b.*\b(record|vod|full)\b',                   # "stream record"
+            r'\b(full|complete).*\bstream\b',                       # "full stream"
+            r'\bstream\b.*\b(now|live|today)\b',                    # "stream now"
+        ]
+        
+        for pattern in stream_patterns:
+            if re.search(pattern, title_lower):
+                return True
+        
+        # Исключения - когда "стрим" используется в обычном контексте
+        normal_usage_patterns = [
+            r'\bстрим\b.*\b(был|вчера|позавчера|недавно|хорош|класс|понравил)\b',  # "стрим был классный"
+            r'\b(смотрел|видел|помню)\b.*\bстрим\b',                                # "смотрел стрим"
+            r'\bстрим\b.*\b(канал|автор)\b',                                        # "стримера канал"
+        ]
+        
+        for pattern in normal_usage_patterns:
+            if re.search(pattern, title_lower):
+                return False  # НЕ стрим
+        
+        # Простая проверка отдельных слов (но не в исключениях выше)
+        simple_keywords = ['live', 'эфир', 'трансляция']
+        for keyword in simple_keywords:
+            if keyword in title_lower:
+                return True
+                
+        return False
+
+    def _is_gaming_video(self, video: Dict[str, Any], channel_info: Dict[str, Any]) -> bool:
+        """Проверяет, является ли видео игровым контентом."""
+        
+        # 1. Проверяем категорию видео (categoryId = 20 = Gaming)
+        category_id = video["snippet"].get("categoryId", "")
+        if category_id == "20":
+            return True
+        
+        # 2. Анализ названия видео
+        title = video["snippet"]["title"].lower()
+        
+        # Сначала проверяем исключения - когда слова используются в НЕ игровом контексте
+        non_gaming_patterns = [
+            r'\bигра\s+(света|теней|цвета|слов|престолов)',  # "игра света", "игра престолов"
+            r'\b(политическая|экономическая|финансовая)\s+игра\b',  # политические/экономические игры
+            r'\bигра\s+(актер|актрис|исполнени)',  # актерская игра
+            r'\bgame\s+of\s+thrones\b',  # Game of Thrones
+            r'\bvideo\s+game\s+(music|soundtrack|composer)\b',  # музыка из игр (не сами игры)
+            r'\b(олимпийские|спортивные)\s+игры\b',  # спортивные игры
+        ]
+        
+        import re
+        for pattern in non_gaming_patterns:
+            if re.search(pattern, title):
+                return False  # НЕ игровой контент
+        
+        # Игровые ключевые слова
+        gaming_keywords = [
+            # Популярные игры
+            'minecraft', 'fortnite', 'roblox', 'gta', 'fifa', 'pubg', 'valorant', 
+            'league of legends', 'dota', 'cs:go', 'counter-strike', 'overwatch',
+            'world of warcraft', 'wow', 'call of duty', 'cod', 'apex legends',
+            'among us', 'fall guys', 'rocket league', 'cyberpunk', 'witcher',
+            
+            # Игровые термины на русском (исключили общие слова)
+            'играю', 'геймплей', 'летсплей', 'прохождение',
+            'обзор игры', 'игровой', 'геймер', 'пвп', 'рейд', 'данж', 'квест',
+            'майнкрафт', 'роблокс', 'фортнайт', 'танки', 'варфейс', 'дота',
+            
+            # Игровые термины на английском
+            'gameplay', 'gaming', 'playthrough', 'walkthrough', 'lets play',
+            'game review', 'gaming setup', 'speedrun', 'boss fight', 'pvp',
+            'mmo', 'rpg', 'fps', 'moba', 'battle royale', 'esports',
+            
+            # Игровые платформы
+            'steam', 'epic games', 'battle.net', 'playstation', 'xbox', 'nintendo switch',
+            'mobile gaming', 'android games', 'ios games',
+            
+            # Игровое оборудование
+            'rtx', 'gaming pc', 'gaming laptop', 'mouse', 'keyboard gaming',
+            'headset', 'monitor gaming', 'игровая мышь', 'игровая клавиатура'
+        ]
+        
+        # Проверяем наличие игровых слов в названии
+        for keyword in gaming_keywords:
+            if keyword in title:
+                return True
+        
+        # 3. Анализ названия канала
+        channel_title = video["snippet"]["channelTitle"].lower()
+        gaming_channel_indicators = [
+            'gaming', 'games', 'gamer', 'play', 'stream', 'esports',
+            'игры', 'геймер', 'игровой', 'плей', 'стрим'
+        ]
+        
+        for indicator in gaming_channel_indicators:
+            if indicator in channel_title:
+                return True
+        
+        # 4. Паттерны в названиях, характерные для игрового контента
+        
+        gaming_patterns = [
+            r'\b(играю|играем)\s+в\s+\w+',          # "играю в Minecraft"
+            r'\b\w+\s+(gameplay|летсплей)\b',        # "Cyberpunk gameplay"
+            r'\b(обзор|review)\s+игры\b',            # "обзор игры"
+            r'\b(прохождение|walkthrough)\s+\w+',    # "прохождение Skyrim"
+            r'\b\w+\s+(стрим|stream)\b',             # "Dota стрим"
+            r'\b(новая|new)\s+(игра|game)\b',        # "новая игра"
+            r'\b(лучшие|best)\s+(игры|games)\b',     # "лучшие игры"
+            r'\bтоп\s+\d+\s+игр\b',                  # "топ 10 игр"
+        ]
+        
+        for pattern in gaming_patterns:
+            if re.search(pattern, title):
+                return True
+        
+        return False
+
     def _should_save_video(self, video: Dict[str, Any], channels_dict: Dict[str, Any]) -> bool:
         """Проверяет, нужно ли сохранять видео."""
         try:
+            # Проверяем liveBroadcastContent - исключаем стримы на уровне API
+            live_broadcast_content = video["snippet"].get("liveBroadcastContent", "none")
+            if live_broadcast_content in ["live", "upcoming"]:
+                print(f"[TopTube] Видео является стримом (API): {video['snippet']['title'][:50]}... — пропускаем")
+                return False
+            
+            # Дополнительная проверка по названию (запасной вариант)
+            title = video["snippet"]["title"]
+            if self._is_stream_video(title):
+                print(f"[TopTube] Видео является стримом (название): {title[:50]}... — пропускаем")
+                return False
+            
+            # Проверяем, не является ли это игровым контентом
+            channel_id = video["snippet"]["channelId"]
+            channel_info = channels_dict.get(channel_id, {})
+            if self._is_gaming_video(video, channel_info):
+                print(f"[TopTube] Видео является игровым контентом: {title[:50]}... — пропускаем")
+                return False
             # Проверяем длительность (минимум 50 минут, максимум 4 часа)
             duration_str = video["contentDetails"]["duration"]
             duration = isodate.parse_duration(duration_str)
