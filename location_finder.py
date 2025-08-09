@@ -343,9 +343,15 @@ def _fetch_news(person_name: str, num_articles: int = 100, days_ago: int = NEWS_
                 filtered_articles.append({"title": title, "description": description})
         print(f"{LF_PRINT_PREFIX} Отфильтровано (по наличию title) {len(filtered_articles)} статей для '{person_name}'.")
         return filtered_articles
-    except requests.exceptions.Timeout: print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут NewsAPI для '{person_name}'.")
-    except requests.exceptions.HTTPError as e: print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP NewsAPI для '{person_name}': {e.response.status_code} {e.response.text[:100]}")
-    except Exception as e: print(f"{LF_PRINT_PREFIX} ОШИБКА в _fetch_news для '{person_name}': {e}"); traceback.print_exc()
+    except requests.exceptions.Timeout: 
+        print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут NewsAPI для '{person_name}'.")
+    except requests.exceptions.HTTPError as e: 
+        print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP NewsAPI для '{person_name}': {e.response.status_code} {e.response.text[:100]}")
+        if e.response.status_code == 429:
+            print(f"{LF_PRINT_PREFIX} Rate limit для NewsAPI - используем любой старый кэш если есть.")
+    except Exception as e: 
+        print(f"{LF_PRINT_PREFIX} ОШИБКА в _fetch_news для '{person_name}': {e}")
+        traceback.print_exc()
     return []
 
 def _geocode_location(location_name: str):
@@ -490,7 +496,8 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
         news_summaries_text_for_cache = "N/A"
 
         if not articles:
-            person_api_data_fresh = {"location_name": "Error", "lat": None, "lon": None, "error": "Could not fetch news"}
+            # НЕ создаем данные с ошибкой для кэширования, используем флаг
+            person_api_data_fresh = None  # Указывает на временную проблему с API
         else:
             news_summaries = []
             for art_idx, article_item in enumerate(articles):
@@ -499,7 +506,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                      news_summaries.append(f"Article {art_idx+1}:{chr(10)}Title: {title}{chr(10)}Description: {description if description else ''}{chr(10)}---")
 
             if not news_summaries:
-                person_api_data_fresh = {"location_name": "Error", "lat": None, "lon": None, "error": "No suitable news summaries found"}
+                person_api_data_fresh = None  # Нет подходящих новостей - временная проблема
             else:
                 news_text = "\n\n".join(news_summaries)
                 news_summaries_text_for_cache = news_text[:500] + ("..." if len(news_text)>500 else "")
@@ -513,9 +520,11 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                     news_text = news_text[:MAX_CHARS_FOR_GEMINI] + "\n...(truncated)"
                 person_api_data_fresh = _get_location_from_ai(person_name_cleaned, news_text)
 
-        person_api_data_fresh["last_updated"] = int(current_time_unix)
+        if person_api_data_fresh:
+            person_api_data_fresh["last_updated"] = int(current_time_unix)
 
         is_fresh_data_good = (
+            person_api_data_fresh is not None and
             person_api_data_fresh.get("lat") is not None and
             person_api_data_fresh.get("lon") is not None and
             not person_api_data_fresh.get("error") and
@@ -538,9 +547,20 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                 "last_updated": cached_entry["last_updated"]
             }
         else:
-            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет или принудительное обновление. Используем/сохраняем 'плохие' свежие для '{person_name_cleaned}'.")
-            final_data_for_person = person_api_data_fresh
-            save_cached_location(person_name_key, final_data_for_person, source_summary=news_summaries_text_for_cache)
+            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет или принудительное обновление.")
+            if cached_entry and cached_entry.get("location_name") not in ("Error", None, "Unknown"):
+                # При проблемах с API используем ЛЮБОЙ старый кэш, даже очень устаревший
+                print(f"{LF_PRINT_PREFIX} API недоступен - используем старый кэш для '{person_name_cleaned}' (возраст: {cache_age_hours:.1f}ч).")
+                final_data_for_person = {
+                    "location_name": cached_entry["location_name"],
+                    "lat": cached_entry["lat"], "lon": cached_entry["lon"],
+                    "error": cached_entry["error"],
+                    "last_updated": cached_entry["last_updated"]
+                }
+            else:
+                # НЕ сохраняем ошибки в кэш, просто пропускаем этого персонажа
+                print(f"{LF_PRINT_PREFIX} Пропускаем '{person_name_cleaned}' - API недоступен и нет подходящего кэша.")
+                continue
 
         results[person_name_cleaned] = final_data_for_person
 
