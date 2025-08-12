@@ -2,6 +2,7 @@ import requests
 from datetime import timedelta, datetime
 import isodate
 import os
+import json
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 
@@ -29,6 +30,10 @@ class TopTubeManager:
         self.api_key = API_KEY
         if not self.api_key:
             raise ValueError("Не установлена переменная окружения YOUTUBE_API_KEY")
+        
+        # OpenRouter API для LLM-фильтрации
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        self.openrouter_api_url = "https://openrouter.ai/api/v1"
         
         # Инициализируем БД
         video_db.init_video_db()
@@ -146,16 +151,29 @@ class TopTubeManager:
         channel_ids = list({v["snippet"]["channelId"] for v in all_videos})
         channels_dict = self._get_channels_info(channel_ids)
         
-        # Фильтруем и сохраняем видео
-        saved_count = 0
+        # Фильтруем видео (базовые критерии)
+        filtered_videos = []
         for video in all_videos:
             try:
                 if self._should_save_video(video, channels_dict):
-                    video_data = self._prepare_video_data(video, channels_dict)
-                    if video_db.add_video(video_data):
-                        saved_count += 1
+                    filtered_videos.append(video)
             except Exception as e:
-                print(f"[TopTube] Ошибка при обработке видео {video.get('id', 'unknown')}: {e}")
+                print(f"[TopTube] Ошибка при фильтрации видео {video.get('id', 'unknown')}: {e}")
+        
+        print(f"[TopTube] После базовой фильтрации: {len(filtered_videos)} видео")
+        
+        # LLM-фильтрация игрового контента
+        final_videos = self._filter_gaming_content_with_llm(filtered_videos)
+        
+        # Сохраняем финальные видео
+        saved_count = 0
+        for video in final_videos:
+            try:
+                video_data = self._prepare_video_data(video, channels_dict)
+                if video_db.add_video(video_data):
+                    saved_count += 1
+            except Exception as e:
+                print(f"[TopTube] Ошибка при сохранении видео {video.get('id', 'unknown')}: {e}")
         
         print(f"[TopTube] Сохранено в БД: {saved_count} видео")
         
@@ -312,6 +330,115 @@ class TopTubeManager:
     def cleanup_old_data(self, days: int = 30) -> int:
         """Очищает старые данные."""
         return video_db.cleanup_old_videos(days)
+    
+    def _filter_gaming_content_with_llm(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Фильтрует игровой контент с помощью LLM.
+        
+        Args:
+            videos: Список видео для проверки
+            
+        Returns:
+            Список видео без игрового контента
+        """
+        if not self.openrouter_api_key:
+            print("[TopTube] OpenRouter API ключ не установлен, пропускаем LLM-фильтрацию")
+            return videos
+            
+        if len(videos) == 0:
+            return videos
+            
+        # Формируем пронумерованный список заголовков
+        titles_list = []
+        for i, video in enumerate(videos, 1):
+            title = video["snippet"]["title"]
+            titles_list.append(f"{i}. {title}")
+        
+        titles_text = "\n".join(titles_list)
+        
+        prompt = f"""Ниже пронумерованный список заголовков YouTube видео. Определи какие из них описывают:
+- Компьютерные игры, мобильные игры
+- Игровые механики, прохождения игр
+- Игровые стримы, летсплеи
+- Киберспорт, игровые турниры
+- Обзоры игр, игровое оборудование
+
+НЕ считай игровым контентом:
+- Спортивные события и турниры
+- Бизнес, жизненные челленджи
+- Награды, медали в реальной жизни
+- Музыкальные битвы, рэп-баттлы
+- Фильмы, сериалы про игры
+
+В ответе укажи ТОЛЬКО номера игровых видео через запятую (например: 1, 3, 7). Если игровых видео нет, ответь "нет".
+
+Список видео:
+{titles_text}"""
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "google/gemma-3-27b-it:free",  # Используем бесплатную модель
+                "messages": [
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": 100,
+                "temperature": 0.1
+            }
+            
+            print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации...")
+            
+            response = requests.post(
+                f"{self.openrouter_api_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            
+            if response.status_code != 200:
+                print(f"[TopTube] Ошибка LLM API: {response.status_code} - {response.text}")
+                return videos  # Возвращаем все видео если API недоступно
+                
+            result = response.json()
+            llm_response = result["choices"][0]["message"]["content"].strip().lower()
+            
+            print(f"[TopTube] LLM ответ: '{llm_response}'")
+            
+            # Парсим ответ LLM
+            if llm_response == "нет" or "нет" in llm_response:
+                print("[TopTube] LLM не нашел игрового контента")
+                return videos
+                
+            # Извлекаем номера игровых видео
+            gaming_indices = []
+            for part in llm_response.replace(" ", "").split(","):
+                try:
+                    if part.isdigit():
+                        gaming_indices.append(int(part) - 1)  # Переводим в 0-based индексы
+                except ValueError:
+                    continue
+            
+            # Фильтруем видео, исключая игровые
+            filtered_videos = []
+            for i, video in enumerate(videos):
+                if i not in gaming_indices:
+                    filtered_videos.append(video)
+                else:
+                    print(f"[TopTube] LLM отфильтровал как игровое: {video['snippet']['title'][:50]}...")
+            
+            print(f"[TopTube] LLM-фильтрация: было {len(videos)}, стало {len(filtered_videos)} видео")
+            return filtered_videos
+            
+        except Exception as e:
+            print(f"[TopTube] Ошибка в LLM-фильтрации: {e}")
+            return videos  # Возвращаем все видео если что-то пошло не так
 
 # Глобальный экземпляр менеджера
 _manager = None
