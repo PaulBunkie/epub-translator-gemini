@@ -414,7 +414,7 @@ class TopTubeManager:
             live_broadcast_content = video["snippet"].get("liveBroadcastContent", "none")
             if live_broadcast_content in ["live", "upcoming"]:
                 print(f"[TopTube] Видео является стримом (API): {video['snippet']['title'][:50]}... — пропускаем")
-                return False
+#                return False
             
             # Проверяем liveStreamingDetails - исключаем ЗАВЕРШЕННЫЕ стримы
             live_streaming_details = video.get("liveStreamingDetails", {})
@@ -423,19 +423,19 @@ class TopTubeManager:
                 actual_end_time = live_streaming_details.get("actualEndTime")
                 if actual_end_time:
                     print(f"[TopTube] Видео является завершенным стримом (liveStreamingDetails): {video['snippet']['title'][:50]}... — пропускаем")
-                    return False
+#                    return False
                 
                 # Если есть actualStartTime но нет actualEndTime - активный стрим
                 actual_start_time = live_streaming_details.get("actualStartTime")
                 if actual_start_time and not actual_end_time:
                     print(f"[TopTube] Видео является активным стримом (liveStreamingDetails): {video['snippet']['title'][:50]}... — пропускаем")
-                    return False
+ #                   return False
             
             # Дополнительная проверка по названию (запасной вариант)
             title = video["snippet"]["title"]
             if self._is_stream_video(title):
                 print(f"[TopTube] Видео является стримом (название): {title[:50]}... — пропускаем")
-                return False
+ #               return False
             
             # Проверяем, не является ли это игровым контентом
             channel_id = video["snippet"]["channelId"]
@@ -460,7 +460,7 @@ class TopTubeManager:
                 for pattern in suspicious_long_patterns:
                     if re.search(pattern, title.lower()):
                         print(f"[TopTube] Подозрительно длинное видео со стрим-паттерном: {title[:50]}... — пропускаем")
-                        return False
+#                        return False
             
             if duration_seconds < 5400:  # 1.5 часа = 5400 секунд (90 минут)
                 print(f"[TopTube] Видео слишком короткое: {duration_seconds//60} мин — пропускаем")
