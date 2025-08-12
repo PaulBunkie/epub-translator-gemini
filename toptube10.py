@@ -162,8 +162,8 @@ class TopTubeManager:
         
         print(f"[TopTube] После базовой фильтрации: {len(filtered_videos)} видео")
         
-        # LLM-фильтрация игрового контента
-        final_videos = self._filter_gaming_content_with_llm(filtered_videos)
+        # LLM-фильтрация нецелевого контента (игры + неподходящие языки)
+        final_videos = self._filter_non_target_content_with_llm(filtered_videos)
         
         # Сохраняем финальные видео
         saved_count = 0
@@ -331,15 +331,15 @@ class TopTubeManager:
         """Очищает старые данные."""
         return video_db.cleanup_old_videos(days)
     
-    def _filter_gaming_content_with_llm(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _filter_non_target_content_with_llm(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Фильтрует игровой контент с помощью LLM.
+        Фильтрует нецелевой контент с помощью LLM (игровой контент + неподходящие языки).
         
         Args:
             videos: Список видео для проверки
             
         Returns:
-            Список видео без игрового контента
+            Список видео без нецелевого контента
         """
         if not self.openrouter_api_key:
             print("[TopTube] OpenRouter API ключ не установлен, пропускаем LLM-фильтрацию")
@@ -356,21 +356,26 @@ class TopTubeManager:
         
         titles_text = "\n".join(titles_list)
         
-        prompt = f"""Ниже пронумерованный список заголовков YouTube видео. Определи какие из них описывают:
+        prompt = f"""Ниже пронумерованный список заголовков YouTube видео. Определи какие из них НЕ подходят для русскоязычной аудитории по следующим критериям:
+
+1) ИГРОВОЙ КОНТЕНТ:
 - Компьютерные игры, мобильные игры
-- Игровые механики, прохождения игр
-- Игровые стримы, летсплеи
-- Киберспорт, игровые турниры
+- Игровые механики, прохождения игр, летсплеи
+- Игровые стримы, киберспорт
 - Обзоры игр, игровое оборудование
 
-НЕ считай игровым контентом:
+2) НЕПОДХОДЯЩИЙ ЯЗЫК:
+- Видео на вьетнамском, корейском языках
+- Видео на языках народов Индии, Пакистана, Бангладеш
+
+НЕ исключай:
+- Интервью, новости, обзоры на русском/английском
 - Спортивные события и турниры
 - Бизнес, жизненные челленджи
-- Награды, медали в реальной жизни
 - Музыкальные битвы, рэп-баттлы
-- Фильмы, сериалы про игры
+- Документальные фильмы
 
-В ответе укажи ТОЛЬКО номера игровых видео через запятую (например: 1, 3, 7). Если игровых видео нет, ответь "нет".
+В ответе укажи ТОЛЬКО номера видео для исключения через запятую (например: 1, 3, 7). Если исключать нечего, ответь "нет".
 
 Список видео:
 {titles_text}"""
@@ -393,7 +398,7 @@ class TopTubeManager:
                 "temperature": 0.1
             }
             
-            print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации...")
+            print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации (игры + языки)...")
             
             response = requests.post(
                 f"{self.openrouter_api_url}/chat/completions",
@@ -413,25 +418,25 @@ class TopTubeManager:
             
             # Парсим ответ LLM
             if llm_response == "нет" or "нет" in llm_response:
-                print("[TopTube] LLM не нашел игрового контента")
+                print("[TopTube] LLM не нашел контента для исключения")
                 return videos
                 
-            # Извлекаем номера игровых видео
-            gaming_indices = []
+            # Извлекаем номера видео для исключения
+            exclude_indices = []
             for part in llm_response.replace(" ", "").split(","):
                 try:
                     if part.isdigit():
-                        gaming_indices.append(int(part) - 1)  # Переводим в 0-based индексы
+                        exclude_indices.append(int(part) - 1)  # Переводим в 0-based индексы
                 except ValueError:
                     continue
             
-            # Фильтруем видео, исключая игровые
+            # Фильтруем видео, исключая нецелевые
             filtered_videos = []
             for i, video in enumerate(videos):
-                if i not in gaming_indices:
+                if i not in exclude_indices:
                     filtered_videos.append(video)
                 else:
-                    print(f"[TopTube] LLM отфильтровал как игровое: {video['snippet']['title'][:50]}...")
+                    print(f"[TopTube] LLM исключил: {video['snippet']['title'][:70]}...")
             
             print(f"[TopTube] LLM-фильтрация: было {len(videos)}, стало {len(filtered_videos)} видео")
             return filtered_videos
