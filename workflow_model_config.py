@@ -28,6 +28,16 @@ MODEL_CONFIG = {
         'primary': 'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level1': 'microsoft/mai-ds-r1:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+    },
+    'video_analyze': {
+        'primary': 'microsoft/mai-ds-r1:free',
+        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+    },
+    'video_chat': {
+        'primary': 'microsoft/mai-ds-r1:free',
+        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     }
 }
 

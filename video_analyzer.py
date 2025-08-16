@@ -5,6 +5,7 @@ import re
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, Any
 import time
+from workflow_model_config import get_model_for_operation
 from telegram_notifier import telegram_notifier
 
 class VideoAnalyzer:
@@ -19,9 +20,9 @@ class VideoAnalyzer:
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.openrouter_api_url = "https://openrouter.ai/api/v1"
         
-        # Модели для анализа
-        self.primary_model = "microsoft/mai-ds-r1:free"
-        self.fallback_model = "deepseek/deepseek-chat-v3-0324:free"
+        # Модели для анализа из конфигурации
+        self.primary_model = get_model_for_operation('video_analyze', 'primary')
+        self.fallback_model = get_model_for_operation('video_analyze', 'fallback_level1')
         
         if not self.yandex_token and not self.session_id:
             raise ValueError("Необходимо установить YANDEX_API_TOKEN или YANDEX_SESSION_ID")
