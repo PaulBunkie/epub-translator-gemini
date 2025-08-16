@@ -631,6 +631,52 @@
         .ai-bubble strong {
             color: #495057;
         }
+        
+        /* Стили для плавающей кнопки "Обсудить" при выделении текста */
+        .floating-discuss-btn {
+            position: absolute;
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+            z-index: 1060;
+            display: none;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+            animation: popIn 0.2s ease-out;
+        }
+        
+        .floating-discuss-btn:hover {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(40, 167, 69, 0.4);
+        }
+        
+        .floating-discuss-btn:active {
+            transform: translateY(0);
+        }
+        
+        @keyframes popIn {
+            0% {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        /* Стиль для выделенного текста */
+        ::selection {
+            background-color: rgba(40, 167, 69, 0.2);
+            color: inherit;
+        }
     </style>
 </head>
 <body>
@@ -1751,6 +1797,121 @@
         function showError(message) {
             alert('Ошибка: ' + message);
         }
+        // === ОБСУЖДЕНИЕ ВЫДЕЛЕННОГО ТЕКСТА ===
+        
+        let selectedText = '';
+        let selectedRange = null;
+        
+        // Создаем плавающую кнопку для обсуждения
+        function createFloatingDiscussBtn() {
+            if (document.getElementById('floatingDiscussBtn')) {
+                return document.getElementById('floatingDiscussBtn');
+            }
+            
+            const btn = document.createElement('button');
+            btn.id = 'floatingDiscussBtn';
+            btn.className = 'floating-discuss-btn';
+            btn.innerHTML = '<i class="fas fa-comments me-1"></i>Обсудить';
+            btn.onclick = discussSelectedText;
+            document.body.appendChild(btn);
+            return btn;
+        }
+        
+        // Обработчик выделения текста в модальном окне
+        function handleTextSelection() {
+            const selection = window.getSelection();
+            const text = selection.toString().trim();
+            const btn = createFloatingDiscussBtn();
+            
+            if (text.length > 0) {
+                selectedText = text;
+                selectedRange = selection.getRangeAt(0);
+                
+                // Показываем кнопку рядом с выделением
+                const rect = selectedRange.getBoundingClientRect();
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+                
+                btn.style.display = 'block';
+                btn.style.left = (rect.left + scrollLeft + rect.width / 2 - btn.offsetWidth / 2) + 'px';
+                btn.style.top = (rect.bottom + scrollTop + 8) + 'px';
+                
+                console.log(`[TextSelection] Выделен текст: "${text.substring(0, 100)}..."`);
+            } else {
+                btn.style.display = 'none';
+                selectedText = '';
+                selectedRange = null;
+            }
+        }
+        
+        // Обработчик клика по кнопке "Обсудить"
+        function discussSelectedText() {
+            if (!selectedText || !window.currentVideoId) {
+                console.log('[TextSelection] Нет выделенного текста или активного видео');
+                return;
+            }
+            
+            console.log(`[TextSelection] Инициируем диалог с выделенным текстом: "${selectedText.substring(0, 100)}..."`);
+            
+            // Открываем чат если он закрыт
+            const chatSection = document.getElementById('videoChatSection');
+            if (chatSection.style.display === 'none') {
+                toggleVideoChat();
+            }
+            
+            // Формируем сообщение с контекстом
+            const message = `Объясни этот фрагмент из видео: "${selectedText}"`;
+            
+            // Вставляем в поле ввода
+            const chatInput = document.getElementById('chatInput');
+            if (chatInput) {
+                chatInput.value = message;
+                chatInput.focus();
+                
+                // Автоматически отправляем сообщение
+                setTimeout(() => {
+                    sendChatMessage();
+                }, 100);
+            }
+            
+            // Скрываем кнопку
+            const btn = document.getElementById('floatingDiscussBtn');
+            if (btn) btn.style.display = 'none';
+            
+            // Очищаем выделение
+            window.getSelection().removeAllRanges();
+            selectedText = '';
+            selectedRange = null;
+        }
+        
+        // Добавляем обработчики событий при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Обработчик выделения для модального окна
+            document.addEventListener('mouseup', function(e) {
+                // Проверяем что выделение происходит в модальном окне
+                const modal = document.getElementById('videoModal');
+                if (modal && modal.classList.contains('show')) {
+                    setTimeout(handleTextSelection, 10);
+                }
+            });
+            
+            // Скрываем кнопку при клике в другом месте
+            document.addEventListener('click', function(e) {
+                const btn = document.getElementById('floatingDiscussBtn');
+                if (btn && e.target !== btn && !btn.contains(e.target)) {
+                    btn.style.display = 'none';
+                }
+            });
+            
+            // Скрываем кнопку при прокрутке
+            document.addEventListener('scroll', function() {
+                const btn = document.getElementById('floatingDiscussBtn');
+                if (btn) btn.style.display = 'none';
+            });
+        });
     </script>
+
+    <!-- Плавающая кнопка для обсуждения выделенного текста будет создана динамически -->
+
 </body>
 </html>
