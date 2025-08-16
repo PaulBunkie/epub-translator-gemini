@@ -51,6 +51,7 @@ import workflow_processor
 import workflow_cache_manager
 import html
 import video_analyzer
+import video_chat_handler
 import toptube10
 import video_db
 
@@ -1829,6 +1830,73 @@ def api_analyze_video():
         return jsonify({'error': f'Непредвиденная ошибка: {str(e)}'}), 500
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ АНАЛИЗА ВИДЕО ---
+
+# --- МАРШРУТЫ ДЛЯ ВИДЕО ЧАТА ---
+
+@app.route('/api/videos/<video_id>/chat', methods=['POST'])
+def api_video_chat(video_id):
+    """API эндпойнт для диалога с ИИ по содержанию видео."""
+    try:
+        # Получаем данные запроса
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Отсутствует тело запроса'}), 400
+        
+        user_message = data.get('message', '').strip()
+        if not user_message:
+            return jsonify({'error': 'Сообщение не может быть пустым'}), 400
+        
+        history = data.get('history', [])
+        if not isinstance(history, list):
+            return jsonify({'error': 'История должна быть массивом'}), 400
+        
+        print(f"[VideoChatAPI] Запрос на диалог для видео {video_id}")
+        try:
+            print(f"[VideoChatAPI] Сообщение: {user_message}")
+        except UnicodeEncodeError:
+            print(f"[VideoChatAPI] Сообщение: [содержит специальные символы, длина {len(user_message)}]")
+        print(f"[VideoChatAPI] История: {len(history)} сообщений")
+        
+        # Получаем данные видео из БД по YouTube ID
+        video_data = video_db.get_video_by_youtube_id(video_id)
+        if not video_data:
+            return jsonify({'error': 'Видео не найдено'}), 404
+        
+        # Получаем данные анализа видео по внутреннему ID
+        analysis_data = video_db.get_analysis_by_video_id(video_data['id'])
+        if not analysis_data or not (analysis_data.get('extracted_text') or analysis_data.get('analysis_result')):
+            return jsonify({'error': 'Анализ видео не найден или не содержит текста для обсуждения'}), 404
+        
+        # Создаем экземпляр обработчика чата
+        try:
+            chat_handler = video_chat_handler.VideoChatHandler()
+        except ValueError as e:
+            return jsonify({'error': f'Ошибка инициализации: {str(e)}'}), 500
+        
+        # Обрабатываем сообщение
+        result = chat_handler.process_chat_message(video_data, analysis_data, user_message, history)
+        
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'response': result['response'],
+                'model_used': result['model_used'],
+                'model_level': result['model_level']
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 500
+            
+    except Exception as e:
+        print(f"[VideoChatAPI] Непредвиденная ошибка: {e}")
+        import traceback
+        print(f"[VideoChatAPI] Traceback:")
+        print(traceback.format_exc())
+        return jsonify({'error': f'Внутренняя ошибка сервера: {str(e)}'}), 500
+
+# --- КОНЕЦ МАРШРУТОВ ДЛЯ ВИДЕО ЧАТА ---
 
 # --- НОВЫЕ МАРШРУТЫ ДЛЯ TOPTUBE ---
 

@@ -192,6 +192,40 @@ def get_video_by_youtube_id(youtube_id: str) -> Optional[Dict[str, Any]]:
         if conn:
             conn.close()
 
+def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Получает видео по внутреннему database ID.
+    
+    Args:
+        video_id: Внутренний ID видео в БД
+        
+    Returns:
+        Словарь с данными видео или None
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
+            FROM videos v
+            LEFT JOIN analyses a ON v.id = a.video_id
+            WHERE v.id = ?
+        """, (video_id,))
+        
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to get video by ID: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
 def get_videos_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
     """
     Получает видео по статусу.
