@@ -1365,17 +1365,31 @@
             const timePattern = /(\()?(\d{1,2}:\d{2}(?::\d{2})?)\)?/g;
             
             return text.replace(timePattern, (match, paren, time) => {
+                console.log(`[Timelink] Обрабатываем таймкод: ${time}`);
+                
                 // Конвертируем время в секунды
-                const parts = time.split(':').reverse();
+                const parts = time.split(':');
                 let seconds = 0;
-                if (parts[0]) seconds += parseInt(parts[0]); // секунды
-                if (parts[1]) seconds += parseInt(parts[1]) * 60; // минуты
-                if (parts[2]) seconds += parseInt(parts[2]) * 3600; // часы
+                
+                if (parts.length === 2) {
+                    // Формат MM:SS
+                    const minutes = parseInt(parts[0]) || 0;
+                    const secs = parseInt(parts[1]) || 0;
+                    seconds = minutes * 60 + secs;
+                } else if (parts.length === 3) {
+                    // Формат HH:MM:SS
+                    const hours = parseInt(parts[0]) || 0;
+                    const minutes = parseInt(parts[1]) || 0;
+                    const secs = parseInt(parts[2]) || 0;
+                    seconds = hours * 3600 + minutes * 60 + secs;
+                }
+                
+                console.log(`[Timelink] ${time} → ${seconds} секунд`);
                 
                 // Создаем YouTube ссылку с таймкодом
                 const youtubeUrl = `https://www.youtube.com/watch?v=${window.currentVideoId}&t=${seconds}s`;
                 
-                return `<a href="${youtubeUrl}" target="_blank" class="timelink" title="Открыть на YouTube в ${time}">${paren || ''}${time}${paren ? ')' : ''}</a>`;
+                return `<a href="${youtubeUrl}" target="_blank" class="timelink" title="Перейти к ${time} в видео (${seconds}с)">${paren || ''}${time}${paren ? ')' : ''}</a>`;
             });
         }
         
