@@ -638,9 +638,9 @@
             background: #28a745;
             color: white;
             border: none;
-            padding: 8px 12px;
-            border-radius: 20px;
-            font-size: 13px;
+            padding: 10px 16px;
+            border-radius: 25px;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
             box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
@@ -649,6 +649,20 @@
             white-space: nowrap;
             transition: all 0.2s ease;
             animation: popIn 0.2s ease-out;
+            min-height: 44px; /* Минимальный размер для тача */
+            line-height: 24px;
+        }
+        
+        /* Увеличенная кнопка для мобильных устройств */
+        @media (max-width: 768px) {
+            .floating-discuss-btn {
+                padding: 12px 20px;
+                font-size: 15px;
+                border-radius: 30px;
+                min-height: 48px;
+                min-width: 120px;
+                line-height: 24px;
+            }
         }
         
         .floating-discuss-btn:hover {
@@ -1234,7 +1248,14 @@
                 if (video.analysis_result || video.analysis_summary) {
                     modalChatBtn.style.display = 'inline-block';
                     // Сохраняем ID видео для чата
+                    const previousVideoId = window.currentVideoId;
                     window.currentVideoId = videoId;
+                    console.log(`[VideoModal] Переключение видео: ${previousVideoId || 'none'} → ${videoId}`);
+                    
+                    // НЕ отменяем запросы - позволяем им завершиться и сохранить ответы в соответствующие чаты
+                    if (previousVideoId && previousVideoId !== videoId) {
+                        console.log(`[RequestIsolation] Переключение ${previousVideoId} → ${videoId}. Активные запросы предыдущего видео продолжат выполнение`);
+                    }
                     
                     // Загружаем умные подсказки для видео (асинхронно)
                     loadVideoSuggestions(videoId);
@@ -1242,7 +1263,19 @@
                     modalChatBtn.style.display = 'none';
                 }
             }, 0);
-            new bootstrap.Modal(document.getElementById('videoModal')).show();
+            // Очищаем предыдущее выделение при открытии нового видео
+            clearTextSelectionAndButton();
+            
+            const modal = new bootstrap.Modal(document.getElementById('videoModal'));
+            
+            // Добавляем обработчик закрытия модала
+            const modalElement = document.getElementById('videoModal');
+            modalElement.addEventListener('hidden.bs.modal', function () {
+                console.log('[Modal] Модал закрыт, очищаем выделение');
+                clearTextSelectionAndButton();
+            });
+            
+            modal.show();
         }
 
         function shareVideo(videoId) {
@@ -1284,11 +1317,34 @@
             // Очищаем старое приветственное сообщение
             chatHistory.innerHTML = '';
             
+            console.log(`[ChatHistory] Инициализация чата для видео ${window.currentVideoId}`);
+            
             // Восстанавливаем историю из памяти
             if (window.currentVideoId) {
                 const savedHistory = getChatHistory(window.currentVideoId);
+                console.log(`[ChatHistory] Восстанавливаем ${savedHistory.length} сообщений для видео ${window.currentVideoId}`);
+                
+                // Проверяем есть ли новые ответы (сообщения assistant которые пришли пока видео было неактивно)
+                let newResponses = 0;
+                if (savedHistory.length > 0) {
+                    // Считаем сколько сообщений assistant в конце истории
+                    for (let i = savedHistory.length - 1; i >= 0; i--) {
+                        if (savedHistory[i].role === 'assistant' && 
+                            savedHistory[i].timestamp > (Date.now() - 60000)) { // за последнюю минуту
+                            newResponses++;
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if (newResponses > 0) {
+                        console.log(`[ChatHistory] 🔔 Найдено ${newResponses} новых ответов для видео ${window.currentVideoId}!`);
+                    }
+                }
+                
                 savedHistory.forEach(msg => {
-                    addChatMessage(msg.role, msg.content);
+                    // Используем skipSave=true чтобы НЕ дублировать сообщения в истории
+                    addChatMessage(msg.role, msg.content, null, true);
                 });
             }
             
@@ -1316,21 +1372,47 @@
                 return;
             }
             
-            // Добавляем сообщение пользователя
-            addChatMessage('user', message);
+            // КРИТИЧНО: Захватываем videoId в начале функции для изоляции
+            const videoId = window.currentVideoId;
+            console.log(`[ChatIsolation] Отправляем сообщение для видео ${videoId}: "${message.substring(0, 50)}..."`);
             
-            // Очищаем поле ввода
-            input.value = '';
+            // Проверяем не заблокирован ли уже этот видео
+            if (window.videoLoadingStates && window.videoLoadingStates[videoId]) {
+                console.log(`[ChatIsolation] Видео ${videoId} уже обрабатывает запрос, игнорируем`);
+                return;
+            }
             
-            // Показываем индикатор загрузки
-            document.getElementById('chatLoader').style.display = 'block';
+            // Отменяем предыдущий запрос для этого же видео чтобы избежать дублирования
+            if (window.videoRequestControllers[videoId]) {
+                console.log(`[ChatIsolation] Отменяем предыдущий запрос для видео ${videoId} чтобы избежать дублирования`);
+                window.videoRequestControllers[videoId].abort();
+                delete window.videoRequestControllers[videoId];
+            }
+            
+            // Добавляем сообщение пользователя (только если это еще активное видео)
+            if (window.currentVideoId === videoId) {
+                addChatMessage('user', message);
+                input.value = ''; // Очищаем поле ввода
+            } else {
+                console.log(`[ChatIsolation] Видео ${videoId} больше не активно, отменяем`);
+                return;
+            }
+            
+            // Включаем индикатор загрузки для этого видео
+            setVideoLoading(videoId, true);
             
             try {
-                // Получаем историю диалога для текущего видео
-                const history = getChatHistory(window.currentVideoId);
+                // Создаем AbortController для этого запроса
+                const controller = new AbortController();
+                window.videoRequestControllers[videoId] = controller;
                 
-                // Отправляем запрос к API
-                const response = await fetch(`/api/videos/${window.currentVideoId}/chat`, {
+                // Получаем историю диалога для конкретного видео
+                const history = getChatHistory(videoId);
+                
+                console.log(`[ChatIsolation] Отправляем API запрос для видео ${videoId}`);
+                
+                // Отправляем запрос к API с abort signal
+                const response = await fetch(`/api/videos/${videoId}/chat`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1338,26 +1420,66 @@
                     body: JSON.stringify({
                         message: message,
                         history: history
-                    })
+                    }),
+                    signal: controller.signal
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    // Добавляем ответ ИИ
-                    addChatMessage('ai', data.response);
-                    console.log(`[Chat] Использована модель: ${data.model_used} (${data.model_level})`);
+                    console.log(`[ChatIsolation] Получен ответ для видео ${videoId}, модель: ${data.model_used}`);
+                    
+                    // Сохраняем ответ в историю соответствующего видео
+                    saveChatMessage(videoId, 'assistant', data.response);
+                    
+                    // Показываем в UI только если это активное видео
+                    if (window.currentVideoId === videoId) {
+                        addChatMessage('ai', data.response, null, true); // skipSave=true, уже сохранили выше
+                    } else {
+                        console.log(`[ChatIsolation] Ответ сохранен в историю неактивного видео ${videoId}, будет показан при возвращении`);
+                    }
                 } else {
-                    // Показываем ошибку
-                    addChatMessage('ai', `❌ Ошибка: ${data.error}`);
+                    console.log(`[ChatIsolation] Ошибка API для видео ${videoId}: ${data.error}`);
+                    
+                    // Сохраняем сообщение об ошибке
+                    const errorMessage = `❌ Ошибка: ${data.error}`;
+                    saveChatMessage(videoId, 'assistant', errorMessage);
+                    
+                    // Показываем в UI только если это активное видео
+                    if (window.currentVideoId === videoId) {
+                        addChatMessage('ai', errorMessage, null, true); // skipSave=true
+                    } else {
+                        console.log(`[ChatIsolation] Ошибка сохранена в историю неактивного видео ${videoId}`);
+                    }
                 }
                 
             } catch (error) {
-                console.error('[Chat] Ошибка запроса:', error);
-                addChatMessage('ai', '❌ Ошибка сети. Проверьте подключение к интернету.');
+                // Игнорируем ошибки отмененных запросов
+                if (error.name === 'AbortError') {
+                    console.log(`[ChatIsolation] Запрос для видео ${videoId} отменен`);
+                    return;
+                }
+                
+                console.error(`[ChatIsolation] Ошибка сети для видео ${videoId}:`, error);
+                
+                // Сохраняем сообщение об ошибке сети в историю
+                const networkErrorMessage = '❌ Ошибка сети. Проверьте подключение к интернету.';
+                saveChatMessage(videoId, 'assistant', networkErrorMessage);
+                
+                // Показываем в UI только если это активное видео
+                if (window.currentVideoId === videoId) {
+                    addChatMessage('ai', networkErrorMessage, null, true); // skipSave=true
+                } else {
+                    console.log(`[ChatIsolation] Ошибка сети сохранена в историю неактивного видео ${videoId}`);
+                }
             } finally {
-                // Скрываем индикатор загрузки
-                document.getElementById('chatLoader').style.display = 'none';
+                // Убираем контроллер из активных
+                if (window.videoRequestControllers[videoId]) {
+                    delete window.videoRequestControllers[videoId];
+                }
+                
+                // Отключаем индикатор загрузки для этого видео
+                setVideoLoading(videoId, false);
             }
         }
 
@@ -1507,14 +1629,17 @@
             return formatted;
         }
 
-        function addChatMessage(sender, message, suggestions = null) {
+        function addChatMessage(sender, message, suggestions = null, skipSave = false) {
             const chatHistory = document.getElementById('chatHistory');
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message ${sender === 'user' ? 'user-message' : 'ai-message'}`;
             
-            // Сохраняем в истории диалога (кроме приветственного сообщения)
-            if (window.currentVideoId && sender !== 'welcome') {
+            // Сохраняем в истории диалога (кроме приветственного сообщения и при восстановлении истории)
+            if (window.currentVideoId && sender !== 'welcome' && !skipSave) {
+                console.log(`[ChatHistory] Сохраняем сообщение для видео ${window.currentVideoId}: ${sender} - "${message.substring(0, 50)}..."`);
                 saveChatMessage(window.currentVideoId, sender, message);
+            } else if (skipSave) {
+                console.log(`[ChatHistory] Восстанавливаем сообщение (не сохраняем): ${sender} - "${message.substring(0, 50)}..."`);
             }
             
             if (sender === 'user') {
@@ -1567,21 +1692,179 @@
             }
             
             const history = window.chatSessions[videoId];
-            history.push({
+            const message = {
                 role: role === 'user' ? 'user' : 'assistant',
                 content: content,
                 timestamp: Date.now()
-            });
+            };
+            
+            history.push(message);
+            console.log(`[ChatHistory] Сохранено сообщение в историю видео ${videoId}. Всего сообщений: ${history.length}`);
             
             // Обрезаем до максимум 10 сообщений (5 пар user-assistant)
             if (history.length > 10) {
-                history.splice(0, history.length - 10);
+                const removed = history.splice(0, history.length - 10);
+                console.log(`[ChatHistory] Удалено ${removed.length} старых сообщений для видео ${videoId}`);
             }
         }
         
         function clearChatHistory(videoId) {
             if (window.chatSessions && window.chatSessions[videoId]) {
+                console.log(`[ChatHistory] Очищаем историю для видео ${videoId}`);
                 delete window.chatSessions[videoId];
+            }
+        }
+        
+        // Функция для очистки всех висящих вопросов во всех видео
+        function cleanupOrphanedQuestions() {
+            let totalCleaned = 0;
+            
+            if (!window.chatSessions) return totalCleaned;
+            
+            Object.keys(window.chatSessions).forEach(videoId => {
+                const history = window.chatSessions[videoId];
+                
+                // Идем с конца и удаляем висящие вопросы
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (history[i].role === 'user') {
+                        const hasResponse = i + 1 < history.length && history[i + 1].role === 'assistant';
+                        if (!hasResponse) {
+                            console.log(`[Cleanup] Удаляем висящий вопрос в видео ${videoId}: "${history[i].content.substring(0, 50)}..."`);
+                            history.splice(i, 1);
+                            totalCleaned++;
+                        }
+                    }
+                }
+            });
+            
+            // Обновляем UI активного видео если что-то было очищено
+            if (totalCleaned > 0 && window.currentVideoId) {
+                refreshChatDisplay();
+            }
+            
+            console.log(`[Cleanup] Очищено ${totalCleaned} висящих вопросов`);
+            
+            if (totalCleaned > 0) {
+                console.log('Состояние после очистки:');
+                debugChatSessions();
+            }
+            
+            return totalCleaned;
+        }
+        
+        // Быстрая статистика по видео
+        function getVideoStats(videoId) {
+            if (!videoId) videoId = window.currentVideoId;
+            if (!videoId) return null;
+            
+            const history = getChatHistory(videoId);
+            const hasActiveRequest = !!(window.videoRequestControllers && window.videoRequestControllers[videoId]);
+            const isLoading = !!(window.videoLoadingStates && window.videoLoadingStates[videoId]);
+            
+            let userMessages = 0;
+            let assistantMessages = 0;
+            let orphanedQuestions = 0;
+            
+            history.forEach((msg, index) => {
+                if (msg.role === 'user') {
+                    userMessages++;
+                    const hasResponse = index + 1 < history.length && history[index + 1].role === 'assistant';
+                    if (!hasResponse) orphanedQuestions++;
+                } else if (msg.role === 'assistant') {
+                    assistantMessages++;
+                }
+            });
+            
+            return {
+                videoId,
+                isActive: videoId === window.currentVideoId,
+                totalMessages: history.length,
+                userMessages,
+                assistantMessages,
+                orphanedQuestions,
+                hasActiveRequest,
+                isLoading
+            };
+        }
+
+        // Дебаг функция для проверки состояния всех чат-сессий
+        function debugChatSessions() {
+            console.log('=== DEBUG CHAT SESSIONS ===');
+            console.log(`Текущее активное видео: ${window.currentVideoId}`);
+            
+            // История сообщений
+            if (!window.chatSessions || Object.keys(window.chatSessions).length === 0) {
+                console.log('История сообщений: пусто');
+            } else {
+                console.log('История сообщений:');
+                Object.keys(window.chatSessions).forEach(videoId => {
+                    const history = window.chatSessions[videoId];
+                    console.log(`  - Видео ${videoId}: ${history.length} сообщений`);
+                    
+                    let orphanedQuestions = 0;
+                    history.forEach((msg, index) => {
+                        const isOrphan = msg.role === 'user' && 
+                                       (index + 1 >= history.length || history[index + 1].role !== 'assistant');
+                        if (isOrphan) orphanedQuestions++;
+                        
+                        console.log(`    ${index + 1}. ${msg.role}${isOrphan ? ' [БЕЗ ОТВЕТА]' : ''}: "${msg.content.substring(0, 50)}..."`);
+                    });
+                    
+                    if (orphanedQuestions > 0) {
+                        console.warn(`    ⚠️ ВНИМАНИЕ: ${orphanedQuestions} висящих вопросов без ответа!`);
+                    }
+                });
+            }
+            
+            // Активные запросы
+            if (!window.videoRequestControllers || Object.keys(window.videoRequestControllers).length === 0) {
+                console.log('Активные запросы: нет');
+            } else {
+                console.log('Активные запросы:');
+                Object.keys(window.videoRequestControllers).forEach(videoId => {
+                    const isActive = videoId === window.currentVideoId;
+                    console.log(`  - Видео ${videoId}: запрос в процессе ${isActive ? '[АКТИВНОЕ]' : '[ФОНОВОЕ]'}`);
+                });
+            }
+            
+            // Состояния загрузки
+            if (!window.videoLoadingStates || Object.keys(window.videoLoadingStates).length === 0) {
+                console.log('Состояния загрузки: нет');
+            } else {
+                console.log('Состояния загрузки:');
+                Object.keys(window.videoLoadingStates).forEach(videoId => {
+                    const isLoading = window.videoLoadingStates[videoId];
+                    console.log(`  - Видео ${videoId}: ${isLoading ? 'загружается' : 'готово'}`);
+                });
+            }
+            
+            // Подсказки
+            if (!window.videoSuggestions || Object.keys(window.videoSuggestions).length === 0) {
+                console.log('Подсказки: нет');
+            } else {
+                console.log('Подсказки:');
+                Object.keys(window.videoSuggestions).forEach(videoId => {
+                    const suggestions = window.videoSuggestions[videoId];
+                    console.log(`  - Видео ${videoId}: ${Array.isArray(suggestions) ? suggestions.length + ' подсказок' : suggestions}`);
+                });
+            }
+            
+            // Общая сводка
+            console.log('=== СВОДКА ===');
+            if (window.chatSessions && Object.keys(window.chatSessions).length > 0) {
+                console.log('Статистика по всем видео:');
+                Object.keys(window.chatSessions).forEach(videoId => {
+                    const stats = getVideoStats(videoId);
+                    const statusParts = [];
+                    if (stats.isActive) statusParts.push('АКТИВНОЕ');
+                    if (stats.hasActiveRequest) statusParts.push('ЗАГРУЖАЕТСЯ');
+                    if (stats.orphanedQuestions > 0) statusParts.push(`${stats.orphanedQuestions} ВИСЯЩИХ`);
+                    
+                    const status = statusParts.length > 0 ? ` [${statusParts.join(', ')}]` : '';
+                    console.log(`  ${videoId}${status}: ${stats.userMessages} вопросов, ${stats.assistantMessages} ответов`);
+                });
+            } else {
+                console.log('Нет активных диалогов');
             }
         }
 
@@ -1797,6 +2080,92 @@
         function showError(message) {
             alert('Ошибка: ' + message);
         }
+        // === ИЗОЛЯЦИЯ ЗАПРОСОВ ПО ВИДЕО ===
+        
+        // Хранилище активных запросов к API по каждому видео
+        window.videoRequestControllers = {};
+        
+        // Хранилище состояния загрузки для каждого видео
+        window.videoLoadingStates = {};
+        
+        function abortVideoRequest(videoId) {
+            if (window.videoRequestControllers[videoId]) {
+                console.log(`[RequestIsolation] Отменяем запрос для видео ${videoId}`);
+                window.videoRequestControllers[videoId].abort();
+                delete window.videoRequestControllers[videoId];
+                
+                // При принудительной отмене удаляем висящий вопрос
+                removeLastUserMessage(videoId);
+            }
+        }
+        
+        function removeLastUserMessage(videoId) {
+            // Удаляем из истории в памяти
+            if (window.chatSessions && window.chatSessions[videoId]) {
+                const history = window.chatSessions[videoId];
+                
+                // Ищем последнее сообщение пользователя без ответа
+                for (let i = history.length - 1; i >= 0; i--) {
+                    if (history[i].role === 'user') {
+                        // Проверяем есть ли после него ответ assistant
+                        const hasResponse = i + 1 < history.length && history[i + 1].role === 'assistant';
+                        if (!hasResponse) {
+                            console.log(`[RequestIsolation] Удаляем висящий вопрос для видео ${videoId}: "${history[i].content.substring(0, 50)}..."`);
+                            history.splice(i, 1);
+                            
+                            // Если это активное видео, обновляем UI
+                            if (window.currentVideoId === videoId) {
+                                refreshChatDisplay();
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        function refreshChatDisplay() {
+            // Перерисовываем чат для активного видео
+            if (!window.currentVideoId) return;
+            
+            const chatHistory = document.getElementById('chatHistory');
+            if (!chatHistory) return;
+            
+            // Очищаем текущий чат
+            chatHistory.innerHTML = '';
+            
+            // Восстанавливаем историю без сохранения (skipSave=true)
+            const savedHistory = getChatHistory(window.currentVideoId);
+            savedHistory.forEach(msg => {
+                addChatMessage(msg.role, msg.content, null, true);
+            });
+            
+            // Если истории нет, показываем приветствие
+            if (chatHistory.children.length === 0) {
+                const smartSuggestions = getVideoSuggestions(window.currentVideoId);
+                addChatMessage('welcome', 'Привет! Готов обсудить это видео. Вот несколько идей для разговора:', smartSuggestions);
+            }
+            
+            console.log(`[RequestIsolation] Обновлен дисплей чата для видео ${window.currentVideoId}`);
+        }
+        
+        function setVideoLoading(videoId, isLoading) {
+            if (!window.videoLoadingStates) {
+                window.videoLoadingStates = {};
+            }
+            window.videoLoadingStates[videoId] = isLoading;
+            
+            // Обновляем UI только если это активное видео
+            if (window.currentVideoId === videoId) {
+                const chatLoader = document.getElementById('chatLoader');
+                if (chatLoader) {
+                    chatLoader.style.display = isLoading ? 'block' : 'none';
+                }
+            }
+            
+            console.log(`[RequestIsolation] Видео ${videoId} загрузка: ${isLoading}`);
+        }
+
         // === ОБСУЖДЕНИЕ ВЫДЕЛЕННОГО ТЕКСТА ===
         
         let selectedText = '';
@@ -1833,8 +2202,23 @@
                 const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
                 
                 btn.style.display = 'block';
-                btn.style.left = (rect.left + scrollLeft + rect.width / 2 - btn.offsetWidth / 2) + 'px';
-                btn.style.top = (rect.bottom + scrollTop + 8) + 'px';
+                
+                // Особое позиционирование для мобильных устройств
+                if (isMobileDevice()) {
+                    // На мобилках позиционируем по центру экрана, но ниже выделения
+                    const buttonWidth = 120; // примерная ширина кнопки
+                    const leftPosition = Math.max(10, Math.min(
+                        window.innerWidth - buttonWidth - 10,
+                        rect.left + scrollLeft + rect.width / 2 - buttonWidth / 2
+                    ));
+                    
+                    btn.style.left = leftPosition + 'px';
+                    btn.style.top = (rect.bottom + scrollTop + 15) + 'px'; // больше отступ для мобилок
+                } else {
+                    // Стандартное позиционирование для десктопа
+                    btn.style.left = (rect.left + scrollLeft + rect.width / 2 - btn.offsetWidth / 2) + 'px';
+                    btn.style.top = (rect.bottom + scrollTop + 8) + 'px';
+                }
                 
                 console.log(`[TextSelection] Выделен текст: "${text.substring(0, 100)}..."`);
             } else {
@@ -1851,12 +2235,20 @@
                 return;
             }
             
-            console.log(`[TextSelection] Инициируем диалог с выделенным текстом: "${selectedText.substring(0, 100)}..."`);
+            // КРИТИЧНО: Захватываем videoId для изоляции
+            const videoId = window.currentVideoId;
+            console.log(`[TextSelection] Инициируем диалог для видео ${videoId} с выделенным текстом: "${selectedText.substring(0, 100)}..."`);
             
             // Открываем чат если он закрыт
             const chatSection = document.getElementById('videoChatSection');
             if (chatSection.style.display === 'none') {
                 toggleVideoChat();
+            }
+            
+            // Проверяем что видео еще активно
+            if (window.currentVideoId !== videoId) {
+                console.log(`[TextSelection] Видео ${videoId} больше не активно, отменяем обсуждение`);
+                return;
             }
             
             // Формируем сообщение с контекстом
@@ -1868,9 +2260,14 @@
                 chatInput.value = message;
                 chatInput.focus();
                 
-                // Автоматически отправляем сообщение
+                // Автоматически отправляем сообщение (с небольшой задержкой)
                 setTimeout(() => {
-                    sendChatMessage();
+                    // Финальная проверка актуальности видео перед отправкой
+                    if (window.currentVideoId === videoId) {
+                        sendChatMessage();
+                    } else {
+                        console.log(`[TextSelection] Видео изменилось, отменяем автоотправку`);
+                    }
                 }, 100);
             }
             
@@ -1884,16 +2281,61 @@
             selectedRange = null;
         }
         
+        // Проверка мобильного устройства
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                   ('ontouchstart' in window);
+        }
+        
+        // Функция для полной очистки выделения и кнопки
+        function clearTextSelectionAndButton() {
+            // Скрываем плавающую кнопку
+            const btn = document.getElementById('floatingDiscussBtn');
+            if (btn) {
+                btn.style.display = 'none';
+            }
+            
+            // Очищаем выделение
+            if (window.getSelection) {
+                window.getSelection().removeAllRanges();
+            }
+            
+            // Очищаем переменные
+            selectedText = '';
+            selectedRange = null;
+            
+            console.log('[TextSelection] Очистка выделения и кнопки');
+        }
+        
+        // Улучшенный обработчик выделения для всех устройств
+        function checkTextSelectionInModal() {
+            const modal = document.getElementById('videoModal');
+            if (modal && modal.classList.contains('show')) {
+                setTimeout(handleTextSelection, 10);
+            }
+        }
+        
         // Добавляем обработчики событий при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            // Обработчик выделения для модального окна
-            document.addEventListener('mouseup', function(e) {
-                // Проверяем что выделение происходит в модальном окне
-                const modal = document.getElementById('videoModal');
-                if (modal && modal.classList.contains('show')) {
-                    setTimeout(handleTextSelection, 10);
-                }
-            });
+            // Обработчик выделения для десктопа
+            document.addEventListener('mouseup', checkTextSelectionInModal);
+            
+            // Обработчик выделения для мобильных устройств
+            if (isMobileDevice()) {
+                // touchend для завершения касания
+                document.addEventListener('touchend', checkTextSelectionInModal);
+                
+                // selectionchange для изменения выделения (универсальный)
+                document.addEventListener('selectionchange', function() {
+                    const modal = document.getElementById('videoModal');
+                    if (modal && modal.classList.contains('show')) {
+                        // Небольшая задержка для мобильных устройств
+                        setTimeout(handleTextSelection, 150);
+                    }
+                });
+                
+                console.log('[TextSelection] Мобильное устройство обнаружено, включены touch события');
+            }
             
             // Скрываем кнопку при клике в другом месте
             document.addEventListener('click', function(e) {
@@ -1903,11 +2345,20 @@
                 }
             });
             
-            // Скрываем кнопку при прокрутке
+            // Скрываем кнопку при прокрутке (обычная и внутри модала)
             document.addEventListener('scroll', function() {
                 const btn = document.getElementById('floatingDiscussBtn');
                 if (btn) btn.style.display = 'none';
             });
+            
+            // Дополнительно отслеживаем скролл внутри модального окна
+            const modalBody = document.getElementById('videoModalBody');
+            if (modalBody) {
+                modalBody.addEventListener('scroll', function() {
+                    const btn = document.getElementById('floatingDiscussBtn');
+                    if (btn) btn.style.display = 'none';
+                });
+            }
         });
     </script>
 
