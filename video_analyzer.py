@@ -130,7 +130,7 @@ class VideoAnalyzer:
             print(f"[VideoAnalyzer] Ошибка официального API: {e}")
             return None
     
-    def get_sharing_url_session(self, video_url: str) -> Optional[str]:
+    def get_sharing_url_session(self, video_url: str) -> Optional[str] | tuple[str, dict]:
         """
         Получает sharing URL через сессию (fallback метод)
         """
@@ -209,11 +209,16 @@ class VideoAnalyzer:
             max_attempts = 30
             attempt = 0
             
+            print(f"[VideoAnalyzer] Начинаем поллинг с интервалом {poll_interval_ms}ms, максимум {max_attempts} попыток")
+            
             while attempt < max_attempts:
                 attempt += 1
                 
                 if attempt > 1:
+                    print(f"[VideoAnalyzer] Поллинг попытка {attempt}/{max_attempts}, пауза {poll_interval_ms}ms")
                     time.sleep(poll_interval_ms / 1000)
+                else:
+                    print(f"[VideoAnalyzer] Поллинг попытка {attempt}/{max_attempts} (без паузы)")
                 
                 second_response = requests.post(
                     api_url,
@@ -222,22 +227,53 @@ class VideoAnalyzer:
                     timeout=30
                 )
                 
+                print(f"[VideoAnalyzer] Поллинг ответ {attempt}: статус HTTP {second_response.status_code}")
+                
                 if second_response.status_code != 200:
+                    print(f"[VideoAnalyzer] Поллинг неуспешен на попытке {attempt}: HTTP {second_response.status_code}")
+                    print(f"[VideoAnalyzer] Поллинг текст ошибки: {second_response.text[:200]}...")
                     return None
                 
                 second_data = second_response.json()
+                print(f"[VideoAnalyzer] Поллинг данные {attempt}: {second_data}")
+                
                 error_code = second_data.get('error_code')
                 status_code = second_data.get('status_code')
                 
-                if error_code or status_code > 1:
+                print(f"[VideoAnalyzer] Поллинг статусы {attempt}: error_code={error_code}, status_code={status_code}")
+                
+                if error_code:
+                    print(f"[VideoAnalyzer] Поллинг завершен с ошибкой на попытке {attempt}: error_code={error_code}")
+                    return None
+                
+                if status_code > 1:
+                    print(f"[VideoAnalyzer] Поллинг завершен с ошибкой на попытке {attempt}: status_code={status_code}")
                     return None
                 
                 sharing_url = second_data.get('sharing_url', '')
-                if sharing_url:
-                    print(f"[VideoAnalyzer] Fallback дал sharing URL: {sharing_url}")
-                    return sharing_url
+                keypoints = second_data.get('keypoints', [])
                 
-                poll_interval_ms = second_data.get('poll_interval_ms', poll_interval_ms)
+                # Новая логика: проверяем keypoints вместо sharing_url
+                if sharing_url:
+                    print(f"[VideoAnalyzer] Поллинг успешен на попытке {attempt}! sharing URL: {sharing_url}")
+                    return sharing_url
+                elif keypoints and len(keypoints) > 0:
+                    # Проверяем что keypoints содержат достаточно данных
+                    total_theses = sum(len(kp.get('theses', [])) for kp in keypoints)
+                    if total_theses >= 3:  # Минимум 3 тезиса для завершения
+                        print(f"[VideoAnalyzer] Поллинг успешен на попытке {attempt}! Получены keypoints: {len(keypoints)} разделов, {total_theses} тезисов")
+                        # Возвращаем tuple с маркером и данными keypoints
+                        return ("USE_KEYPOINTS", second_data)
+                
+                # Обновляем интервал поллинга если сервер его изменил
+                new_poll_interval = second_data.get('poll_interval_ms', poll_interval_ms)
+                if new_poll_interval != poll_interval_ms:
+                    print(f"[VideoAnalyzer] Поллинг интервал изменен с {poll_interval_ms}ms на {new_poll_interval}ms")
+                    poll_interval_ms = new_poll_interval
+                
+                print(f"[VideoAnalyzer] Поллинг {attempt}: sharing_url пока пуст, продолжаем (status_code={status_code})")
+            
+            print(f"[VideoAnalyzer] Поллинг исчерпан после {max_attempts} попыток, sharing_url так и не получен")
             
             return None
             
@@ -245,6 +281,66 @@ class VideoAnalyzer:
             print(f"[VideoAnalyzer] Ошибка fallback: {e}")
             return None
     
+    def extract_text_from_keypoints(self, keypoints_data: dict) -> Optional[str]:
+        """
+        Извлекает текст из keypoints данных полученных от Yandex API.
+        
+        Args:
+            keypoints_data: Данные с keypoints из последнего ответа поллинга
+        
+        Returns:
+            Извлеченный и форматированный текст или None в случае ошибки
+        """
+        try:
+            keypoints = keypoints_data.get('keypoints', [])
+            title = keypoints_data.get('title', '')
+            
+            if not keypoints:
+                print("[VideoAnalyzer] keypoints пусты")
+                return None
+            
+            text_blocks = []
+            
+            # Добавляем заголовок
+            if title:
+                text_blocks.append(f"# {title}\n")
+            
+            # Обрабатываем каждый keypoint
+            for kp in keypoints:
+                section_title = kp.get('content', '')
+                theses = kp.get('theses', [])
+                start_time = kp.get('start_time', 0)
+                
+                if section_title:
+                    # Форматируем время
+                    minutes = start_time // 60
+                    seconds = start_time % 60
+                    time_str = f"{minutes:02d}:{seconds:02d}"
+                    
+                    text_blocks.append(f"\n## {section_title} ({time_str})\n")
+                
+                # Добавляем тезисы
+                for thesis in theses:
+                    thesis_content = thesis.get('content', '').strip()
+                    if thesis_content:
+                        text_blocks.append(f"• {thesis_content}")
+                
+                if theses:  # Добавляем пустую строку после каждой секции
+                    text_blocks.append("")
+            
+            result = '\n'.join(text_blocks).strip()
+            
+            if result:
+                print(f"[VideoAnalyzer] Извлечен текст из keypoints: {len(result)} символов, {len(keypoints)} разделов")
+                return result
+            else:
+                print("[VideoAnalyzer] keypoints не содержат текста")
+                return None
+                
+        except Exception as e:
+            print(f"[VideoAnalyzer] Ошибка извлечения текста из keypoints: {e}")
+            return None
+
     def extract_text_from_sharing_url(self, sharing_url: str) -> Optional[str]:
         """
         Извлекает текст из HTML страницы sharing URL (300.ya.ru/v_xxx).
@@ -568,21 +664,29 @@ class VideoAnalyzer:
                     print("[VideoAnalyzer] Официальный API недоступен (не установлен YANDEX_API_TOKEN)")
                 
                 # Попытка 2: Fallback через сессию
+                keypoints_data = None
                 if not result['sharing_url']:
                     if self.session_id:
                         print("[VideoAnalyzer] Попытка через fallback (сессия)...")
-                        sharing_url = self.get_sharing_url_session(video_url)
-                        if sharing_url:
-                            result['sharing_url'] = sharing_url
-                            print(f"[VideoAnalyzer] Успешно получен sharing URL через fallback: {sharing_url}")
+                        fallback_result = self.get_sharing_url_session(video_url)
+                        
+                        if fallback_result:
+                            if isinstance(fallback_result, tuple) and fallback_result[0] == "USE_KEYPOINTS":
+                                # Получили keypoints вместо sharing_url
+                                keypoints_data = fallback_result[1]
+                                print(f"[VideoAnalyzer] Успешно получены keypoints через fallback")
+                            elif isinstance(fallback_result, str):
+                                # Получили обычный sharing_url
+                                result['sharing_url'] = fallback_result
+                                print(f"[VideoAnalyzer] Успешно получен sharing URL через fallback: {fallback_result}")
                         else:
                             print("[VideoAnalyzer] Fallback тоже не сработал")
                     else:
                         print("[VideoAnalyzer] Fallback недоступен (не установлен YANDEX_SESSION_ID)")
                 
-                # Если не удалось получить sharing URL
-                if not result['sharing_url']:
-                    error_msg = "Не удалось получить sharing URL"
+                # Если не удалось получить ни sharing URL, ни keypoints
+                if not result['sharing_url'] and not keypoints_data:
+                    error_msg = "Не удалось получить данные для анализа"
                     if not self.yandex_token and not self.session_id:
                         error_msg += " (не установлены ни YANDEX_API_TOKEN, ни YANDEX_SESSION_ID)"
                     elif not self.yandex_token:
@@ -592,12 +696,17 @@ class VideoAnalyzer:
                     result['error'] = error_msg
                     return result
                 
-                # Извлекаем текст из sharing URL
-                print(f"[VideoAnalyzer] Извлекаем текст из: {result['sharing_url']}")
-                extracted_text = self.extract_text_from_sharing_url(result['sharing_url'])
+                # Извлекаем текст - либо из sharing URL, либо из keypoints
+                if keypoints_data:
+                    print("[VideoAnalyzer] Извлекаем текст из keypoints...")
+                    extracted_text = self.extract_text_from_keypoints(keypoints_data)
+                    result['sharing_url'] = "keypoints_data"  # Устанавливаем маркер что использовались keypoints
+                else:
+                    print(f"[VideoAnalyzer] Извлекаем текст из sharing URL: {result['sharing_url']}")
+                    extracted_text = self.extract_text_from_sharing_url(result['sharing_url'])
                 
                 if not extracted_text:
-                    result['error'] = 'Не удалось извлечь текст из sharing URL'
+                    result['error'] = 'Не удалось извлечь текст из полученных данных'
                     return result
                 
                 result['extracted_text'] = extracted_text
