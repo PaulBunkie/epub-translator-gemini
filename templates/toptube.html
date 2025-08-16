@@ -579,6 +579,58 @@
             color: #999;
             font-style: italic;
         }
+        
+        /* Стили для ссылок по таймкодам */
+        .timelink {
+            color: #dc3545 !important;
+            text-decoration: none !important;
+            font-weight: bold;
+            background: rgba(220, 53, 69, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+            display: inline-block;
+            margin: 0 2px;
+            transition: all 0.2s ease;
+        }
+        
+        .timelink:hover {
+            background: rgba(220, 53, 69, 0.2);
+            border-color: #dc3545;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
+        }
+        
+        /* Стили для форматированного текста в чате */
+        .ai-bubble h3, .ai-bubble h4, .ai-bubble h5 {
+            margin-top: 15px;
+            margin-bottom: 10px;
+            color: #495057;
+        }
+        
+        .ai-bubble h3 {
+            font-size: 1.1em;
+            border-bottom: 2px solid #dee2e6;
+            padding-bottom: 5px;
+        }
+        
+        .ai-bubble ul, .ai-bubble ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        
+        .ai-bubble li {
+            margin-bottom: 5px;
+        }
+        
+        .ai-bubble p {
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+        
+        .ai-bubble strong {
+            color: #495057;
+        }
     </style>
 </head>
 <body>
@@ -1267,6 +1319,73 @@
             }
         }
 
+        // === ФОРМАТИРОВАНИЕ СООБЩЕНИЙ ===
+        
+        function parseMarkdown(text) {
+            if (!text) return text;
+            
+            // Экранируем HTML теги
+            text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            // Заголовки
+            text = text.replace(/^### (.*$)/gim, '<h5>$1</h5>');
+            text = text.replace(/^## (.*$)/gim, '<h4>$1</h4>');
+            text = text.replace(/^# (.*$)/gim, '<h3>$1</h3>');
+            
+            // Жирный текст
+            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            // Курсив
+            text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            
+            // Списки
+            text = text.replace(/^\* (.*$)/gim, '<li>$1</li>');
+            text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+            
+            // Нумерованные списки
+            text = text.replace(/^(\d+)\. (.*$)/gim, '<li>$2</li>');
+            text = text.replace(/(<li>.*<\/li>)/s, '<ol>$1</ol>');
+            
+            // Переносы строк
+            text = text.replace(/\n\n/g, '</p><p>');
+            text = text.replace(/\n/g, '<br>');
+            
+            // Обрамляем в параграфы если есть переносы
+            if (text.includes('<br>') || text.includes('</p><p>')) {
+                text = '<p>' + text + '</p>';
+            }
+            
+            return text;
+        }
+        
+        function addTimecodeLinks(text) {
+            if (!text || !window.currentVideoId) return text;
+            
+            // Паттерн для поиска таймкодов: (00:05:48) или 00:05:48 или (05:48)
+            const timePattern = /(\()?(\d{1,2}:\d{2}(?::\d{2})?)\)?/g;
+            
+            return text.replace(timePattern, (match, paren, time) => {
+                // Конвертируем время в секунды
+                const parts = time.split(':').reverse();
+                let seconds = 0;
+                if (parts[0]) seconds += parseInt(parts[0]); // секунды
+                if (parts[1]) seconds += parseInt(parts[1]) * 60; // минуты
+                if (parts[2]) seconds += parseInt(parts[2]) * 3600; // часы
+                
+                // Создаем YouTube ссылку с таймкодом
+                const youtubeUrl = `https://www.youtube.com/watch?v=${window.currentVideoId}&t=${seconds}s`;
+                
+                return `<a href="${youtubeUrl}" target="_blank" class="timelink" title="Открыть на YouTube в ${time}">${paren || ''}${time}${paren ? ')' : ''}</a>`;
+            });
+        }
+        
+        function formatAiMessage(message) {
+            // Сначала Markdown, потом таймкоды
+            let formatted = parseMarkdown(message);
+            formatted = addTimecodeLinks(formatted);
+            return formatted;
+        }
+
         function addChatMessage(sender, message, suggestions = null) {
             const chatHistory = document.getElementById('chatHistory');
             const messageDiv = document.createElement('div');
@@ -1284,9 +1403,12 @@
                     </div>
                 `;
             } else {
+                // Форматируем сообщение от ИИ (Markdown + таймкоды)
+                const formattedMessage = formatAiMessage(message);
+                
                 let html = `
                     <div class="message-bubble ai-bubble">
-                        <strong><i class="fas fa-robot me-1"></i>ИИ:</strong> ${message}
+                        <strong><i class="fas fa-robot me-1"></i>ИИ:</strong> ${formattedMessage}
                 `;
                 
                 if (suggestions) {
