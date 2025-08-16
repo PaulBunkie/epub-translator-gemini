@@ -39,10 +39,12 @@ class VideoChatHandler:
         analysis_result = analysis_data.get('analysis_result', '')
         analysis_summary = analysis_data.get('analysis_summary', '')
         
-        # Ограничиваем размер контекста и очищаем от проблемных символов
-        max_text_length = 8000  # ~8k символов для контекста видео
-        if len(extracted_text) > max_text_length:
-            extracted_text = extracted_text[:max_text_length] + "\n\n[Текст обрезан для оптимизации...]"
+        # Логируем размер полного контекста (без ограничений)
+        print(f"[VideoChatHandler] Полный контекст: {len(extracted_text)} символов extracted_text")
+        if analysis_result:
+            print(f"[VideoChatHandler] + {len(analysis_result)} символов analysis_result")
+        if analysis_summary:
+            print(f"[VideoChatHandler] + {len(analysis_summary)} символов analysis_summary")
         
         # Очищаем от суррогатных пар Unicode (проблема Windows)
         try:
