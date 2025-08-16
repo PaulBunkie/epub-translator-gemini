@@ -52,6 +52,7 @@ import workflow_cache_manager
 import html
 import video_analyzer
 import video_chat_handler
+from workflow_model_config import get_model_for_operation
 import toptube10
 import video_db
 
@@ -1895,6 +1896,133 @@ def api_video_chat(video_id):
         print(f"[VideoChatAPI] Traceback:")
         print(traceback.format_exc())
         return jsonify({'error': f'Внутренняя ошибка сервера: {str(e)}'}), 500
+
+@app.route('/api/videos/<video_id>/suggestions', methods=['GET'])
+def api_video_suggestions(video_id):
+    """
+    Генерирует умные подсказки для диалога с видео.
+    """
+    try:
+        print(f"[VideoSuggestionsAPI] Запрос подсказок для видео {video_id}")
+        
+        # Получаем данные видео из БД по YouTube ID
+        video_data = video_db.get_video_by_youtube_id(video_id)
+        if not video_data:
+            return jsonify({'error': 'Видео не найдено'}), 404
+        
+        # Получаем анализ видео по внутреннему ID
+        analysis_data = video_db.get_analysis_by_video_id(video_data['id'])
+        if not analysis_data or not (analysis_data.get('extracted_text') or analysis_data.get('analysis_result')):
+            return jsonify({'error': 'Анализ видео не найден или не содержит текста для создания подсказок'}), 404
+        
+        # Создаем обработчик для генерации подсказок
+        chat_handler = video_chat_handler.VideoChatHandler()
+        
+        # Создаем специальный промпт для генерации подсказок
+        title = video_data.get('title', 'Видео')
+        extracted_text = analysis_data.get('extracted_text', '')[:5000]  # Ограничиваем для подсказок
+        analysis_summary = analysis_data.get('analysis_summary', '')
+        
+        suggestions_prompt = f"""На основе содержания видео "{title}" предложи ровно 4 интересных вопроса для обсуждения.
+
+КРАТКОЕ СОДЕРЖАНИЕ:
+{analysis_summary}
+
+НАЧАЛЬНЫЙ ФРАГМЕНТ:
+{extracted_text}
+
+ТРЕБОВАНИЯ:
+- Вопросы должны быть конкретными и интересными 
+- Каждый вопрос на отдельной строке
+- Начинай вопросы с эмодзи: 🤔, 📊, 💡, 🔍
+- Формат: "🤔 Ваш вопрос здесь?"
+- НЕ используй номера или маркеры
+- Вопросы должны касаться ТОЛЬКО содержания данного видео"""
+        
+        print(f"[VideoSuggestionsAPI] Отправляем запрос к модели для генерации подсказок")
+        
+        # Подготавливаем сообщения для API
+        messages = [
+            {"role": "system", "content": "Ты помощник, который создает интересные вопросы для обсуждения видео."},
+            {"role": "user", "content": suggestions_prompt}
+        ]
+        
+        # Пробуем модели по очереди (primary -> fallback_level1 -> fallback_level2)
+        model_levels = ['primary', 'fallback_level1', 'fallback_level2']
+        response = None
+        model_used = None
+        
+        for level in model_levels:
+            model_name = get_model_for_operation('video_analyze', level)
+            if not model_name:
+                continue
+                
+            print(f"[VideoSuggestionsAPI] Пробуем модель {model_name} (уровень: {level})")
+            response = chat_handler.chat_with_model(messages, model_name)
+            if response:
+                model_used = model_name
+                print(f"[VideoSuggestionsAPI] Успешный ответ от модели {model_name}")
+                break
+            else:
+                print(f"[VideoSuggestionsAPI] Модель {model_name} не сработала, пробуем следующую")
+        
+        if not response:
+            # Все модели не сработали - fallback к стандартным подсказкам  
+            print(f"[VideoSuggestionsAPI] Все модели недоступны, используем стандартные подсказки")
+            suggestions = [
+                "🤔 Объясни главную идею простыми словами",
+                "📊 Какие факты и данные наиболее важные?",
+                "💡 Что было самым неожиданным открытием?",
+                "🔍 На какие моменты стоит обратить внимание?"
+            ]
+        else:
+            # Парсим ответ модели
+            print(f"[VideoSuggestionsAPI] Получен ответ от модели длиной {len(response)} символов")
+            lines = [line.strip() for line in response.strip().split('\n') if line.strip()]
+            
+            # Фильтруем строки с эмодзи
+            suggestions = []
+            for line in lines:
+                if any(emoji in line for emoji in ['🤔', '📊', '💡', '🔍']) and '?' in line:
+                    suggestions.append(line)
+            
+            # Берем первые 4 или используем fallback
+            if len(suggestions) >= 4:
+                suggestions = suggestions[:4]
+            else:
+                print(f"[VideoSuggestionsAPI] Недостаточно подсказок ({len(suggestions)}), используем fallback")
+                suggestions = [
+                    "🤔 Объясни главную идею простыми словами",
+                    "📊 Какие факты и данные наиболее важные?", 
+                    "💡 Что было самым неожиданным открытием?",
+                    "🔍 На какие моменты стоит обратить внимание?"
+                ]
+        
+        print(f"[VideoSuggestionsAPI] Сгенерировано {len(suggestions)} подсказок")
+        
+        return jsonify({
+            'success': True,
+            'suggestions': suggestions,
+            'model_used': model_used,
+            'generated_by_ai': bool(model_used)
+        })
+        
+    except Exception as e:
+        print(f"[VideoSuggestionsAPI] Ошибка: {e}")
+        import traceback
+        print(f"[VideoSuggestionsAPI] Traceback:")
+        print(traceback.format_exc())
+        
+        # Возвращаем fallback подсказки при ошибке
+        return jsonify({
+            'success': True,
+            'suggestions': [
+                "🤔 Объясни главную идею простыми словами",
+                "📊 Какие факты и данные наиболее важные?",
+                "💡 Что было самым неожиданным открытием?",
+                "🔍 На какие моменты стоит обратить внимание?"
+            ]
+        })
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ ВИДЕО ЧАТА ---
 

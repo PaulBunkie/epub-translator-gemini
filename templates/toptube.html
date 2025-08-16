@@ -1034,9 +1034,6 @@
                                 <button class="btn btn-outline-secondary btn-sm rounded-pill ms-2" onclick="shareVideo('${video.video_id}')">
                                     <i class="fas fa-share-alt"></i> Поделиться
                                 </button>
-                                <button class="btn btn-outline-success btn-sm rounded-pill ms-2" onclick="startVideoChat('${video.video_id}')">
-                                    <i class="fas fa-comments"></i> Обсудить
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -1192,6 +1189,9 @@
                     modalChatBtn.style.display = 'inline-block';
                     // Сохраняем ID видео для чата
                     window.currentVideoId = videoId;
+                    
+                    // Загружаем умные подсказки для видео (асинхронно)
+                    loadVideoSuggestions(videoId);
                 } else {
                     modalChatBtn.style.display = 'none';
                 }
@@ -1246,14 +1246,10 @@
                 });
             }
             
-            // Если истории нет, добавляем приветственное сообщение
+            // Если истории нет, добавляем приветственное сообщение с умными подсказками
             if (chatHistory.children.length === 0) {
-                addChatMessage('welcome', 'Привет! Готов обсудить это видео. Вот несколько идей для разговора:', [
-                    '🤔 Объясни главную идею простыми словами',
-                    '📊 Какие ключевые моменты стоит запомнить?',  
-                    '💡 Как это применить на практике?',
-                    '🔍 Расскажи подробнее про [интересный момент]'
-                ]);
+                const smartSuggestions = window.currentVideoId ? getVideoSuggestions(window.currentVideoId) : getFallbackSuggestions();
+                addChatMessage('welcome', 'Привет! Готов обсудить это видео. Вот несколько идей для разговора:', smartSuggestions);
             }
         }
 
@@ -1317,6 +1313,71 @@
                 // Скрываем индикатор загрузки
                 document.getElementById('chatLoader').style.display = 'none';
             }
+        }
+
+        // === УМНЫЕ ПОДСКАЗКИ ===
+        
+        function loadVideoSuggestions(videoId) {
+            console.log(`[Suggestions] Запрос подсказок для видео ${videoId}`);
+            
+            // Проверяем кеш подсказок
+            if (window.videoSuggestions && window.videoSuggestions[videoId]) {
+                console.log(`[Suggestions] Используем кешированные подсказки для ${videoId}`);
+                return;
+            }
+            
+            // Инициализируем хранилище подсказок
+            if (!window.videoSuggestions) {
+                window.videoSuggestions = {};
+            }
+            
+            // Помечаем что подсказки загружаются
+            window.videoSuggestions[videoId] = 'loading';
+            
+            // Асинхронный запрос подсказок
+            fetch(`/api/videos/${videoId}/suggestions`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.suggestions) {
+                        window.videoSuggestions[videoId] = data.suggestions;
+                        if (data.generated_by_ai && data.model_used) {
+                            console.log(`[Suggestions] Загружено ${data.suggestions.length} умных подсказок для ${videoId} (модель: ${data.model_used})`);
+                        } else {
+                            console.log(`[Suggestions] Загружено ${data.suggestions.length} стандартных подсказок для ${videoId}`);
+                        }
+                    } else {
+                        console.log(`[Suggestions] Ошибка при загрузке подсказок: ${data.error || 'Неизвестная ошибка'}`);
+                        window.videoSuggestions[videoId] = getFallbackSuggestions();
+                    }
+                })
+                .catch(error => {
+                    console.error(`[Suggestions] Ошибка запроса подсказок:`, error);
+                    window.videoSuggestions[videoId] = getFallbackSuggestions();
+                });
+        }
+        
+        function getFallbackSuggestions() {
+            return [
+                "🤔 Объясни главную идею простыми словами",
+                "📊 Какие факты и данные наиболее важные?",
+                "💡 Что было самым неожиданным открытием?",
+                "🔍 На какие моменты стоит обратить внимание?"
+            ];
+        }
+        
+        function getVideoSuggestions(videoId) {
+            if (!window.videoSuggestions || !window.videoSuggestions[videoId]) {
+                return getFallbackSuggestions();
+            }
+            
+            const suggestions = window.videoSuggestions[videoId];
+            
+            // Если подсказки ещё загружаются, возвращаем fallback
+            if (suggestions === 'loading') {
+                return getFallbackSuggestions();
+            }
+            
+            return Array.isArray(suggestions) ? suggestions : getFallbackSuggestions();
         }
 
         // === ФОРМАТИРОВАНИЕ СООБЩЕНИЙ ===
