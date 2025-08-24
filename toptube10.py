@@ -13,6 +13,16 @@ import video_analyzer
 # Константы
 DAYS = 3
 Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|вдудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция|TheDiaryOfACEO|investigation|расследование"
+
+# Словарь игровых ключевых слов для исключения
+# Добавляйте сюда новые игровые ключевые слова по мере необходимости
+# Система будет автоматически исключать видео, содержащие эти слова в заголовке
+GAMING_KEYWORDS = [
+    "JYNXZI",  # Игровой стример
+    # Примеры для добавления:
+    # "FORTNITE", "MINECRAFT", "GTA", "CS2", "VALORANT",
+    # "STREAMER", "GAMEPLAY", "WALKTHROUGH", "SPEEDRUN"
+]
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
@@ -259,7 +269,7 @@ class TopTubeManager:
             duration = isodate.parse_duration(duration_str)
             duration_seconds = duration.total_seconds()
             
-            if duration_seconds < 5400:  # 1.5 часа = 5400 секунд (90 минут)
+            if duration_seconds < 3600:  # 1 час = 3600 секунд (60 минут)
                 print(f"[TopTube] Видео слишком короткое: {duration_seconds//60} мин — пропускаем")
                 return False
             
@@ -278,6 +288,13 @@ class TopTubeManager:
             if category_id == "20":  # Gaming категория
                 print(f"[TopTube] Видео является игровым контентом (категория): {video['snippet']['title'][:50]}... — пропускаем")
                 return False
+            
+            # Фильтруем игровой контент по ключевым словам
+            title = video["snippet"]["title"].upper()
+            for keyword in GAMING_KEYWORDS:
+                if keyword.upper() in title:
+                    print(f"[TopTube] Видео содержит игровое ключевое слово '{keyword}': {video['snippet']['title'][:50]}... — пропускаем")
+                    return False
             
             # Проверяем количество подписчиков (минимум 1 миллион)
             channel_id = video["snippet"]["channelId"]
