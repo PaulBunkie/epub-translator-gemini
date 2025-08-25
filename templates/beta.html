@@ -73,19 +73,7 @@
              overflow: hidden;
          }
         
-        /* Специальные стили для разных макетов */
-        .layout-masonry {
-            grid-auto-rows: minmax(200px, auto);
-        }
-        
-        .layout-adaptive {
-            grid-auto-rows: minmax(180px, auto);
-        }
-        
-        .layout-dynamic {
-            grid-auto-rows: minmax(160px, auto);
-        }
-        
+        /* Стили для умного макета */
         .layout-smart {
             grid-auto-rows: minmax(180px, auto);
             grid-auto-flow: dense; /* Автоматически заполняет дыры */
@@ -157,37 +145,21 @@
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
     <!-- Header -->
     <div class="relative overflow-hidden">
-        <div class="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20"></div>
         <div class="relative px-6 py-12">
             <div class="max-w-6xl mx-auto text-center">
-                <h1 class="text-5xl font-bold text-white mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                    Видео Коллаж
+                <h1 class="text-5xl font-bold text-white mb-4">
+                    <i class="fas fa-play-circle text-white me-2"></i><span class="bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">ai</span><span class="text-white">Tube</span>
                 </h1>
                 <p class="text-xl text-gray-300 mb-8">
-                    Эффектная коллекция популярных видео с аналитикой. Кликните на превью для просмотра оригинального видео.
+                    ИИ-анализ популярных видео
                 </p>
-                <div class="flex justify-center items-center space-x-4">
-                    <button
-                        id="toggle-translations"
-                        class="px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg hover:shadow-xl"
-                    >
-                        Переводы включены
-                    </button>
-                    <button
-                        id="toggle-layout"
-                        class="px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-gradient-to-r from-green-500 to-teal-500 text-white shadow-lg hover:shadow-xl"
-                    >
-                        Макет: Обычный
-                    </button>
-
-                </div>
             </div>
         </div>
     </div>
 
     <!-- Video Grid -->
     <div class="max-w-6xl mx-auto px-6 pb-12">
-        <div id="videos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div id="videos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 layout-smart">
             <!-- Loading placeholder -->
             <div class="col-span-full text-center py-20">
                 <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
@@ -243,9 +215,7 @@
 
     <script>
         let currentVideos = [];
-        let showTranslated = true;
         let isAdminMode = false;
-        let currentLayout = 'normal'; // normal, masonry, adaptive, dynamic
 
         // Check admin mode on page load
         function checkAdminMode() {
@@ -287,35 +257,6 @@
             });
         }
 
-        // Toggle translations
-        document.getElementById('toggle-translations').addEventListener('click', function() {
-            showTranslated = !showTranslated;
-            this.textContent = showTranslated ? 'Переводы включены' : 'Оригинальные названия';
-            this.className = showTranslated 
-                ? 'px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg hover:shadow-xl'
-                : 'px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-white/10 text-gray-300 hover:bg-white/20';
-            renderVideos(currentVideos);
-        });
-
-        // Toggle layout styles
-        document.getElementById('toggle-layout').addEventListener('click', function() {
-            const layouts = ['normal', 'masonry', 'adaptive', 'dynamic', 'smart'];
-            const currentIndex = layouts.indexOf(currentLayout);
-            const nextIndex = (currentIndex + 1) % layouts.length;
-            currentLayout = layouts[nextIndex];
-            
-            const layoutNames = {
-                'normal': 'Обычный',
-                'masonry': 'Массивный',
-                'adaptive': 'Адаптивный',
-                'dynamic': 'Динамичный',
-                'smart': 'Умный'
-            };
-            
-            this.textContent = `Макет: ${layoutNames[currentLayout]}`;
-            renderVideos(currentVideos);
-        });
-
         // Load videos from API
         async function loadVideos() {
             try {
@@ -338,9 +279,6 @@
         function renderVideos(videos) {
             const container = document.getElementById('videos-container');
             
-            // Применяем CSS классы для разных макетов
-            container.className = `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 layout-${currentLayout}`;
-            
             if (videos.length === 0) {
                 container.innerHTML = `
                     <div class="col-span-full text-center py-20">
@@ -353,160 +291,152 @@
             }
 
             // Используем умный алгоритм размещения для заполнения пространства без дыр
-            if (currentLayout === 'smart') {
-                container.innerHTML = createSmartLayout(videos);
-            } else {
-                container.innerHTML = videos.map((video, index) => createVideoCard(video, index)).join('');
-            }
+            container.innerHTML = createSmartLayout(videos);
         }
 
-                 // Умный алгоритм размещения карточек для заполнения пространства без дыр
-         function createSmartLayout(videos) {
-             const cols = 3; // Количество колонок в сетке (3 для FHD)
-             const grid = Array(20).fill().map(() => Array(cols).fill(null)); // Создаем сетку 20x3
-             
-             // Сортируем видео по video_id в порядке убывания
-             const sortedVideos = [...videos].sort((a, b) => b.video_id - a.video_id);
-             
-             // Создаем очередь видео с размерами
-             const videoQueue = sortedVideos.map((video, index) => {
-                 const title = showTranslated && video.translated_title ? video.translated_title : video.title;
-                 const titleLength = title.length;
-                 
-                 // Получаем длину саммари (если есть)
-                 let summaryLength = 0;
-                 if (video.analysis_summary) {
-                     summaryLength = video.analysis_summary.length;
-                 } else if (video.analysis_result) {
-                     summaryLength = video.analysis_result.length;
-                 }
-                 
-                 // Общая длина контента для определения размера карточки
-                 const totalContentLength = titleLength + summaryLength;
-                 
-                 let width = 1;
-                 let height = 1;
-                 
-                                   // Логика определения размера ТОЛЬКО на основе просмотров
-                  const isPopular = video.views > 500000; // Больше 500K просмотров
-                  
-                  if (isPopular) {
-                      // Популярные видео - большие карточки (2x1)
-                      width = 2;
-                      height = 1;
-                  } else {
-                      // Все остальные - маленькие карточки (1x1)
-                      width = 1;
-                      height = 1;
-                  }
-                 
-                 return { video, width, height, index, totalContentLength, titleLength, summaryLength };
-             });
-             
-             let html = '';
-             
-             // Идем по сетке сверху вниз, слева направо
-             for (let row = 0; row < grid.length; row++) {
-                 for (let col = 0; col < cols; col++) {
-                     // Если место уже занято, пропускаем
-                     if (grid[row][col] !== null) continue;
-                     
-                     // Ищем подходящую карточку для этого места
-                     let placed = false;
-                     let videoIndex = -1;
-                     
-                     // Сначала пробуем найти карточку, которая точно поместится
-                     for (let i = 0; i < videoQueue.length; i++) {
-                         const { video, width, height } = videoQueue[i];
-                         
-                         // Проверяем, поместится ли карточка
-                         if (row + height <= grid.length && col + width <= cols) {
-                             let canPlace = true;
-                             
-                             // Проверяем, свободно ли место
-                             for (let r = row; r < row + height; r++) {
-                                 for (let c = col; c < col + width; c++) {
-                                     if (grid[r][c] !== null) {
-                                         canPlace = false;
-                                         break;
-                                     }
-                                 }
-                                 if (!canPlace) break;
-                             }
-                             
-                             if (canPlace) {
-                                 // Размещаем карточку
-                                 for (let r = row; r < row + height; r++) {
-                                     for (let c = col; c < col + width; c++) {
-                                         grid[r][c] = i;
-                                     }
-                                 }
-                                 
-                                 // Определяем CSS классы для размера
-                                 let sizeClass = '';
-                                 if (width === 2 && height === 2) {
-                                     sizeClass = 'md:col-span-2 lg:col-span-2';
-                                 } else if (width === 2 && height === 1) {
-                                     sizeClass = 'md:col-span-2 lg:col-span-2';
-                                 } else if (width === 1 && height === 2) {
-                                     sizeClass = 'lg:row-span-2';
-                                 }
-                                 
-                                 html += createVideoCard(video, i, sizeClass);
-                                 
-                                 // Убираем карточку из очереди
-                                 videoQueue.splice(i, 1);
-                                 
-                                 placed = true;
-                                 videoIndex = i;
-                                 break;
-                             }
-                         }
-                     }
-                     
-                     // Если не удалось разместить большую карточку, ищем маленькую (1x1)
-                     if (!placed) {
-                         for (let i = 0; i < videoQueue.length; i++) {
-                             const { video, width, height } = videoQueue[i];
-                             
-                             // Ищем любую карточку, которую можно сделать маленькой
-                             if (width === 1 && height === 1) {
-                                 // Уже маленькая - размещаем как есть
-                                 grid[row][col] = i;
-                                 html += createVideoCard(video, i, '');
-                                 videoQueue.splice(i, 1);
-                                 placed = true;
-                                 break;
-                             } else {
-                                 // Большая карточка - забиваем на правило и делаем маленькой
-                                 grid[row][col] = i;
-                                 html += createVideoCard(video, i, '');
-                                 videoQueue.splice(i, 1);
-                                 placed = true;
-                                 break;
-                             }
-                         }
-                     }
-                     
-                     // Если все карточки размещены, выходим
-                     if (videoQueue.length === 0) break;
-                 }
-                 
-                 // Если все карточки размещены, выходим
-                 if (videoQueue.length === 0) break;
-             }
-             
-             // Добавляем отладочную информацию в консоль
-             console.log('[Smart Layout] Grid after placement:', grid);
-             console.log('[Smart Layout] Videos placed:', sortedVideos.length - videoQueue.length);
-             console.log('[Smart Layout] Remaining in queue:', videoQueue.length);
-             
-             return html;
-         }
-        
-        
-
-        
+        // Умный алгоритм размещения карточек для заполнения пространства без дыр
+        function createSmartLayout(videos) {
+            const cols = 3; // Количество колонок в сетке (3 для FHD)
+            const grid = Array(20).fill().map(() => Array(cols).fill(null)); // Создаем сетку 20x3
+            
+            // Сортируем видео по video_id в порядке убывания
+            const sortedVideos = [...videos].sort((a, b) => b.video_id - a.video_id);
+            
+            // Создаем очередь видео с размерами
+            const videoQueue = sortedVideos.map((video, index) => {
+                const title = video.translated_title ? video.translated_title : video.title;
+                const titleLength = title.length;
+                
+                // Получаем длину саммари (если есть)
+                let summaryLength = 0;
+                if (video.analysis_summary) {
+                    summaryLength = video.analysis_summary.length;
+                } else if (video.analysis_result) {
+                    summaryLength = video.analysis_result.length;
+                }
+                
+                // Общая длина контента для определения размера карточки
+                const totalContentLength = titleLength + summaryLength;
+                
+                let width = 1;
+                let height = 1;
+                
+                // Логика определения размера ТОЛЬКО на основе просмотров
+                const isPopular = video.views > 500000; // Больше 500K просмотров
+                
+                if (isPopular) {
+                    // Популярные видео - большие карточки (2x1)
+                    width = 2;
+                    height = 1;
+                } else {
+                    // Все остальные - маленькие карточки (1x1)
+                    width = 1;
+                    height = 1;
+                }
+                
+                return { video, width, height, index, totalContentLength, titleLength, summaryLength };
+            });
+            
+            let html = '';
+            
+            // Идем по сетке сверху вниз, слева направо
+            for (let row = 0; row < grid.length; row++) {
+                for (let col = 0; col < cols; col++) {
+                    // Если место уже занято, пропускаем
+                    if (grid[row][col] !== null) continue;
+                    
+                    // Ищем подходящую карточку для этого места
+                    let placed = false;
+                    let videoIndex = -1;
+                    
+                    // Сначала пробуем найти карточку, которая точно поместится
+                    for (let i = 0; i < videoQueue.length; i++) {
+                        const { video, width, height } = videoQueue[i];
+                        
+                        // Проверяем, поместится ли карточка
+                        if (row + height <= grid.length && col + width <= cols) {
+                            let canPlace = true;
+                            
+                            // Проверяем, свободно ли место
+                            for (let r = row; r < row + height; r++) {
+                                for (let c = col; c < col + width; c++) {
+                                    if (grid[r][c] !== null) {
+                                        canPlace = false;
+                                        break;
+                                    }
+                                }
+                                if (!canPlace) break;
+                            }
+                            
+                            if (canPlace) {
+                                // Размещаем карточку
+                                for (let r = row; r < row + height; r++) {
+                                    for (let c = col; c < col + width; c++) {
+                                        grid[r][c] = i;
+                                    }
+                                }
+                                
+                                // Определяем CSS классы для размера
+                                let sizeClass = '';
+                                if (width === 2 && height === 2) {
+                                    sizeClass = 'md:col-span-2 lg:col-span-2';
+                                } else if (width === 2 && height === 1) {
+                                    sizeClass = 'md:col-span-2 lg:col-span-2';
+                                } else if (width === 1 && height === 2) {
+                                    sizeClass = 'lg:row-span-2';
+                                }
+                                
+                                html += createVideoCard(video, i, sizeClass);
+                                
+                                // Убираем карточку из очереди
+                                videoQueue.splice(i, 1);
+                                
+                                placed = true;
+                                videoIndex = i;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Если не удалось разместить большую карточку, ищем маленькую (1x1)
+                    if (!placed) {
+                        for (let i = 0; i < videoQueue.length; i++) {
+                            const { video, width, height } = videoQueue[i];
+                            
+                            // Ищем любую карточку, которую можно сделать маленькой
+                            if (width === 1 && height === 1) {
+                                // Уже маленькая - размещаем как есть
+                                grid[row][col] = i;
+                                html += createVideoCard(video, i, '');
+                                videoQueue.splice(i, 1);
+                                placed = true;
+                                break;
+                            } else {
+                                // Большая карточка - забиваем на правило и делаем маленькой
+                                grid[row][col] = i;
+                                html += createVideoCard(video, i, '');
+                                videoQueue.splice(i, 1);
+                                placed = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Если все карточки размещены, выходим
+                    if (videoQueue.length === 0) break;
+                }
+                
+                // Если все карточки размещены, выходим
+                if (videoQueue.length === 0) break;
+            }
+            
+            // Добавляем отладочную информацию в консоль
+            console.log('[Smart Layout] Grid after placement:', grid);
+            console.log('[Smart Layout] Videos placed:', sortedVideos.length - videoQueue.length);
+            console.log('[Smart Layout] Remaining in queue:', videoQueue.length);
+            
+            return html;
+        }
 
         // Create video card HTML
         function createVideoCard(video, index, customSizeClass = null) {
@@ -516,7 +446,7 @@
             }
             
             const thumbnailUrl = `https://img.youtube.com/vi/${video.video_id}/maxresdefault.jpg`;
-            const title = showTranslated && video.translated_title ? video.translated_title : video.title;
+            const title = video.translated_title ? video.translated_title : video.title;
             
             // Определяем размер карточки
             let sizeClass = '';
@@ -567,35 +497,35 @@
                         </div>
                     </div>
 
-                                         <!-- Content -->
-                     <div class="p-4 space-y-3">
-                         <!-- Title -->
-                         <h3 class="text-white font-semibold text-sm leading-tight">
-                             ${title}
-                         </h3>
-                         
-                                                                            <!-- Summary (если есть) -->
-                         ${video.analysis_summary ? `
-                             <p class="text-gray-300 text-sm leading-tight opacity-80">
-                                 ${video.analysis_summary}
-                             </p>
-                         ` : video.analysis_result ? `
-                             <p class="text-gray-300 text-sm leading-tight opacity-80">
-                                 ${video.analysis_result}
-                             </p>
-                         ` : ''}
-                         
-                         <!-- Channel -->
-                         <div class="flex items-center space-x-2">
-                             <div class="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                                 <span class="text-white text-xs font-bold">
-                                     ${video.channel_title.charAt(0)}
-                                 </span>
-                             </div>
-                             <span class="text-gray-300 text-sm font-medium">
-                                 ${video.channel_title}
-                             </span>
-                         </div>
+                    <!-- Content -->
+                    <div class="p-4 space-y-3">
+                        <!-- Title -->
+                        <h3 class="text-white font-semibold text-sm leading-tight">
+                            ${title}
+                        </h3>
+                        
+                        <!-- Summary (если есть) -->
+                        ${video.analysis_summary ? `
+                            <p class="text-gray-300 text-sm leading-tight opacity-80">
+                                ${video.analysis_summary}
+                            </p>
+                        ` : video.analysis_result ? `
+                            <p class="text-gray-300 text-sm leading-tight opacity-80">
+                                ${video.analysis_result}
+                            </p>
+                        ` : ''}
+                        
+                        <!-- Channel -->
+                        <div class="flex items-center space-x-2">
+                            <div class="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                                <span class="text-white text-xs font-bold">
+                                    ${video.channel_title.charAt(0)}
+                                </span>
+                            </div>
+                            <span class="text-gray-300 text-sm font-medium">
+                                ${video.channel_title}
+                            </span>
+                        </div>
 
                         <!-- Stats -->
                         <div class="flex items-center justify-between text-xs text-gray-400">
@@ -626,8 +556,8 @@
                         </div>
                     </div>
 
-                                         <!-- Hover Overlay -->
-                     <div class="absolute inset-0 bg-gradient-to-t from-purple-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                    <!-- Hover Overlay -->
+                    <div class="absolute inset-0 bg-gradient-to-t from-purple-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
                 </div>
             `;
         }
@@ -641,13 +571,13 @@
             const modalBody = document.getElementById('videoModalBody');
             const thumbnailUrl = `https://img.youtube.com/vi/${video.video_id}/maxresdefault.jpg`;
             
-            modalTitle.textContent = showTranslated && video.translated_title ? video.translated_title : video.title;
+            modalTitle.textContent = video.translated_title ? video.translated_title : video.title;
             
             modalBody.innerHTML = `
                 <div class="row">
                     <div class="col-md-4">
                         <div class="text-center mb-2">
-                            <img src="${thumbnailUrl}" alt="${showTranslated && video.translated_title ? video.translated_title : video.title}" 
+                            <img src="${thumbnailUrl}" alt="${video.translated_title ? video.translated_title : video.title}" 
                                  class="img-fluid rounded" style="max-width: 180px; max-height: 110px; object-fit:cover;"
                                  onerror="this.src='https://img.youtube.com/vi/${video.video_id}/hqdefault.jpg'">
                         </div>
@@ -717,7 +647,7 @@
                             <div id="chatLoader" class="text-center mt-2" style="display: none;">
                                 <div class="spinner-border spinner-border-sm text-success" role="status">
                                     <span class="visually-hidden">Думаю...</span>
-                                </div>
+                                </span>
                                 <small class="text-muted ms-2">ИИ обдумывает ответ...</small>
                             </div>
                         </div>
@@ -764,8 +694,6 @@
             document.getElementById('total-subscribers').textContent = formatNumber(totalSubscribers);
             document.getElementById('total-duration').textContent = Math.round(totalDuration / 3600) + 'ч';
         }
-
-
 
         // Share video function
         function shareVideo(videoId) {
