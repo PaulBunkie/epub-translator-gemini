@@ -184,6 +184,130 @@
             color: #999;
             font-style: italic;
         }
+        
+        /* Стили для анализа видео */
+        .analysis-summary-content {
+            width: 100%;
+            white-space: normal;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 5;
+            -webkit-box-orient: vertical;
+            font-size: 0.8rem;
+            line-height: 1.3;
+        }
+        
+        /* Стили для контейнера с анализом */
+        #modal-analysis-markdown {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #333;
+        }
+        
+        #modal-analysis-markdown h1, 
+        #modal-analysis-markdown h2, 
+        #modal-analysis-markdown h3, 
+        #modal-analysis-markdown h4, 
+        #modal-analysis-markdown h5, 
+        #modal-analysis-markdown h6 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        #modal-analysis-markdown p {
+            margin-bottom: 0.8rem;
+        }
+        
+        #modal-analysis-markdown ul, 
+        #modal-analysis-markdown ol {
+            margin-bottom: 0.8rem;
+            padding-left: 1.5rem;
+        }
+        
+        #modal-analysis-markdown li {
+            margin-bottom: 0.3rem;
+        }
+        
+        #modal-analysis-markdown blockquote {
+            border-left: 4px solid #667eea;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            font-style: italic;
+            color: #666;
+        }
+        
+        #modal-analysis-markdown code {
+            background-color: #f8f9fa;
+            padding: 0.2rem 0.4rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+        }
+        
+        #modal-analysis-markdown pre {
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        #modal-analysis-markdown pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        
+        #modal-analysis-markdown table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.85em;
+        }
+        
+        #modal-analysis-markdown th,
+        #modal-analysis-markdown td {
+            border: 1px solid #dee2e6;
+            padding: 0.5rem;
+            text-align: left;
+        }
+        
+        #modal-analysis-markdown th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        #modal-analysis-markdown tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        #modal-analysis-markdown strong {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        #modal-analysis-markdown em {
+            font-style: italic;
+            color: #666;
+        }
+        
+        #modal-analysis-markdown a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        
+        #modal-analysis-markdown a:hover {
+            text-decoration: underline;
+        }
+        
+        #modal-analysis-markdown hr {
+            border: none;
+            border-top: 1px solid #dee2e6;
+            margin: 1.5rem 0;
+        }
     </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
