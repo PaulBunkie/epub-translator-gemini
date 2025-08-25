@@ -177,15 +177,23 @@ class TopTubeManager:
         
         # Сохраняем финальные видео
         saved_count = 0
+        skipped_count = 0
         for video in final_videos:
             try:
+                # Проверяем, не было ли видео уже проанализировано
+                existing_video = video_db.get_video_by_youtube_id(video['id'])
+                if existing_video and existing_video.get('status') == 'analyzed':
+                    print(f"[TopTube] Видео '{video['snippet']['title'][:50]}...' уже проанализировано, пропускаем")
+                    skipped_count += 1
+                    continue
+                
                 video_data = self._prepare_video_data(video, channels_dict)
                 if video_db.add_video(video_data):
                     saved_count += 1
             except Exception as e:
                 print(f"[TopTube] Ошибка при сохранении видео {video.get('id', 'unknown')}: {e}")
         
-        print(f"[TopTube] Сохранено в БД: {saved_count} видео")
+        print(f"[TopTube] Сохранено в БД: {saved_count} видео, пропущено уже проанализированных: {skipped_count}")
         
         # Сохраняем информацию о сборе
         video_db.save_collection_info(saved_count, 'manual')
@@ -264,6 +272,12 @@ class TopTubeManager:
     def _should_save_video(self, video: Dict[str, Any], channels_dict: Dict[str, Any]) -> bool:
         """Проверяет, нужно ли сохранять видео."""
         try:
+            # Проверяем, не было ли видео уже проанализировано
+            existing_video = video_db.get_video_by_youtube_id(video['id'])
+            if existing_video and existing_video.get('status') == 'analyzed':
+                print(f"[TopTube] Видео '{video['snippet']['title'][:50]}...' уже проанализировано, пропускаем")
+                return False
+            
             # Проверяем длительность (минимум 50 минут, максимум 4 часа)
             duration_str = video["contentDetails"]["duration"]
             duration = isodate.parse_duration(duration_str)
@@ -328,6 +342,17 @@ class TopTubeManager:
         subs = int(channel_info.get("statistics", {}).get("subscriberCount", 0))
         views = int(video["statistics"].get("viewCount", 0))
         
+        # Проверяем существующий статус видео
+        existing_video = video_db.get_video_by_youtube_id(video["id"])
+        status = 'new'  # По умолчанию новый статус
+        
+        if existing_video:
+            # Сохраняем существующий статус, если видео уже было проанализировано
+            existing_status = existing_video.get('status')
+            if existing_status in ['analyzed', 'error']:
+                status = existing_status
+                print(f"[TopTube] Сохраняем существующий статус '{existing_status}' для видео '{video['snippet']['title'][:50]}...'")
+        
         return {
             'video_id': video["id"],
             'title': video["snippet"]["title"],
@@ -336,8 +361,8 @@ class TopTubeManager:
             'views': views,
             'published_at': video["snippet"]["publishedAt"],
             'subscribers': subs,
-            'url': f"https://www.youtube.com/watch?v={video['id']}"
-            # НЕ устанавливаем статус здесь - он будет сохранен из БД если видео уже существует
+            'url': f"https://www.youtube.com/watch?v={video['id']}",
+            'status': status
         }
     
     def get_stats(self) -> Dict[str, Any]:

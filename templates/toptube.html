@@ -1575,6 +1575,7 @@
         
         function getVideoSuggestions(videoId) {
             if (!window.videoSuggestions || !window.videoSuggestions[videoId]) {
+                console.log(`[Suggestions] Нет подсказок для видео ${videoId}, используем fallback`);
                 return getFallbackSuggestions();
             }
             
@@ -1582,10 +1583,17 @@
             
             // Если подсказки ещё загружаются, возвращаем fallback
             if (suggestions === 'loading') {
+                console.log(`[Suggestions] Подсказки для видео ${videoId} загружаются, используем fallback`);
                 return getFallbackSuggestions();
             }
             
-            return Array.isArray(suggestions) ? suggestions : getFallbackSuggestions();
+            if (Array.isArray(suggestions)) {
+                console.log(`[Suggestions] Используем ${suggestions.length} подсказок для видео ${videoId}`);
+                return suggestions;
+            } else {
+                console.log(`[Suggestions] Неверный формат подсказок для видео ${videoId}:`, suggestions);
+                return getFallbackSuggestions();
+            }
         }
 
         // === ФОРМАТИРОВАНИЕ СООБЩЕНИЙ ===
@@ -1697,12 +1705,21 @@
                         <strong><i class="fas fa-robot me-1"></i>ИИ:</strong> ${formattedMessage}
                 `;
                 
-                if (suggestions) {
+                if (suggestions && Array.isArray(suggestions) && suggestions.length > 0) {
+                    console.log(`[Suggestions] Добавляем ${suggestions.length} подсказок к сообщению`);
                     html += '<div class="mt-2">';
-                    suggestions.forEach(suggestion => {
-                        html += `<button class="btn btn-outline-secondary btn-sm me-2 mb-1" onclick="document.getElementById('chatInput').value='${suggestion.replace(/[🤔📊💡🔍] /, '')}'">${suggestion}</button>`;
+                    suggestions.forEach((suggestion, index) => {
+                        if (typeof suggestion === 'string' && suggestion.trim()) {
+                            const cleanSuggestion = suggestion.replace(/[🤔📊💡🔍] /, '');
+                            console.log(`[Suggestions] Подсказка ${index + 1}: "${suggestion}" -> "${cleanSuggestion}"`);
+                            html += `<button class="btn btn-outline-secondary btn-sm me-2 mb-1 suggestion-btn" data-suggestion="${cleanSuggestion.replace(/"/g, '&quot;')}">${suggestion}</button>`;
+                        } else {
+                            console.warn(`[Suggestions] Пропускаем невалидную подсказку ${index + 1}:`, suggestion);
+                        }
                     });
                     html += '</div>';
+                } else if (suggestions) {
+                    console.warn('[Suggestions] Подсказки не являются массивом или пусты:', suggestions);
                 }
                 
                 html += '</div>';
@@ -2399,6 +2416,25 @@
                     if (btn) btn.style.display = 'none';
                 });
             }
+            
+            // Обработчик для кнопок подсказок (делегирование событий)
+            document.addEventListener('click', function(e) {
+                if (e.target.classList.contains('suggestion-btn')) {
+                    const suggestion = e.target.getAttribute('data-suggestion');
+                    if (suggestion) {
+                        const chatInput = document.getElementById('chatInput');
+                        if (chatInput) {
+                            chatInput.value = suggestion;
+                            chatInput.focus();
+                            console.log(`[Suggestions] Скопирована подсказка: "${suggestion}"`);
+                        } else {
+                            console.warn(`[Suggestions] Поле ввода чата не найдено для подсказки: "${suggestion}"`);
+                        }
+                    } else {
+                        console.warn('[Suggestions] Атрибут data-suggestion не найден на кнопке');
+                    }
+                }
+            });
         });
     </script>
 

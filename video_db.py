@@ -133,29 +133,82 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
         conn = get_video_db_connection()
         cursor = conn.cursor()
 
-        # Если статус не передан, используем 'new' для новых видео
-        # Для существующих видео статус сохранится благодаря INSERT OR REPLACE
-        status = video_data.get('status', 'new')
-        
+        # Проверяем, существует ли видео и какой у него статус
         cursor.execute("""
-            INSERT OR REPLACE INTO videos 
-            (video_id, title, channel_title, duration, views, published_at, subscribers, url, status, deleted_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
-        """, (
-            video_data['video_id'],
-            video_data['title'],
-            video_data['channel_title'],
-            video_data['duration'],
-            video_data['views'],
-            video_data['published_at'],
-            video_data['subscribers'],
-            video_data['url'],
-            status
-        ))
+            SELECT id, status FROM videos 
+            WHERE video_id = ? AND deleted_at IS NULL
+        """, (video_data['video_id'],))
         
-        video_db_id = cursor.lastrowid
+        existing_video = cursor.fetchone()
+        
+        if existing_video:
+            # Видео уже существует - обновляем только метаданные, сохраняем статус
+            existing_status = existing_video[1]
+            video_db_id = existing_video[0]
+            
+            # Если видео уже было проанализировано, не сбрасываем статус
+            if existing_status in ['analyzed', 'error']:
+                print(f"[VideoDB] Video '{video_data['title']}' already exists with status '{existing_status}', updating metadata only")
+                
+                cursor.execute("""
+                    UPDATE videos 
+                    SET title = ?, channel_title = ?, duration = ?, views = ?, 
+                        published_at = ?, subscribers = ?, url = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (
+                    video_data['title'],
+                    video_data['channel_title'],
+                    video_data['duration'],
+                    video_data['views'],
+                    video_data['published_at'],
+                    video_data['subscribers'],
+                    video_data['url'],
+                    video_db_id
+                ))
+            else:
+                # Для видео в статусе 'new' или 'processing' обновляем все, включая статус
+                print(f"[VideoDB] Video '{video_data['title']}' exists with status '{existing_status}', updating all fields")
+                
+                cursor.execute("""
+                    UPDATE videos 
+                    SET title = ?, channel_title = ?, duration = ?, views = ?, 
+                        published_at = ?, subscribers = ?, url = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (
+                    video_data['title'],
+                    video_data['channel_title'],
+                    video_data['duration'],
+                    video_data['views'],
+                    video_data['published_at'],
+                    video_data['subscribers'],
+                    video_data['url'],
+                    video_data.get('status', 'new'),
+                    video_db_id
+                ))
+        else:
+            # Новое видео - добавляем с статусом 'new'
+            status = video_data.get('status', 'new')
+            
+            cursor.execute("""
+                INSERT INTO videos 
+                (video_id, title, channel_title, duration, views, published_at, subscribers, url, status, deleted_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+            """, (
+                video_data['video_id'],
+                video_data['title'],
+                video_data['channel_title'],
+                video_data['duration'],
+                video_data['views'],
+                video_data['published_at'],
+                video_data['subscribers'],
+                video_data['url'],
+                status
+            ))
+            
+            video_db_id = cursor.lastrowid
+        
         conn.commit()
-        print(f"[VideoDB] Video '{video_data['title']}' added/updated (DB ID: {video_db_id})")
+        print(f"[VideoDB] Video '{video_data['title']}' {'updated' if existing_video else 'added'} (DB ID: {video_db_id})")
         return video_db_id
         
     except sqlite3.Error as e:
