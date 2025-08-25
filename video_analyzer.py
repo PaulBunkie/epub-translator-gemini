@@ -244,17 +244,8 @@ class VideoAnalyzer:
                 second_data = second_response.json()
                 print(f"[VideoAnalyzer] Поллинг данные {attempt}: {second_data}")
                 
-                # Логируем полный ответ Yandex API
-                print(f"[VideoAnalyzer] ПОЛНЫЙ ОТВЕТ YANDEX API (попытка {attempt}):")
-                print(f"[VideoAnalyzer] {'='*80}")
-                print(json.dumps(second_data, ensure_ascii=False, indent=2))
-                print(f"[VideoAnalyzer] {'='*80}")
-                print(f"[VideoAnalyzer] КОНЕЦ ОТВЕТА YANDEX API")
-                
                 error_code = second_data.get('error_code')
                 status_code = second_data.get('status_code')
-                
-                print(f"[VideoAnalyzer] Поллинг статусы {attempt}: error_code={error_code}, status_code={status_code}")
                 
                 if error_code:
                     print(f"[VideoAnalyzer] Поллинг завершен с ошибкой на попытке {attempt}: error_code={error_code}")
@@ -329,11 +320,8 @@ class VideoAnalyzer:
             title = keypoints_data.get('title', '')
             
             print(f"[VideoAnalyzer] RAW KEYPOINTS DATA:")
-            print(f"[VideoAnalyzer] {'='*80}")
             print(f"[VideoAnalyzer] Title: {title}")
             print(f"[VideoAnalyzer] Keypoints count: {len(keypoints)}")
-            print(f"[VideoAnalyzer] Raw keypoints: {json.dumps(keypoints_data, ensure_ascii=False, indent=2)}")
-            print(f"[VideoAnalyzer] {'='*80}")
             print(f"[VideoAnalyzer] КОНЕЦ RAW KEYPOINTS DATA")
             
             if not keypoints:
@@ -513,11 +501,6 @@ class VideoAnalyzer:
                         }
                         
                         print(f"[VideoAnalyzer] Отправка запроса к OpenRouter API (модель: {model}, max_tokens: {max_tokens})")
-                        print(f"[VideoAnalyzer] ПОЛНЫЙ JSON КОТОРЫЙ УХОДИТ К МОДЕЛИ:")
-                        print(f"[VideoAnalyzer] {'='*80}")
-                        print(json.dumps(payload, ensure_ascii=False, indent=2))
-                        print(f"[VideoAnalyzer] {'='*80}")
-                        print(f"[VideoAnalyzer] КОНЕЦ JSON")
                         
                         response = requests.post(
                             f"{self.openrouter_api_url}/chat/completions",
@@ -628,11 +611,6 @@ class VideoAnalyzer:
                     }
                     
                     print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...' с моделью {model}")
-                    print(f"[VideoAnalyzer] ПОЛНЫЙ JSON ДЛЯ ПЕРЕВОДА ЗАГОЛОВКА:")
-                    print(f"[VideoAnalyzer] {'='*80}")
-                    print(json.dumps(payload, ensure_ascii=False, indent=2))
-                    print(f"[VideoAnalyzer] {'='*80}")
-                    print(f"[VideoAnalyzer] КОНЕЦ JSON ПЕРЕВОДА ЗАГОЛОВКА")
                     
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
@@ -744,11 +722,6 @@ class VideoAnalyzer:
                 
                 # Простой запрос без retry логики
                 print(f"[VideoAnalyzer] Отправляем запрос к OpenRouter для краткой версии (модель: {model})...")
-                print(f"[VideoAnalyzer] ПОЛНЫЙ JSON ДЛЯ КРАТКОЙ ВЕРСИИ:")
-                print(f"[VideoAnalyzer] {'='*80}")
-                print(json.dumps(payload, ensure_ascii=False, indent=2))
-                print(f"[VideoAnalyzer] {'='*80}")
-                print(f"[VideoAnalyzer] КОНЕЦ JSON КРАТКОЙ ВЕРСИИ")
                 
                 response = requests.post(
                     f"{self.openrouter_api_url}/chat/completions",
