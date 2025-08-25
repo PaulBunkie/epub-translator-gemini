@@ -341,10 +341,15 @@ class VideoAnalyzer:
                 start_time = kp.get('start_time', 0)
                 
                 if section_title:
-                    # Форматируем время
-                    minutes = start_time // 60
+                    # Форматируем время с часами
+                    hours = start_time // 3600
+                    minutes = (start_time % 3600) // 60
                     seconds = start_time % 60
-                    time_str = f"{minutes:02d}:{seconds:02d}"
+                    
+                    if hours > 0:
+                        time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                    else:
+                        time_str = f"{minutes:02d}:{seconds:02d}"
                     
                     text_blocks.append(f"\n## {section_title} ({time_str})\n")
                 
