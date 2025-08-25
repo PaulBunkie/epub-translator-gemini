@@ -2035,6 +2035,13 @@ def toptube_page():
     admin = request.args.get('admin') == 'true'
     return render_template('toptube.html', admin=admin)
 
+@app.route('/beta', methods=['GET'])
+def beta_page():
+    """Отображает новую бета-версию страницы с видео."""
+    # Проверяем параметр admin
+    admin = request.args.get('admin') == 'true'
+    return render_template('beta.html', admin=admin)
+
 @app.route('/api/toptube/videos', methods=['GET'])
 def api_get_toptube_videos():
     """API эндпойнт для получения списка видео."""

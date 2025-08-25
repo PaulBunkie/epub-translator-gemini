@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>aiTube Beta - Видео Коллаж</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'fade-in-up': 'fadeInUp 0.6s ease forwards',
+                        'scale-in': 'scaleIn 0.3s ease forwards',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        .video-card {
+            animation: fadeInUp 0.6s ease forwards;
+        }
+        
+        .video-card:nth-child(1) { animation-delay: 0.1s; }
+        .video-card:nth-child(2) { animation-delay: 0.2s; }
+        .video-card:nth-child(3) { animation-delay: 0.3s; }
+        .video-card:nth-child(4) { animation-delay: 0.4s; }
+        .video-card:nth-child(5) { animation-delay: 0.5s; }
+        
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+                 .line-clamp-5 {
+             display: -webkit-box;
+             -webkit-line-clamp: 5;
+             -webkit-box-orient: vertical;
+             overflow: hidden;
+         }
+         
+         .line-clamp-3 {
+             display: -webkit-box;
+             -webkit-line-clamp: 3;
+             -webkit-box-orient: vertical;
+             overflow: hidden;
+         }
+        
+        /* Специальные стили для разных макетов */
+        .layout-masonry {
+            grid-auto-rows: minmax(200px, auto);
+        }
+        
+        .layout-adaptive {
+            grid-auto-rows: minmax(180px, auto);
+        }
+        
+        .layout-dynamic {
+            grid-auto-rows: minmax(160px, auto);
+        }
+        
+        .layout-smart {
+            grid-auto-rows: minmax(180px, auto);
+            grid-auto-flow: dense; /* Автоматически заполняет дыры */
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <!-- Header -->
+    <div class="relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20"></div>
+        <div class="relative px-6 py-12">
+            <div class="max-w-7xl mx-auto text-center">
+                <h1 class="text-5xl font-bold text-white mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    Видео Коллаж
+                </h1>
+                <p class="text-xl text-gray-300 mb-8">
+                    Эффектная коллекция популярных видео с аналитикой
+                </p>
+                <div class="flex justify-center items-center space-x-4">
+                    <button
+                        id="toggle-translations"
+                        class="px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg hover:shadow-xl"
+                    >
+                        Переводы включены
+                    </button>
+                    <button
+                        id="toggle-layout"
+                        class="px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-gradient-to-r from-green-500 to-teal-500 text-white shadow-lg hover:shadow-xl"
+                    >
+                        Макет: Обычный
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Grid -->
+    <div class="max-w-7xl mx-auto px-6 pb-12">
+        <div id="videos-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <!-- Loading placeholder -->
+            <div class="col-span-full text-center py-20">
+                <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+                <p class="mt-4 text-white text-lg">Загрузка видео...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Stats -->
+    <div class="bg-black/20 backdrop-blur-sm border-t border-white/10">
+        <div class="max-w-7xl mx-auto px-6 py-8">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+                <div>
+                    <div class="text-3xl font-bold text-white mb-2" id="total-videos">-</div>
+                    <div class="text-gray-400 text-sm">Всего видео</div>
+                </div>
+                <div>
+                    <div class="text-3xl font-bold text-white mb-2" id="total-views">-</div>
+                    <div class="text-gray-400 text-sm">Общие просмотры</div>
+                </div>
+                <div>
+                    <div class="text-3xl font-bold text-white mb-2" id="total-subscribers">-</div>
+                    <div class="text-gray-400 text-sm">Подписчики</div>
+                </div>
+                <div>
+                    <div class="text-3xl font-bold text-white mb-2" id="total-duration">-</div>
+                    <div class="text-gray-400 text-sm">Общее время</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Modal -->
+    <div id="videoModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+                <div class="p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 id="modalTitle" class="text-xl font-semibold text-gray-900"></h3>
+                        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="modalContent" class="space-y-4">
+                        <!-- Content will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentVideos = [];
+        let showTranslated = true;
+        let isAdminMode = false;
+        let currentLayout = 'normal'; // normal, masonry, adaptive, dynamic
+
+        // Check admin mode on page load
+        function checkAdminMode() {
+            const urlParams = new URLSearchParams(window.location.search);
+            isAdminMode = urlParams.get('admin') === 'true';
+            console.log('[Beta] Admin mode:', isAdminMode);
+        }
+
+        // Format duration from seconds
+        function formatDuration(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            
+            if (hours > 0) {
+                return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Format numbers (K, M)
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return `${(num / 1000000).toFixed(1)}M`;
+            }
+            if (num >= 1000) {
+                return `${(num / 1000).toFixed(1)}K`;
+            }
+            return num.toString();
+        }
+
+        // Format date
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('ru-RU', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+            });
+        }
+
+        // Toggle translations
+        document.getElementById('toggle-translations').addEventListener('click', function() {
+            showTranslated = !showTranslated;
+            this.textContent = showTranslated ? 'Переводы включены' : 'Оригинальные названия';
+            this.className = showTranslated 
+                ? 'px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg hover:shadow-xl'
+                : 'px-6 py-3 rounded-full font-semibold transition-all duration-300 bg-white/10 text-gray-300 hover:bg-white/20';
+            renderVideos(currentVideos);
+        });
+
+        // Toggle layout styles
+        document.getElementById('toggle-layout').addEventListener('click', function() {
+            const layouts = ['normal', 'masonry', 'adaptive', 'dynamic', 'smart'];
+            const currentIndex = layouts.indexOf(currentLayout);
+            const nextIndex = (currentIndex + 1) % layouts.length;
+            currentLayout = layouts[nextIndex];
+            
+            const layoutNames = {
+                'normal': 'Обычный',
+                'masonry': 'Массивный',
+                'adaptive': 'Адаптивный',
+                'dynamic': 'Динамичный',
+                'smart': 'Умный'
+            };
+            
+            this.textContent = `Макет: ${layoutNames[currentLayout]}`;
+            renderVideos(currentVideos);
+        });
+
+        // Load videos from API
+        async function loadVideos() {
+            try {
+                const response = await fetch('/api/toptube/videos?status=analyzed&limit=50');
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentVideos = data.videos;
+                    renderVideos(data.videos);
+                    updateStats(data.videos);
+                } else {
+                    console.error('Error loading videos:', data.error);
+                }
+            } catch (error) {
+                console.error('Error loading videos:', error);
+            }
+        }
+
+        // Render videos grid
+        function renderVideos(videos) {
+            const container = document.getElementById('videos-container');
+            
+            // Применяем CSS классы для разных макетов
+            container.className = `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 layout-${currentLayout}`;
+            
+            if (videos.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-20">
+                        <div class="text-gray-400 text-6xl mb-4">📺</div>
+                        <h3 class="text-white text-xl mb-2">Видео не найдены</h3>
+                        <p class="text-gray-400">Попробуйте изменить фильтры</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Используем умный алгоритм размещения для заполнения пространства без дыр
+            if (currentLayout === 'smart') {
+                container.innerHTML = createSmartLayout(videos);
+            } else {
+                container.innerHTML = videos.map((video, index) => createVideoCard(video, index)).join('');
+            }
+        }
+
+        // Умный алгоритм размещения карточек для заполнения пространства без дыр
+        function createSmartLayout(videos) {
+            const cols = 4; // Количество колонок в сетке
+            const grid = Array(20).fill().map(() => Array(cols).fill(null)); // Создаем сетку 20x4
+            
+            // Анализируем видео и определяем оптимальные размеры с учетом заголовка И саммари
+            const videoSizes = videos.map((video, index) => {
+                const title = showTranslated && video.translated_title ? video.translated_title : video.title;
+                const titleLength = title.length;
+                
+                // Получаем длину саммари (если есть)
+                let summaryLength = 0;
+                if (video.analysis_summary) {
+                    summaryLength = video.analysis_summary.length;
+                } else if (video.analysis_result) {
+                    summaryLength = video.analysis_result.length;
+                }
+                
+                // Общая длина контента для определения размера карточки
+                const totalContentLength = titleLength + summaryLength;
+                
+                let width = 1;
+                let height = 1;
+                
+                // Логика определения размера на основе общего контента
+                if (totalContentLength > 200 || titleLength > 100) {
+                    // Очень длинный контент - большие карточки (2x2)
+                    width = 2;
+                    height = 2;
+                } else if (totalContentLength > 120 || titleLength > 70) {
+                    // Длинный контент - широкие карточки (2x1)
+                    width = 2;
+                    height = 1;
+                } else if (totalContentLength > 80 || titleLength > 50) {
+                    // Средний контент - высокие карточки (1x2)
+                    width = 1;
+                    height = 2;
+                } else if (totalContentLength > 40 || titleLength > 30) {
+                    // Короткий контент - стандартные карточки (1x1)
+                    width = 1;
+                    height = 1;
+                } else {
+                    // Очень короткий контент - стандартные карточки (1x1)
+                    // НЕ делаем их шире, чтобы избежать дыр
+                    width = 1;
+                    height = 1;
+                }
+                
+                return { video, width, height, index, totalContentLength, titleLength, summaryLength };
+            });
+            
+            // Сортируем видео по размеру и длине контента (большие и длинные сначала)
+            videoSizes.sort((a, b) => {
+                const aSize = a.width * a.height;
+                const bSize = b.width * b.height;
+                
+                // Если размеры одинаковые, сортируем по длине контента
+                if (aSize === bSize) {
+                    return b.totalContentLength - a.totalContentLength;
+                }
+                
+                return bSize - aSize; // Сначала большие карточки
+            });
+            
+            // Размещаем карточки в сетке, избегая дыр
+            let html = '';
+            
+            for (let i = 0; i < videoSizes.length; i++) {
+                const { video, width, height, index } = videoSizes[i];
+                
+                // Ищем свободное место в сетке, начиная с верхнего левого угла
+                let placed = false;
+                let row = 0;
+                let col = 0;
+                
+                // Специальная логика для размещения в боковых колонках
+                if (width === 2 && height === 1) {
+                    // Для широких карточек сначала пробуем левую и правую стороны
+                    const sidePositions = [
+                        [0, 0], // Левая сторона
+                        [0, 2], // Правая сторона
+                        [0, 1], // Центр
+                        [0, 3]  // Крайняя правая
+                    ];
+                    
+                    for (let pos of sidePositions) {
+                        const [testRow, testCol] = pos;
+                        if (testCol + width <= cols) {
+                            let canPlace = true;
+                            for (let r = testRow; r < testRow + height; r++) {
+                                for (let c = testCol; c < testCol + width; c++) {
+                                    if (grid[r][c] !== null) {
+                                        canPlace = false;
+                                        break;
+                                    }
+                                }
+                                if (!canPlace) break;
+                            }
+                            
+                            if (canPlace) {
+                                // Размещаем карточку
+                                for (let r = testRow; r < testRow + height; r++) {
+                                    for (let c = testCol; c < testCol + width; c++) {
+                                        grid[r][c] = index;
+                                    }
+                                }
+                                placed = true;
+                                break;
+                            }
+                        }
+                    }
+                } else if (width === 1 && height === 2) {
+                    // Для высоких карточек (1x2) пробуем разместить в боковых колонках
+                    const sidePositions = [
+                        [0, 0], // Левая сторона
+                        [0, 3], // Правая сторона
+                    ];
+                    
+                    for (let pos of sidePositions) {
+                        const [testRow, testCol] = pos;
+                        if (testRow + height <= grid.length) {
+                            let canPlace = true;
+                            for (let r = testRow; r < testRow + height; r++) {
+                                if (grid[r][testCol] !== null) {
+                                    canPlace = false;
+                                    break;
+                                }
+                            }
+                            
+                            if (canPlace) {
+                                // Размещаем карточку
+                                for (let r = testRow; r < testRow + height; r++) {
+                                    grid[r][testCol] = index;
+                                }
+                                placed = true;
+                                break;
+                            }
+                        }
+                    }
+                } else if (width === 1 && height === 1) {
+                    // Для маленьких карточек (1x1) ищем места рядом с уже размещенными карточками
+                    // Это поможет избежать дыр
+                    const searchPositions = [
+                        [0, 0], [0, 1], [0, 2], [0, 3], // Первый ряд
+                        [1, 0], [1, 1], [1, 2], [1, 3], // Второй ряд
+                        [2, 0], [2, 1], [2, 2], [2, 3], // Третий ряд
+                    ];
+                    
+                    for (let pos of searchPositions) {
+                        const [testRow, testCol] = pos;
+                        if (testRow < grid.length && testCol < cols && grid[testRow][testCol] === null) {
+                            // Размещаем карточку
+                            grid[testRow][testCol] = index;
+                            placed = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // Если не удалось разместить специальным способом, используем стандартный алгоритм
+                if (!placed) {
+                    // Сначала пробуем найти место в верхних рядах для лучшего заполнения
+                    let searchRows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+                    
+                    for (let searchRow of searchRows) {
+                        if (searchRow + height > grid.length) continue;
+                        
+                        for (let searchCol = 0; searchCol <= cols - width; searchCol++) {
+                            // Проверяем, свободно ли место
+                            let canPlace = true;
+                            for (let r = searchRow; r < searchRow + height; r++) {
+                                for (let c = searchCol; c < searchCol + width; c++) {
+                                    if (grid[r][c] !== null) {
+                                        canPlace = false;
+                                        break;
+                                    }
+                                }
+                                if (!canPlace) break;
+                            }
+                            
+                            if (canPlace) {
+                                // Размещаем карточку
+                                for (let r = searchRow; r < searchRow + height; r++) {
+                                    for (let c = searchCol; c < searchCol + width; c++) {
+                                        grid[r][c] = index;
+                                    }
+                                }
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (placed) break;
+                    }
+                }
+                
+                // Определяем CSS классы для размера
+                let sizeClass = '';
+                if (width === 2 && height === 2) {
+                    sizeClass = 'md:col-span-2 lg:col-span-2 xl:col-span-2';
+                } else if (width === 2 && height === 1) {
+                    sizeClass = 'md:col-span-2 lg:col-span-2';
+                } else if (width === 1 && height === 2) {
+                    sizeClass = 'lg:row-span-2';
+                }
+                
+                // Создаем HTML карточки
+                html += createVideoCard(video, index, sizeClass);
+            }
+            
+            // После размещения всех карточек, проверяем и заполняем оставшиеся дыры
+            html += fillRemainingGaps(grid, videos);
+            
+            // Добавляем отладочную информацию в консоль
+            console.log('[Smart Layout] Grid after placement:', grid);
+            console.log('[Smart Layout] Videos placed:', videoSizes.length);
+            
+            return html;
+        }
+        
+        // Функция для заполнения оставшихся дыр в сетке
+        function fillRemainingGaps(grid, videos) {
+            const cols = 4;
+            let html = '';
+            let gapFillerIndex = videos.length; // Индекс для карточек-заполнителей
+            
+            // Проходим по всей сетке и ищем дыры
+            for (let row = 0; row < grid.length; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (grid[row][col] === null) {
+                        // Нашли дыру! Определяем её размер
+                        let gapWidth = 1;
+                        let gapHeight = 1;
+                        
+                        // Проверяем, можно ли расширить дыру по горизонтали
+                        while (col + gapWidth < cols && grid[row][col + gapWidth] === null) {
+                            gapWidth++;
+                        }
+                        
+                        // Проверяем, можно ли расширить дыру по вертикали
+                        let canExpandHeight = true;
+                        for (let c = col; c < col + gapWidth; c++) {
+                            if (row + 1 < grid.length && grid[row + 1][c] !== null) {
+                                canExpandHeight = false;
+                                break;
+                            }
+                        }
+                        
+                        if (canExpandHeight && row + 1 < grid.length) {
+                            gapHeight = 2;
+                        }
+                        
+                        // Ограничиваем размер дыры разумными пределами
+                        if (gapWidth > 2) gapWidth = 2;
+                        if (gapHeight > 2) gapHeight = 2;
+                        
+                        // Создаем карточку-заполнитель для этой дыры
+                        const fillerVideo = {
+                            video_id: `gap_${gapFillerIndex}`,
+                            title: `Заполнитель ${gapFillerIndex + 1}`,
+                            channel_title: 'Система',
+                            views: 0,
+                            subscribers: 0,
+                            duration: 0,
+                            published_at: new Date().toISOString(),
+                            url: '#'
+                        };
+                        
+                        // Определяем CSS классы для размера
+                        let sizeClass = '';
+                        if (gapWidth === 2 && gapHeight === 2) {
+                            sizeClass = 'md:col-span-2 lg:col-span-2 xl:col-span-2';
+                        } else if (gapWidth === 2 && gapHeight === 1) {
+                            sizeClass = 'md:col-span-2 lg:col-span-2';
+                        } else if (gapWidth === 1 && gapHeight === 2) {
+                            sizeClass = 'lg:row-span-2';
+                        }
+                        
+                        // Создаем HTML карточки-заполнителя
+                        html += createGapFillerCard(fillerVideo, gapFillerIndex, sizeClass);
+                        
+                        // Отмечаем дыру как заполненную в сетке
+                        for (let r = row; r < row + gapHeight; r++) {
+                            for (let c = col; c < col + gapWidth; c++) {
+                                if (r < grid.length && c < cols) {
+                                    grid[r][c] = `gap_${gapFillerIndex}`;
+                                }
+                            }
+                        }
+                        
+                        gapFillerIndex++;
+                    }
+                }
+            }
+            
+            return html;
+        }
+
+        // Создание карточки-заполнителя для дыр
+        function createGapFillerCard(video, index, customSizeClass = null) {
+            return `
+                <div class="group relative bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10 transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/25 ${customSizeClass || ''} opacity-60">
+                    <!-- Thumbnail -->
+                    <div class="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                        <div class="absolute inset-0 flex items-center justify-center">
+                            <div class="text-gray-400 text-4xl">🔧</div>
+                        </div>
+                        
+                        <!-- Duration Badge -->
+                        <div class="absolute bottom-3 right-3 bg-black/80 text-white text-sm px-2 py-1 rounded-md font-medium">
+                            --:--
+                        </div>
+                    </div>
+
+                    <!-- Content -->
+                    <div class="p-4 space-y-3">
+                                                 <!-- Title -->
+                         <h3 class="text-gray-400 font-semibold text-sm leading-tight line-clamp-2">
+                             ${video.title}
+                         </h3>
+                         
+                         <!-- Summary -->
+                         <p class="text-gray-500 text-xs leading-tight line-clamp-3 opacity-60">
+                             Системная карточка для заполнения пустого пространства в сетке
+                         </p>
+                         
+                         <!-- Channel -->
+                         <div class="flex items-center space-x-2">
+                             <div class="w-6 h-6 bg-gradient-to-br from-gray-500 to-gray-600 rounded-full flex items-center justify-center">
+                                 <span class="text-white text-xs font-bold">
+                                     С
+                                 </span>
+                             </div>
+                             <span class="text-gray-500 text-sm font-medium">
+                                 ${video.channel_title}
+                             </span>
+                         </div>
+
+                        <!-- Stats -->
+                        <div class="flex items-center justify-between text-xs text-gray-500">
+                            <div class="flex items-center space-x-4">
+                                <div class="flex items-center space-x-1">
+                                    <div class="w-3 h-3 bg-gray-500 rounded-full"></div>
+                                    <span>0 просм.</span>
+                                </div>
+                                <div class="flex items-center space-x-1">
+                                    <div class="w-3 h-3 bg-gray-500 rounded-full"></div>
+                                    <span>0</span>
+                                </div>
+                            </div>
+                            <span>Сегодня</span>
+                        </div>
+
+                        <!-- Status Badge -->
+                        <div class="flex justify-between items-center">
+                            <div class="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                                Заполнитель
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hover Overlay -->
+                    <div class="absolute inset-0 bg-gradient-to-t from-gray-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                </div>
+            `;
+        }
+
+        // Create video card HTML
+        function createVideoCard(video, index, customSizeClass = null) {
+            const thumbnailUrl = `https://img.youtube.com/vi/${video.video_id}/maxresdefault.jpg`;
+            const title = showTranslated && video.translated_title ? video.translated_title : video.title;
+            
+            // Определяем размер карточки
+            let sizeClass = '';
+            
+            if (customSizeClass) {
+                // Если передан кастомный размер (для умного макета)
+                sizeClass = customSizeClass;
+            } else {
+                // Стандартная логика для других макетов
+                const titleLength = title.length;
+                const isLongTitle = titleLength > 80;
+                const isMediumTitle = titleLength > 50;
+                
+                if (isLongTitle) {
+                    sizeClass = 'md:col-span-2 lg:col-span-2 xl:col-span-2';
+                } else if (isMediumTitle) {
+                    sizeClass = 'md:col-span-2 lg:col-span-2';
+                } else if (index > 0 && index % 4 === 0) {
+                    sizeClass = 'lg:row-span-2';
+                }
+            }
+            
+            return `
+                <div class="group relative bg-white/5 backdrop-blur-sm rounded-2xl overflow-hidden border border-white/10 transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/25 ${sizeClass}">
+                    <!-- Thumbnail -->
+                    <div class="relative aspect-video bg-gradient-to-br from-gray-800 to-gray-900">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                        <img
+                            src="${thumbnailUrl}"
+                            alt="${title}"
+                            class="w-full h-full object-cover"
+                            onerror="this.src='https://img.youtube.com/vi/${video.video_id}/hqdefault.jpg'"
+                        />
+                        
+                        <!-- Duration Badge -->
+                        <div class="absolute bottom-3 right-3 bg-black/80 text-white text-sm px-2 py-1 rounded-md font-medium">
+                            ${formatDuration(video.duration)}
+                        </div>
+                        
+                        <!-- Play Button -->
+                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                            <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
+                                <div class="w-0 h-0 border-l-8 border-l-white border-t-4 border-t-transparent border-b-4 border-b-transparent ml-1"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                                         <!-- Content -->
+                     <div class="p-4 space-y-3">
+                         <!-- Title -->
+                         <h3 class="text-white font-semibold text-sm leading-tight line-clamp-2">
+                             ${title}
+                         </h3>
+                         
+                                                   <!-- Summary (если есть) -->
+                          ${video.analysis_summary ? `
+                              <p class="text-gray-300 text-xs leading-tight opacity-80">
+                                  ${video.analysis_summary}
+                              </p>
+                          ` : video.analysis_result ? `
+                              <p class="text-gray-300 text-xs leading-tight opacity-80">
+                                  ${video.analysis_result}
+                              </p>
+                          ` : ''}
+                         
+                         <!-- Channel -->
+                         <div class="flex items-center space-x-2">
+                             <div class="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                                 <span class="text-white text-xs font-bold">
+                                     ${video.channel_title.charAt(0)}
+                                 </span>
+                             </div>
+                             <span class="text-gray-300 text-sm font-medium">
+                                 ${video.channel_title}
+                             </span>
+                         </div>
+
+                        <!-- Stats -->
+                        <div class="flex items-center justify-between text-xs text-gray-400">
+                            <div class="flex items-center space-x-4">
+                                <div class="flex items-center space-x-1">
+                                    <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                                    <span>${formatNumber(video.views)} просм.</span>
+                                </div>
+                                <div class="flex items-center space-x-1">
+                                    <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                    <span>${formatNumber(video.subscribers)}</span>
+                                </div>
+                            </div>
+                            <span>${formatDate(video.published_at)}</span>
+                        </div>
+
+                        <!-- Status Badge -->
+                        <div class="flex justify-between items-center">
+                            <div class="px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">
+                                Проанализировано
+                            </div>
+                            
+                            <button onclick="showVideoDetails('${video.video_id}')" class="text-blue-400 hover:text-blue-300 transition-colors duration-200">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Hover Overlay -->
+                    <div class="absolute inset-0 bg-gradient-to-t from-purple-600/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                </div>
+            `;
+        }
+
+        // Show video details modal
+        function showVideoDetails(videoId) {
+            const video = currentVideos.find(v => v.video_id === videoId);
+            if (!video) return;
+
+            const modal = document.getElementById('videoModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalContent = document.getElementById('modalContent');
+            
+            modalTitle.textContent = showTranslated && video.translated_title ? video.translated_title : video.title;
+            
+            modalContent.innerHTML = `
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div>
+                        <img src="https://img.youtube.com/vi/${video.video_id}/maxresdefault.jpg" 
+                             alt="${video.title}" 
+                             class="w-full rounded-lg"
+                             onerror="this.src='https://img.youtube.com/vi/${video.video_id}/hqdefault.jpg'">
+                        <div class="mt-4 space-y-2 text-sm text-gray-600">
+                            <div><strong>Канал:</strong> ${video.channel_title}</div>
+                            <div><strong>Длительность:</strong> ${formatDuration(video.duration)}</div>
+                            <div><strong>Просмотры:</strong> ${formatNumber(video.views)}</div>
+                            <div><strong>Подписчики:</strong> ${formatNumber(video.subscribers)}</div>
+                            <div><strong>Дата:</strong> ${formatDate(video.published_at)}</div>
+                        </div>
+                        <a href="${video.url}" target="_blank" class="mt-4 inline-block bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors">
+                            Смотреть на YouTube
+                        </a>
+                    </div>
+                    <div>
+                        ${video.analysis_summary ? `
+                            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h3 class="text-sm font-medium text-yellow-800">Краткий анализ</h3>
+                                        <div class="mt-2 text-sm text-yellow-700 line-clamp-5">
+                                            ${video.analysis_summary}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : video.analysis_result ? `
+                            <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h3 class="text-sm font-medium text-blue-800">Полный анализ</h3>
+                                        <div class="mt-2 text-sm text-blue-700 line-clamp-5">
+                                            ${video.analysis_result.substring(0, 300)}${video.analysis_result.length > 300 ? '...' : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="bg-gray-50 border-l-4 border-gray-400 p-4 rounded">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h3 class="text-sm font-medium text-gray-800">Анализ недоступен</h3>
+                                        <div class="mt-2 text-sm text-gray-700">
+                                            Для этого видео пока нет анализа
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+            
+            modal.classList.remove('hidden');
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('videoModal').classList.add('hidden');
+        }
+
+        // Update footer stats
+        function updateStats(videos) {
+            const totalVideos = videos.length;
+            const totalViews = videos.reduce((sum, v) => sum + v.views, 0);
+            const totalSubscribers = videos.reduce((sum, v) => sum + v.subscribers, 0);
+            const totalDuration = videos.reduce((sum, v) => sum + v.duration, 0);
+            
+            document.getElementById('total-videos').textContent = totalVideos;
+            document.getElementById('total-views').textContent = formatNumber(totalViews);
+            document.getElementById('total-subscribers').textContent = formatNumber(totalSubscribers);
+            document.getElementById('total-duration').textContent = Math.round(totalDuration / 3600) + 'ч';
+        }
+
+        // Close modal on outside click
+        document.getElementById('videoModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeModal();
+            }
+        });
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAdminMode();
+            loadVideos();
+        });
+    </script>
+</body>
+</html>
