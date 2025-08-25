@@ -93,6 +93,11 @@
             transform: scale(0.98);
         }
         
+        /* Hover эффект для всей карточки */
+        .group:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
         /* Стили для кнопки Play */
         .play-button-container {
             opacity: 0;
@@ -535,7 +540,7 @@
                     </div>
 
                     <!-- Content - кликабельная для открытия анализа -->
-                    <div class="p-4 pb-0 space-y-3 cursor-pointer hover:bg-white/10 transition-colors duration-200" onclick="showVideoDetails('${video.video_id}')" title="Кликните для просмотра анализа">
+                    <div class="p-4 pb-0 space-y-3 cursor-pointer transition-colors duration-200" onclick="showVideoDetails('${video.video_id}')" title="Кликните для просмотра анализа">
                         <!-- Title -->
                         <h3 class="text-white font-semibold text-sm leading-tight">
                             ${title}
