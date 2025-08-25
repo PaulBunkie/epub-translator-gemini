@@ -213,7 +213,7 @@ class VideoAnalyzer:
             second_payload = {'session_id': session_id, 'type': 'video' if is_video else 'article'}
             
             # Polling до получения sharing_url
-            max_attempts = 30
+            max_attempts = 60  # Увеличиваем с 30 до 60 попыток для полной генерации
             attempt = 0
             
             print(f"[VideoAnalyzer] Начинаем поллинг с интервалом {poll_interval_ms}ms, максимум {max_attempts} попыток")
@@ -244,6 +244,13 @@ class VideoAnalyzer:
                 second_data = second_response.json()
                 print(f"[VideoAnalyzer] Поллинг данные {attempt}: {second_data}")
                 
+                # Логируем полный ответ Yandex API
+                print(f"[VideoAnalyzer] ПОЛНЫЙ ОТВЕТ YANDEX API (попытка {attempt}):")
+                print(f"[VideoAnalyzer] {'='*80}")
+                print(json.dumps(second_data, ensure_ascii=False, indent=2))
+                print(f"[VideoAnalyzer] {'='*80}")
+                print(f"[VideoAnalyzer] КОНЕЦ ОТВЕТА YANDEX API")
+                
                 error_code = second_data.get('error_code')
                 status_code = second_data.get('status_code')
                 
@@ -267,10 +274,29 @@ class VideoAnalyzer:
                 elif keypoints and len(keypoints) > 0:
                     # Проверяем что keypoints содержат достаточно данных
                     total_theses = sum(len(kp.get('theses', [])) for kp in keypoints)
-                    if total_theses >= 3:  # Минимум 3 тезиса для завершения
-                        print(f"[VideoAnalyzer] Поллинг успешен на попытке {attempt}! Получены keypoints: {len(keypoints)} разделов, {total_theses} тезисов")
-                        # Возвращаем tuple с маркером и данными keypoints
+                    
+                    # Ждем полного завершения генерации - проверяем что status_code = 0 (готово)
+                    # ИЛИ что количество keypoints стабилизировалось (не растет)
+                    if status_code == 0:  # Yandex завершил генерацию
+                        print(f"[VideoAnalyzer] Поллинг успешен на попытке {attempt}! Yandex завершил генерацию (status_code=0)")
+                        print(f"[VideoAnalyzer] Получены keypoints: {len(keypoints)} разделов, {total_theses} тезисов")
                         return ("USE_KEYPOINTS", second_data)
+                    elif status_code == 1:  # Генерация продолжается
+                        # Проверяем что keypoints не растут уже несколько попыток подряд
+                        if hasattr(self, '_last_keypoints_count') and self._last_keypoints_count == len(keypoints):
+                            if hasattr(self, '_stable_attempts'):
+                                self._stable_attempts += 1
+                            else:
+                                self._stable_attempts = 1
+                            
+                            # Если keypoints не растут уже 5 попыток подряд, считаем что генерация завершена
+                            if self._stable_attempts >= 5:
+                                print(f"[VideoAnalyzer] Поллинг успешен на попытке {attempt}! Keypoints стабилизировались на {len(keypoints)} разделах")
+                                print(f"[VideoAnalyzer] Получены keypoints: {len(keypoints)} разделов, {total_theses} тезисов")
+                                return ("USE_KEYPOINTS", second_data)
+                        else:
+                            self._last_keypoints_count = len(keypoints)
+                            self._stable_attempts = 0
                 
                 # Обновляем интервал поллинга если сервер его изменил
                 new_poll_interval = second_data.get('poll_interval_ms', poll_interval_ms)
@@ -301,6 +327,14 @@ class VideoAnalyzer:
         try:
             keypoints = keypoints_data.get('keypoints', [])
             title = keypoints_data.get('title', '')
+            
+            print(f"[VideoAnalyzer] RAW KEYPOINTS DATA:")
+            print(f"[VideoAnalyzer] {'='*80}")
+            print(f"[VideoAnalyzer] Title: {title}")
+            print(f"[VideoAnalyzer] Keypoints count: {len(keypoints)}")
+            print(f"[VideoAnalyzer] Raw keypoints: {json.dumps(keypoints_data, ensure_ascii=False, indent=2)}")
+            print(f"[VideoAnalyzer] {'='*80}")
+            print(f"[VideoAnalyzer] КОНЕЦ RAW KEYPOINTS DATA")
             
             if not keypoints:
                 print("[VideoAnalyzer] keypoints пусты")
@@ -479,6 +513,12 @@ class VideoAnalyzer:
                         }
                         
                         print(f"[VideoAnalyzer] Отправка запроса к OpenRouter API (модель: {model}, max_tokens: {max_tokens})")
+                        print(f"[VideoAnalyzer] ПОЛНЫЙ JSON КОТОРЫЙ УХОДИТ К МОДЕЛИ:")
+                        print(f"[VideoAnalyzer] {'='*80}")
+                        print(json.dumps(payload, ensure_ascii=False, indent=2))
+                        print(f"[VideoAnalyzer] {'='*80}")
+                        print(f"[VideoAnalyzer] КОНЕЦ JSON")
+                        
                         response = requests.post(
                             f"{self.openrouter_api_url}/chat/completions",
                             headers=headers,
@@ -588,6 +628,11 @@ class VideoAnalyzer:
                     }
                     
                     print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...' с моделью {model}")
+                    print(f"[VideoAnalyzer] ПОЛНЫЙ JSON ДЛЯ ПЕРЕВОДА ЗАГОЛОВКА:")
+                    print(f"[VideoAnalyzer] {'='*80}")
+                    print(json.dumps(payload, ensure_ascii=False, indent=2))
+                    print(f"[VideoAnalyzer] {'='*80}")
+                    print(f"[VideoAnalyzer] КОНЕЦ JSON ПЕРЕВОДА ЗАГОЛОВКА")
                     
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
@@ -699,6 +744,12 @@ class VideoAnalyzer:
                 
                 # Простой запрос без retry логики
                 print(f"[VideoAnalyzer] Отправляем запрос к OpenRouter для краткой версии (модель: {model})...")
+                print(f"[VideoAnalyzer] ПОЛНЫЙ JSON ДЛЯ КРАТКОЙ ВЕРСИИ:")
+                print(f"[VideoAnalyzer] {'='*80}")
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                print(f"[VideoAnalyzer] {'='*80}")
+                print(f"[VideoAnalyzer] КОНЕЦ JSON КРАТКОЙ ВЕРСИИ")
+                
                 response = requests.post(
                     f"{self.openrouter_api_url}/chat/completions",
                     headers=headers,
