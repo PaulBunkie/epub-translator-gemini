@@ -11,7 +11,7 @@ import video_db
 import video_analyzer
 
 # Константы
-DAYS = 3
+DAYS = 5
 Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|вдудь|варламов|собчак|лебедев|rogan|tucker|Ferriss|Musk|редакция|TheDiaryOfACEO|investigation|расследование"
 
 # Словарь игровых ключевых слов для исключения
@@ -291,7 +291,7 @@ class TopTubeManager:
                 print(f"[TopTube] Видео слишком длинное: {duration_seconds//60} мин — пропускаем (Яндекс не справляется)")
                 return False
             
-            # Проверяем дату публикации (не старше 30 дней)
+            # Проверяем дату публикации (не старше 5 дней)
             published = video["snippet"]["publishedAt"]
             published_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
             if published_dt <= datetime.now().astimezone() - timedelta(days=DAYS):
