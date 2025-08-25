@@ -2210,6 +2210,32 @@ def api_delete_non_analyzed_videos():
         print(f"[TopTube API] Ошибка удаления неуспешных видео: {e}")
         return jsonify({'error': f'Ошибка удаления неуспешных видео: {str(e)}'}), 500
 
+@app.route('/api/toptube/videos/<int:video_id>', methods=['DELETE'])
+def api_delete_toptube_video(video_id: int):
+    """API эндпойнт для удаления одного видео."""
+    try:
+        import video_db
+        
+        # Проверяем, существует ли видео
+        video = video_db.get_video_by_id(video_id)
+        if not video:
+            return jsonify({'error': 'Видео не найдено'}), 404
+        
+        # Мягко удаляем видео
+        success = video_db.soft_delete_video(video_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Видео "{video["title"]}" успешно удалено'
+            }), 200
+        else:
+            return jsonify({'error': 'Ошибка при удалении видео'}), 500
+        
+    except Exception as e:
+        print(f"[TopTube API] Ошибка удаления видео {video_id}: {e}")
+        return jsonify({'error': f'Ошибка удаления видео: {str(e)}'}), 500
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
 
 @app.route('/books', methods=['GET'])

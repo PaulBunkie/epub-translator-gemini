@@ -81,6 +81,12 @@ def init_video_db():
             cursor.execute("ALTER TABLE videos ADD COLUMN attempts INTEGER DEFAULT 0")
             conn.commit()
 
+        # --- Проверка и добавление поля deleted_at для мягкого удаления ---
+        if 'deleted_at' not in columns:
+            print("[VideoDB] Adding 'deleted_at' column to 'videos' table...")
+            cursor.execute("ALTER TABLE videos ADD COLUMN deleted_at DATETIME DEFAULT NULL")
+            conn.commit()
+
         # --- Создание таблицы для информации о сборе ---
         print("[VideoDB] Checking/Creating 'collection_info' table...")
         cursor.execute("""
@@ -99,6 +105,7 @@ def init_video_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_published_at ON videos(published_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_views ON videos(views)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_deleted_at ON videos(deleted_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_analyses_video_id ON analyses(video_id)")
         conn.commit()
 
@@ -131,9 +138,9 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
         status = video_data.get('status', 'new')
         
         cursor.execute("""
-            INSERT OR IGNORE INTO videos 
-            (video_id, title, channel_title, duration, views, published_at, subscribers, url, status, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT OR REPLACE INTO videos 
+            (video_id, title, channel_title, duration, views, published_at, subscribers, url, status, deleted_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
         """, (
             video_data['video_id'],
             video_data['title'],
@@ -177,7 +184,7 @@ def get_video_by_youtube_id(youtube_id: str) -> Optional[Dict[str, Any]]:
             SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
-            WHERE v.video_id = ?
+            WHERE v.video_id = ? AND v.deleted_at IS NULL
         """, (youtube_id,))
         
         row = cursor.fetchone()
@@ -211,7 +218,7 @@ def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
             SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
-            WHERE v.id = ?
+            WHERE v.id = ? AND v.deleted_at IS NULL
         """, (video_id,))
         
         row = cursor.fetchone()
@@ -246,7 +253,7 @@ def get_videos_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
             SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
-            WHERE v.status = ?
+            WHERE v.status = ? AND v.deleted_at IS NULL
             ORDER BY v.created_at DESC
             LIMIT ?
         """, (status, limit))
@@ -280,7 +287,7 @@ def get_analyzed_videos(limit: int = 50) -> List[Dict[str, Any]]:
             SELECT v.*, a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             INNER JOIN analyses a ON v.id = a.video_id
-            WHERE v.status = 'analyzed' AND a.analysis_result IS NOT NULL
+            WHERE v.status = 'analyzed' AND a.analysis_result IS NOT NULL AND v.deleted_at IS NULL
             ORDER BY a.created_at DESC
             LIMIT ?
         """, (limit,))
@@ -317,6 +324,7 @@ def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
                 a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
+            WHERE v.deleted_at IS NULL
             ORDER BY v.created_at DESC
             LIMIT ?
         """, (limit,))
@@ -368,6 +376,39 @@ def update_video_status(video_id: int, status: str) -> bool:
         
     except sqlite3.Error as e:
         print(f"[VideoDB ERROR] Failed to update video status: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def soft_delete_video(video_id: int) -> bool:
+    """
+    Мягко удаляет видео (помечает как удаленное).
+    
+    Args:
+        video_id: ID видео в БД
+        
+    Returns:
+        True в случае успеха, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        # Помечаем видео как удаленное, устанавливая deleted_at
+        cursor.execute("""
+            UPDATE videos 
+            SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (video_id,))
+        
+        conn.commit()
+        print(f"[VideoDB] Video {video_id} soft deleted")
+        return True
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Failed to soft delete video: {e}")
         return False
     finally:
         if conn:
@@ -503,7 +544,7 @@ def get_next_unprocessed_video() -> Optional[Dict[str, Any]]:
         
         cursor.execute("""
             SELECT * FROM videos 
-            WHERE status = 'new'
+            WHERE status = 'new' AND deleted_at IS NULL
             ORDER BY created_at ASC
             LIMIT 1
         """)

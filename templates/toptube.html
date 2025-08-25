@@ -882,7 +882,12 @@
         // Проверяем режим при загрузке страницы
         function checkAdminMode() {
             const urlParams = new URLSearchParams(window.location.search);
-            isAdminMode = urlParams.has('admin');
+            const adminParam = urlParams.get('admin');
+            isAdminMode = adminParam === 'true';
+            
+            console.log('[AdminMode] URL params:', window.location.search);
+            console.log('[AdminMode] admin param value:', adminParam);
+            console.log('[AdminMode] isAdminMode:', isAdminMode);
             
             // Добавляем класс admin-mode к body для показа навигации
             if (isAdminMode) {
@@ -1094,6 +1099,11 @@
                                 <button class="btn btn-outline-secondary btn-sm rounded-pill ms-2" onclick="shareVideo('${video.video_id}')">
                                     <i class="fas fa-share-alt"></i> Поделиться
                                 </button>
+                                ${isAdminMode ? `
+                                    <button class="btn btn-outline-danger btn-sm rounded-pill ms-2" onclick="deleteVideo(${video.id})" title="Удалить видео">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                ` : ''}
                             </div>
                         </div>
                     </div>
@@ -1282,6 +1292,36 @@
             const url = `${window.location.origin}/?video=${videoId}`;
             navigator.clipboard.writeText(url).then(() => {
                 alert('Ссылка скопирована!');
+            });
+        }
+
+        function deleteVideo(videoId) {
+            if (!confirm('Вы уверены, что хотите удалить это видео? Это действие нельзя отменить.')) {
+                return;
+            }
+            
+            fetch(`/api/toptube/videos/${videoId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Удаляем карточку видео из интерфейса
+                    const videoCard = document.querySelector(`[onclick*="deleteVideo(${videoId})"]`).closest('.col-md-6');
+                    if (videoCard) {
+                        videoCard.remove();
+                    }
+                    alert('Видео успешно удалено!');
+                } else {
+                    alert('Ошибка при удалении видео: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при удалении видео:', error);
+                alert('Ошибка при удалении видео');
             });
         }
 
