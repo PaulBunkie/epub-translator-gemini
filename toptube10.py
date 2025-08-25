@@ -221,7 +221,7 @@ class TopTubeManager:
             
             # Анализируем видео
             analyzer = video_analyzer.VideoAnalyzer()
-            result = analyzer.analyze_video(video_data['url'], existing_analysis)
+            result = analyzer.analyze_video(video_data['url'], existing_analysis, video_data['title'])
             
             # Сохраняем результат
             success = video_db.save_analysis(video_data['id'], result)

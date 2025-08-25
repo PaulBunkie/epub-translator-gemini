@@ -33,6 +33,7 @@ def init_video_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 video_id TEXT UNIQUE NOT NULL,
                 title TEXT NOT NULL,
+                translated_title TEXT,
                 channel_title TEXT NOT NULL,
                 duration INTEGER NOT NULL,
                 views INTEGER NOT NULL,
@@ -85,6 +86,14 @@ def init_video_db():
         if 'deleted_at' not in columns:
             print("[VideoDB] Adding 'deleted_at' column to 'videos' table...")
             cursor.execute("ALTER TABLE videos ADD COLUMN deleted_at DATETIME DEFAULT NULL")
+            conn.commit()
+
+        # --- Проверка и добавление поля translated_title ---
+        cursor.execute("PRAGMA table_info(videos)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'translated_title' not in columns:
+            print("[VideoDB] Adding 'translated_title' column to 'videos' table...")
+            cursor.execute("ALTER TABLE videos ADD COLUMN translated_title TEXT")
             conn.commit()
 
         # --- Создание таблицы для информации о сборе ---
@@ -152,11 +161,12 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
                 
                 cursor.execute("""
                     UPDATE videos 
-                    SET title = ?, channel_title = ?, duration = ?, views = ?, 
+                    SET title = ?, translated_title = ?, channel_title = ?, duration = ?, views = ?, 
                         published_at = ?, subscribers = ?, url = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (
                     video_data['title'],
+                    video_data.get('translated_title'),
                     video_data['channel_title'],
                     video_data['duration'],
                     video_data['views'],
@@ -171,11 +181,12 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
                 
                 cursor.execute("""
                     UPDATE videos 
-                    SET title = ?, channel_title = ?, duration = ?, views = ?, 
+                    SET title = ?, translated_title = ?, channel_title = ?, duration = ?, views = ?, 
                         published_at = ?, subscribers = ?, url = ?, status = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (
                     video_data['title'],
+                    video_data.get('translated_title'),
                     video_data['channel_title'],
                     video_data['duration'],
                     video_data['views'],
@@ -191,11 +202,12 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
             
             cursor.execute("""
                 INSERT INTO videos 
-                (video_id, title, channel_title, duration, views, published_at, subscribers, url, status, deleted_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+                (video_id, title, translated_title, channel_title, duration, views, published_at, subscribers, url, status, deleted_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
             """, (
                 video_data['video_id'],
                 video_data['title'],
+                video_data.get('translated_title'),
                 video_data['channel_title'],
                 video_data['duration'],
                 video_data['views'],
@@ -372,7 +384,7 @@ def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
         
         cursor.execute("""
             SELECT 
-                v.id, v.video_id, v.title, v.channel_title, v.duration, v.views, 
+                v.id, v.video_id, v.title, v.translated_title, v.channel_title, v.duration, v.views, 
                 v.published_at, v.subscribers, v.url, v.status, v.created_at, v.updated_at,
                 a.sharing_url, a.analysis_result, a.analysis_summary, a.error_message
             FROM videos v
@@ -539,6 +551,15 @@ def save_analysis(video_id: int, analysis_data: Dict[str, Any]) -> bool:
                 SET status = ?, attempts = attempts + 1, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (status, video_id))
+        
+        # Обновляем translated_title, если он есть в данных анализа
+        if analysis_data.get('translated_title'):
+            cursor.execute("""
+                UPDATE videos 
+                SET translated_title = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (analysis_data['translated_title'], video_id))
+            print(f"[VideoDB] Updated translated_title for video {video_id}: {analysis_data['translated_title'][:50]}...")
         
         conn.commit()
         print(f"[VideoDB] Analysis saved for video {video_id}")

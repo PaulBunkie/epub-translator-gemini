@@ -8,6 +8,7 @@ import time
 from workflow_model_config import get_model_for_operation
 from telegram_notifier import telegram_notifier
 
+
 class VideoAnalyzer:
     """
     Модуль для анализа видео через Yandex API и OpenRouter.
@@ -23,6 +24,10 @@ class VideoAnalyzer:
         # Модели для анализа из конфигурации
         self.primary_model = get_model_for_operation('video_analyze', 'primary')
         self.fallback_model = get_model_for_operation('video_analyze', 'fallback_level1')
+        
+        # Модели для перевода заголовков
+        self.title_translate_primary = get_model_for_operation('title_translate', 'primary')
+        self.title_translate_fallback = get_model_for_operation('title_translate', 'fallback_level1')
         
         if not self.yandex_token and not self.session_id:
             raise ValueError("Необходимо установить YANDEX_API_TOKEN или YANDEX_SESSION_ID")
@@ -526,6 +531,112 @@ class VideoAnalyzer:
             print(f"[VideoAnalyzer] Ошибка при анализе текста: {e}")
             return None
     
+    def translate_video_title(self, title: str) -> str:
+        """
+        Переводит заголовок видео на русский язык, если он не на русском.
+        Если заголовок уже на русском, возвращает оригинал.
+        
+        Args:
+            title: Заголовок видео для перевода
+            
+        Returns:
+            Переведенный заголовок или оригинал, если перевод не удался
+        """
+        try:
+            prompt = """Переведи заголовок на русский язык. Если заголовок уже на русском - верни его без изменений. 
+
+ВАЖНО: В ответе должен быть ТОЛЬКО заголовок, без кавычек, без объяснений, без дополнительного текста.
+
+Заголовок: {title}
+
+Перевод:"""
+
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            
+            # Список моделей для попыток (основная + резервная)
+            models_to_try = [self.title_translate_primary, self.title_translate_fallback]
+            
+            for model in models_to_try:
+                if not model:
+                    continue
+                    
+                print(f"[VideoAnalyzer] Пробуем модель для перевода заголовка: {model}")
+            
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt.format(title=title)
+                        }
+                    ],
+                    "max_tokens": 100,  # Минимальное количество токенов для заголовка
+                    "temperature": 0.3   # Низкая температура для точности перевода
+                }
+                
+                print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...' с моделью {model}")
+                
+                try:
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            if 'choices' in data and len(data['choices']) > 0:
+                                translated_title = data['choices'][0]['message']['content'].strip()
+                                
+                                if translated_title and translated_title != title:
+                                    # Очищаем ответ от лишних символов и форматирования
+                                    cleaned_title = translated_title.strip()
+                                    # Убираем кавычки в начале и конце
+                                    if cleaned_title.startswith('"') and cleaned_title.endswith('"'):
+                                        cleaned_title = cleaned_title[1:-1].strip()
+                                    if cleaned_title.startswith("'") and cleaned_title.endswith("'"):
+                                        cleaned_title = cleaned_title[1:-1].strip()
+                                    # Убираем возможные префиксы типа "Перевод:", "Результат:" и т.д.
+                                    for prefix in ["Перевод:", "Результат:", "Ответ:", "Title:", "Translation:"]:
+                                        if cleaned_title.startswith(prefix):
+                                            cleaned_title = cleaned_title[len(prefix):].strip()
+                                    
+                                    if cleaned_title and cleaned_title != title:
+                                        print(f"[VideoAnalyzer] Заголовок переведен: '{title}' -> '{cleaned_title}'")
+                                        return cleaned_title
+                                    else:
+                                        print(f"[VideoAnalyzer] После очистки перевод не изменился: '{title}'")
+                                        return title
+                                else:
+                                    print(f"[VideoAnalyzer] Заголовок уже на русском или перевод не изменился: '{title}'")
+                                    return title
+                            else:
+                                print(f"[VideoAnalyzer] Неверный формат ответа от OpenRouter API для перевода заголовка")
+                                continue  # Пробуем следующую модель
+                        except json.JSONDecodeError as e:
+                            print(f"[VideoAnalyzer] Ошибка парсинга JSON для перевода заголовка: {e}")
+                            continue  # Пробуем следующую модель
+                    else:
+                        print(f"[VideoAnalyzer] HTTP ошибка OpenRouter API для перевода заголовка: {response.status_code}")
+                        continue  # Пробуем следующую модель
+                        
+                except Exception as e:
+                    print(f"[VideoAnalyzer] Ошибка при запросе к OpenRouter для перевода заголовка: {e}")
+                    continue  # Пробуем следующую модель
+            
+            print("[VideoAnalyzer] Все модели для перевода заголовка не сработали")
+            return title
+                
+        except Exception as e:
+            print(f"[VideoAnalyzer] Ошибка при переводе заголовка: {e}")
+            return title
+
     def generate_analysis_summary(self, analysis_text: str) -> Optional[str]:
         """
         Генерирует краткую версию анализа.
@@ -616,7 +727,7 @@ class VideoAnalyzer:
             print(f"[VideoAnalyzer] Ошибка при генерации краткой версии: {e}")
             return None
     
-    def analyze_video(self, video_url: str, existing_data: dict = None) -> dict:
+    def analyze_video(self, video_url: str, existing_data: dict = None, title: str = None) -> dict:
         """
         Анализирует видео по URL, получая sharing URL от Yandex API,
         извлекая текст из страницы и анализируя его через OpenRouter.
@@ -624,6 +735,7 @@ class VideoAnalyzer:
         Args:
             video_url: URL видео для анализа
             existing_data: Существующие данные анализа (если есть)
+            title: Заголовок видео для перевода (опционально)
             
         Returns:
             Словарь с результатами анализа
@@ -642,12 +754,19 @@ class VideoAnalyzer:
             'error': None
         }
         
+        # Добавляем заголовок, если он передан
+        if title:
+            result['title'] = title
+        
         try:
             # Проверяем, есть ли уже извлеченный текст
             if existing_data and existing_data.get('extracted_text'):
                 print(f"[VideoAnalyzer] Используем уже извлеченный текст ({len(existing_data['extracted_text'])} символов)")
                 result['extracted_text'] = existing_data['extracted_text']
                 result['sharing_url'] = existing_data.get('sharing_url')
+                # Добавляем заголовок из existing_data, если он там есть
+                if existing_data.get('title') and 'title' not in result:
+                    result['title'] = existing_data['title']
             else:
                 # Гибридный подход: сначала официальный API, потом fallback
                 print(f"[VideoAnalyzer] Начинаем анализ видео: {video_url}")
@@ -737,6 +856,18 @@ class VideoAnalyzer:
             else:
                 print("[VideoAnalyzer] Краткая версия не сгенерирована, но анализ сохранен")
                 # Не падаем в ошибку, просто не добавляем краткую версию
+            
+            # Переводим заголовок видео на русский, если он не на русском
+            if 'title' in result:
+                title = result['title']
+                print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...'")
+                translated_title = self.translate_video_title(title)
+                if translated_title != title:
+                    result['translated_title'] = translated_title
+                    print(f"[VideoAnalyzer] Заголовок переведен: '{title}' -> '{translated_title}'")
+                else:
+                    result['translated_title'] = title
+                    print(f"[VideoAnalyzer] Заголовок уже на русском: '{title}'")
             
         except Exception as e:
             import traceback
