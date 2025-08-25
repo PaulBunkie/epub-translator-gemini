@@ -28,6 +28,7 @@ class VideoAnalyzer:
         # Модели для перевода заголовков
         self.title_translate_primary = get_model_for_operation('title_translate', 'primary')
         self.title_translate_fallback = get_model_for_operation('title_translate', 'fallback_level1')
+        self.title_translate_fallback2 = get_model_for_operation('title_translate', 'fallback_level2')
         
         if not self.yandex_token and not self.session_id:
             raise ValueError("Необходимо установить YANDEX_API_TOKEN или YANDEX_SESSION_ID")
@@ -542,10 +543,18 @@ class VideoAnalyzer:
         Returns:
             Переведенный заголовок или оригинал, если перевод не удался
         """
-        try:
-            prompt = """Переведи заголовок на русский язык. Если заголовок уже на русском - верни его без изменений. 
+        
 
-ВАЖНО: В ответе должен быть ТОЛЬКО заголовок, без кавычек, без объяснений, без дополнительного текста.
+        try:
+            prompt = """Переведи заголовок на русский язык. Если заголовок уже на русском - верни его без изменений.
+
+ФОРМАТ ОТВЕТА:
+- ТОЛЬКО заголовок
+- БЕЗ кавычек
+- БЕЗ объяснений
+- БЕЗ форматирования
+- БЕЗ дополнительного текста
+- БЕЗ "Перевод:", "Ответ:" и т.п.
 
 Заголовок: {title}
 
@@ -557,30 +566,29 @@ class VideoAnalyzer:
                 "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
             }
             
-            # Список моделей для попыток (основная + резервная)
-            models_to_try = [self.title_translate_primary, self.title_translate_fallback]
+            # Список моделей для попыток (основная + резервные)
+            models_to_try = [self.title_translate_primary, self.title_translate_fallback, self.title_translate_fallback2]
             
             for model in models_to_try:
                 if not model:
                     continue
                     
                 print(f"[VideoAnalyzer] Пробуем модель для перевода заголовка: {model}")
-            
-                payload = {
-                    "model": model,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": prompt.format(title=title)
-                        }
-                    ],
-                    "max_tokens": 100,  # Минимальное количество токенов для заголовка
-                    "temperature": 0.3   # Низкая температура для точности перевода
-                }
-                
-                print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...' с моделью {model}")
                 
                 try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt.format(title=title)
+                            }
+                        ],
+                        "temperature": 0.3
+                    }
+                    
+                    print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...' с моделью {model}")
+                    
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
@@ -594,7 +602,7 @@ class VideoAnalyzer:
                             if 'choices' in data and len(data['choices']) > 0:
                                 translated_title = data['choices'][0]['message']['content'].strip()
                                 
-                                if translated_title and translated_title != title:
+                                if translated_title:
                                     # Очищаем ответ от лишних символов и форматирования
                                     cleaned_title = translated_title.strip()
                                     # Убираем кавычки в начале и конце
@@ -607,15 +615,13 @@ class VideoAnalyzer:
                                         if cleaned_title.startswith(prefix):
                                             cleaned_title = cleaned_title[len(prefix):].strip()
                                     
-                                    if cleaned_title and cleaned_title != title:
-                                        print(f"[VideoAnalyzer] Заголовок переведен: '{title}' -> '{cleaned_title}'")
+                                    # Возвращаем очищенный заголовок, что бы модель ни вернула
+                                    if cleaned_title:
+                                        print(f"[VideoAnalyzer] Заголовок обработан: '{title}' -> '{cleaned_title}'")
                                         return cleaned_title
                                     else:
-                                        print(f"[VideoAnalyzer] После очистки перевод не изменился: '{title}'")
+                                        print(f"[VideoAnalyzer] Модель вернула пустой ответ для заголовка: '{title}'")
                                         return title
-                                else:
-                                    print(f"[VideoAnalyzer] Заголовок уже на русском или перевод не изменился: '{title}'")
-                                    return title
                             else:
                                 print(f"[VideoAnalyzer] Неверный формат ответа от OpenRouter API для перевода заголовка")
                                 continue  # Пробуем следующую модель
@@ -624,11 +630,27 @@ class VideoAnalyzer:
                             continue  # Пробуем следующую модель
                     else:
                         print(f"[VideoAnalyzer] HTTP ошибка OpenRouter API для перевода заголовка: {response.status_code}")
+                        try:
+                            error_details = response.json()
+                            print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
+                            
+                            # Если это ошибка 503 "No instances available", сразу переходим к следующей модели
+                            if response.status_code == 503 and "No instances available" in str(error_details):
+                                print(f"[VideoAnalyzer] Модель {model} недоступна (503), переходим к следующей")
+                                break  # Выходим из цикла и переходим к следующей модели
+                                
+                        except:
+                            print(f"[VideoAnalyzer] Текст ошибки: {response.text[:500]}...")
                         continue  # Пробуем следующую модель
                         
+                except requests.exceptions.Timeout:
+                    print(f"[VideoAnalyzer] Таймаут для модели {model}")
+                    continue
                 except Exception as e:
-                    print(f"[VideoAnalyzer] Ошибка при запросе к OpenRouter для перевода заголовка: {e}")
-                    continue  # Пробуем следующую модель
+                    print(f"[VideoAnalyzer] Ошибка для модели {model}: {e}")
+                    continue
+                
+                print(f"[VideoAnalyzer] Модель {model} не сработала")
             
             print("[VideoAnalyzer] Все модели для перевода заголовка не сработали")
             return title
