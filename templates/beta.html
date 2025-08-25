@@ -499,16 +499,16 @@
                              ${title}
                          </h3>
                          
-                                                   <!-- Summary (если есть) -->
-                          ${video.analysis_summary ? `
-                              <p class="text-gray-300 text-xs leading-tight opacity-80">
-                                  ${video.analysis_summary}
-                              </p>
-                          ` : video.analysis_result ? `
-                              <p class="text-gray-300 text-xs leading-tight opacity-80">
-                                  ${video.analysis_result}
-                              </p>
-                          ` : ''}
+                                                                            <!-- Summary (если есть) -->
+                         ${video.analysis_summary ? `
+                             <p class="text-gray-300 text-sm leading-tight opacity-80">
+                                 ${video.analysis_summary}
+                             </p>
+                         ` : video.analysis_result ? `
+                             <p class="text-gray-300 text-sm leading-tight opacity-80">
+                                 ${video.analysis_result}
+                             </p>
+                         ` : ''}
                          
                          <!-- Channel -->
                          <div class="flex items-center space-x-2">
