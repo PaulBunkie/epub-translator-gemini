@@ -820,10 +820,12 @@
                             
                             <!-- Индикатор загрузки -->
                             <div id="chatLoader" class="text-center mt-2" style="display: none;">
-                                <div class="spinner-border spinner-border-sm text-success" role="status">
+                                <!-- КРУЖОЧЕК - крутится отдельно -->
+                                <div class="spinner-border spinner-border-sm text-success me-2" role="status">
                                     <span class="visually-hidden">Думаю...</span>
-                                </span>
-                                <small class="text-muted ms-2">ИИ обдумывает ответ...</small>
+                                </div>
+                                <!-- ТЕКСТ - стоит на месте отдельно -->
+                                <span class="text-muted">ИИ обдумывает ответ...</span>
                             </div>
                         </div>
                     </div>
