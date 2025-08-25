@@ -599,6 +599,21 @@
             `;
         }
 
+        // Try to open modal by URL parameter
+        function tryOpenModalByParam() {
+            const params = new URLSearchParams(window.location.search);
+            const videoId = params.get('video');
+            if (videoId) {
+                const video = currentVideos.find(v => v.video_id === videoId);
+                if (video) {
+                    showVideoDetails(videoId);
+                } else {
+                    // Если видео еще не загружены, пробуем снова через 300мс
+                    setTimeout(tryOpenModalByParam, 300);
+                }
+            }
+        }
+
         // Show video details modal
         function showVideoDetails(videoId) {
             const video = currentVideos.find(v => v.video_id === videoId);
@@ -821,6 +836,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             checkAdminMode();
             loadVideos();
+            tryOpenModalByParam();
             
             // Добавляем глобальный обработчик кликов для превью
             document.addEventListener('click', function(e) {
