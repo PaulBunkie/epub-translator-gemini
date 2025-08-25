@@ -93,6 +93,45 @@
             transform: scale(0.98);
         }
         
+        /* Стили для кнопки Play */
+        .play-button-container {
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        
+        .group:hover .play-button-container {
+            opacity: 1;
+        }
+        
+        .play-button {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 32px rgba(255, 107, 107, 0.4);
+            transform: scale(0.8);
+            transition: all 0.3s ease;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .group:hover .play-button {
+            transform: scale(1);
+            box-shadow: 0 12px 40px rgba(255, 107, 107, 0.6);
+        }
+        
+        .play-button::before {
+            content: '';
+            width: 0;
+            height: 0;
+            border-left: 20px solid white;
+            border-top: 12px solid transparent;
+            border-bottom: 12px solid transparent;
+            margin-left: 4px;
+        }
+        
         /* Chat styles */
         .chat-message {
             margin-bottom: 15px;
@@ -484,11 +523,9 @@
                             ${formatDuration(video.duration)}
                         </div>
                         
-                        <!-- Play Button -->
-                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
-                            <div class="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-100 transition-transform duration-300">
-                                <div class="w-0 h-0 border-l-8 border-l-white border-t-4 border-t-transparent border-b-4 border-b-transparent ml-1"></div>
-                            </div>
+                        <!-- Play Button - появляется при наведении -->
+                        <div class="play-button-container absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                            <div class="play-button pointer-events-auto"></div>
                         </div>
                         
                         <!-- Click hint -->
