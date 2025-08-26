@@ -161,8 +161,45 @@
         /* ТОЛЬКО цвет рамки чата - без изменения толщины, скруглений и теней */
         #videoChatSection .card {
             border-color: #8B5CF6 !important; /* Сиреневая рамка для чата */
-        }        
+        }  
+
+        /* Принудительно переопределяем рамку окна с прокруткой */
+        .chat-history {
+            border-color: #8B5CF6 !important;
+        }    
         
+        /* Исправляем скроллбар и скругления */
+        .chat-history::-webkit-scrollbar {
+            width: 12px;
+        }
+        
+        .chat-history::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 6px;
+        }
+        
+        .chat-history::-webkit-scrollbar-thumb {
+            background: #8B5CF6;
+            border-radius: 6px;
+            border: 2px solid #f1f1f1;
+        }
+        
+        .chat-history::-webkit-scrollbar-thumb:hover {
+            background: #7C3AED;
+        }
+        
+        /* Для Firefox */
+        .chat-history {
+            scrollbar-width: thin;
+            scrollbar-color: #8B5CF6 #f1f1f1;
+        }
+        
+        /* Улучшаем скругления */
+        .chat-history {
+            border-radius: 12px !important;
+            overflow: hidden;
+        }        
+                      
         .video-thumbnail-clickable:hover .play-button {
             transform: scale(1);
             box-shadow: 0 12px 40px rgba(249, 115, 22, 0.6);
