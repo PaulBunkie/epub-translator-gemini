@@ -172,8 +172,34 @@ class TopTubeManager:
         
         print(f"[TopTube] После базовой фильтрации: {len(filtered_videos)} видео")
         
-        # LLM-фильтрация нецелевого контента (игры + неподходящие языки)
-        final_videos = self._filter_non_target_content_with_llm(filtered_videos)
+        # НОВАЯ ЛОГИКА: дополнительная фильтрация серьезного контента
+        # Сначала фильтруем по длительности (минимум 30 минут)
+        videos_for_serious = []
+        for video in all_videos:
+            try:
+                duration_str = video["contentDetails"]["duration"]
+                duration = isodate.parse_duration(duration_str)
+                duration_seconds = duration.total_seconds()
+                
+                if duration_seconds >= 1800:  # 30 минут = 1800 секунд
+                    videos_for_serious.append(video)
+            except Exception as e:
+                print(f"[TopTube] Ошибка при проверке длительности видео: {e}")
+                continue
+        
+        print(f"[TopTube] Для LLM-фильтрации серьезного контента: {len(videos_for_serious)} видео (длительность 30+ мин)")
+        
+        # Теперь применяем LLM-фильтрацию к отфильтрованным по длительности
+        serious_videos = self._filter_serious_content_with_llm(videos_for_serious)
+        
+        # Объединяем результаты базовой и серьезной фильтрации
+        combined_videos = filtered_videos + serious_videos
+        print(f"[TopTube] Объединенный список: {len(filtered_videos)} обычных + {len(serious_videos)} серьезных = {len(combined_videos)} видео")
+        
+        # Один проход LLM-фильтрации игр для всего объединенного списка
+        final_videos = self._filter_non_target_content_with_llm(combined_videos)
+        
+        print(f"[TopTube] Итоговый список после фильтрации игр: {len(final_videos)} видео")
         
         # Сохраняем финальные видео
         saved_count = 0
@@ -486,6 +512,120 @@ class TopTubeManager:
         except Exception as e:
             print(f"[TopTube] Ошибка в LLM-фильтрации: {e}")
             return videos  # Возвращаем все видео если что-то пошло не так
+
+    def _filter_serious_content_with_llm(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Фильтрует серьезный контент для взрослых с помощью LLM.
+        
+        Args:
+            videos: Список всех видео без ограничений
+            
+        Returns:
+            Список выбранных LLM видео
+        """
+        if not self.openrouter_api_key:
+            print("[TopTube] OpenRouter API ключ не установлен, пропускаем LLM-фильтрацию серьезного контента")
+            return []
+            
+        if len(videos) == 0:
+            return []
+            
+        # Формируем пронумерованный список заголовков
+        titles_list = []
+        for i, video in enumerate(videos, 1):
+            title = video["snippet"]["title"]
+            channel = video["snippet"]["channelTitle"]
+            views = video["statistics"].get("viewCount", "0")
+            titles_list.append(f"{i}. {title} | Канал: {channel} | Просмотры: {views}")
+        
+        titles_text = "\n".join(titles_list)
+        
+        prompt = f"""Ниже пронумерованный список заголовков YouTube видео. Выбери от 1 до 20 самых интересных по твоему мнению видео, которые подходят для взрослых образованных людей.
+
+Меня интересуют ТОЛЬКО серьезные и познавательные видео на темы:
+- Общество, политика, экономика
+- Культура, искусство, литература  
+- Наука, технологии, образование
+- Путешествия, стиль жизни
+- Интервью с экспертами, аналитиками, учеными
+- Документальные фильмы, расследования
+- Аналитические обзоры, комментарии
+
+Меня НЕ интересуют:
+- Котики, хайпожорство, тикток
+- Обзоры товаров и услуг
+- Компьютерные игры, стримы
+- Телесериалы, развлекательный контент
+- Музыкальные видео
+- Детский контент, мемы
+
+В ответе укажи ТОЛЬКО номера выбранных видео через запятую (например: 1, 3, 7, 12, 15). 
+Если не можешь выбрать ни одного подходящего варианта, ответь "нет".
+
+Список видео:
+{titles_text}"""
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "microsoft/mai-ds-r1:free",  # Та же модель
+                "messages": [
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ]
+            }
+            
+            print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации серьезного контента...")
+            
+            response = requests.post(
+                f"{self.openrouter_api_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            
+            if response.status_code != 200:
+                print(f"[TopTube] Ошибка LLM API: {response.status_code} - {response.text}")
+                return []  # Возвращаем пустой список если API недоступно
+                
+            result = response.json()
+            llm_response = result["choices"][0]["message"]["content"].strip().lower()
+            
+            print(f"[TopTube] LLM ответ: '{llm_response}'")
+            
+            # Парсим ответ LLM
+            if llm_response == "нет" or "нет" in llm_response:
+                print("[TopTube] LLM не нашел подходящего серьезного контента")
+                return []
+                
+            # Извлекаем номера выбранных видео
+            selected_indices = []
+            for part in llm_response.replace(" ", "").split(","):
+                try:
+                    if part.isdigit():
+                        selected_indices.append(int(part) - 1)  # Переводим в 0-based индексы
+                except ValueError:
+                    continue
+            
+            # Фильтруем видео, оставляя только выбранные LLM
+            selected_videos = []
+            for i, video in enumerate(videos):
+                if i in selected_indices:
+                    selected_videos.append(video)
+                    print(f"[TopTube] LLM выбрал: {video['snippet']['title'][:70]}...")
+            
+            print(f"[TopTube] LLM-фильтрация серьезного контента: выбрано {len(selected_videos)} из {len(videos)} видео")
+            return selected_videos
+            
+        except Exception as e:
+            print(f"[TopTube] Ошибка в LLM-фильтрации серьезного контента: {e}")
+            return []  # Возвращаем пустой список если что-то пошло не так
 
 # Глобальный экземпляр менеджера
 _manager = None
