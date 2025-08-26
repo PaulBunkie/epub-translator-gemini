@@ -109,6 +109,20 @@ def init_video_db():
         """)
         conn.commit()
 
+        # --- Создание таблицы стоп-листов каналов ---
+        print("[VideoDB] Checking/Creating 'channel_blacklist' table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS channel_blacklist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_title TEXT UNIQUE NOT NULL,
+                reason TEXT,
+                added_by TEXT DEFAULT 'system',
+                created_at DATETIME DEFAULT (datetime('now', 'utc')),
+                updated_at DATETIME DEFAULT (datetime('now', 'utc'))
+            )
+        """)
+        conn.commit()
+
         # --- Создание индексов для производительности ---
         print("[VideoDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status)")
@@ -116,6 +130,7 @@ def init_video_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_views ON videos(views)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_deleted_at ON videos(deleted_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_analyses_video_id ON analyses(video_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_channel_blacklist_title ON channel_blacklist(channel_title)")
         conn.commit()
 
         print("[VideoDB] Database initialization complete.")
@@ -141,6 +156,11 @@ def add_video(video_data: Dict[str, Any]) -> Optional[int]:
     try:
         conn = get_video_db_connection()
         cursor = conn.cursor()
+
+        # Проверяем, не заблокирован ли канал
+        if is_channel_blacklisted(video_data['channel_title']):
+            print(f"[VideoDB] Канал '{video_data['channel_title']}' находится в стоп-листе, пропускаем видео '{video_data['title']}'")
+            return None
 
         # Проверяем, существует ли видео и какой у него статус
         cursor.execute("""
@@ -319,6 +339,9 @@ def get_videos_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             WHERE v.status = ? AND v.deleted_at IS NULL
+            AND v.channel_title NOT IN (
+                SELECT channel_title FROM channel_blacklist
+            )
             ORDER BY v.created_at DESC
             LIMIT ?
         """, (status, limit))
@@ -353,6 +376,9 @@ def get_analyzed_videos(limit: int = 50) -> List[Dict[str, Any]]:
             FROM videos v
             INNER JOIN analyses a ON v.id = a.video_id
             WHERE v.status = 'analyzed' AND a.analysis_result IS NOT NULL AND v.deleted_at IS NULL
+            AND v.channel_title NOT IN (
+                SELECT channel_title FROM channel_blacklist
+            )
             ORDER BY a.created_at DESC
             LIMIT ?
         """, (limit,))
@@ -390,6 +416,9 @@ def get_all_videos(limit: int = 50) -> List[Dict[str, Any]]:
             FROM videos v
             LEFT JOIN analyses a ON v.id = a.video_id
             WHERE v.deleted_at IS NULL
+            AND v.channel_title NOT IN (
+                SELECT channel_title FROM channel_blacklist
+            )
             ORDER BY v.created_at DESC
             LIMIT ?
         """, (limit,))
@@ -616,10 +645,14 @@ def get_next_unprocessed_video() -> Optional[Dict[str, Any]]:
         conn = get_video_db_connection()
         cursor = conn.cursor()
         
+        # Получаем следующее необработанное видео, исключая заблокированные каналы
         cursor.execute("""
-            SELECT * FROM videos 
-            WHERE status = 'new' AND deleted_at IS NULL
-            ORDER BY created_at ASC
+            SELECT v.* FROM videos v
+            WHERE v.status = 'new' AND v.deleted_at IS NULL
+            AND v.channel_title NOT IN (
+                SELECT channel_title FROM channel_blacklist
+            )
+            ORDER BY v.created_at ASC
             LIMIT 1
         """)
         
@@ -907,6 +940,10 @@ def get_video_stats() -> Dict[str, Any]:
         # Информация о последнем сборе
         collection_info = get_last_collection_info()
         
+        # Количество заблокированных каналов
+        cursor.execute("SELECT COUNT(*) FROM channel_blacklist")
+        blacklisted_channels = cursor.fetchone()[0]
+        
         return {
             'total': total_videos,
             'analyzed': analyzed_count,
@@ -916,7 +953,8 @@ def get_video_stats() -> Dict[str, Any]:
             'status_counts': status_counts,
             'last_update': last_update,
             'last_collection_time': collection_info['last_collection_time'],
-            'last_collection_added': collection_info['videos_added']
+            'last_collection_added': collection_info['videos_added'],
+            'blacklisted_channels': blacklisted_channels
         }
         
     except sqlite3.Error as e:
@@ -932,6 +970,266 @@ def get_video_stats() -> Dict[str, Any]:
             'last_collection_time': None,
             'last_collection_added': 0
         }
+    finally:
+        if conn:
+            conn.close()
+
+# === ФУНКЦИИ ДЛЯ РАБОТЫ СО СТОП-ЛИСТАМИ ===
+
+def add_channel_to_blacklist(channel_title: str, reason: str = None, added_by: str = 'system') -> bool:
+    """
+    Добавляет канал в стоп-лист.
+    
+    Args:
+        channel_title: Название канала
+        reason: Причина добавления в стоп-лист
+        added_by: Кто добавил (по умолчанию 'system')
+        
+    Returns:
+        True в случае успеха, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO channel_blacklist 
+            (channel_title, reason, added_by, updated_at)
+            VALUES (?, ?, ?, datetime('now', 'utc'))
+        """, (channel_title, reason, added_by))
+        
+        conn.commit()
+        print(f"[VideoDB] Канал '{channel_title}' добавлен в стоп-лист. Причина: {reason}")
+        return True
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Не удалось добавить канал в стоп-лист: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def remove_channel_from_blacklist(channel_title: str) -> bool:
+    """
+    Удаляет канал из стоп-листа.
+    
+    Args:
+        channel_title: Название канала
+        
+    Returns:
+        True в случае успеха, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM channel_blacklist WHERE channel_title = ?", (channel_title,))
+        
+        if cursor.rowcount > 0:
+            conn.commit()
+            print(f"[VideoDB] Канал '{channel_title}' удален из стоп-листа")
+            return True
+        else:
+            print(f"[VideoDB] Канал '{channel_title}' не найден в стоп-листе")
+            return False
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Не удалось удалить канал из стоп-листа: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def is_channel_blacklisted(channel_title: str) -> bool:
+    """
+    Проверяет, находится ли канал в стоп-листе.
+    
+    Args:
+        channel_title: Название канала
+        
+    Returns:
+        True если канал в стоп-листе, False если нет
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT id FROM channel_blacklist WHERE channel_title = ?", (channel_title,))
+        
+        return cursor.fetchone() is not None
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Не удалось проверить стоп-лист: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_blacklisted_channels() -> List[Dict[str, Any]]:
+    """
+    Получает список всех каналов в стоп-листе.
+    
+    Returns:
+        Список словарей с информацией о заблокированных каналах
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT channel_title, reason, added_by, created_at, updated_at
+            FROM channel_blacklist
+            ORDER BY created_at DESC
+        """)
+        
+        channels = []
+        for row in cursor.fetchall():
+            channels.append({
+                'channel_title': row[0],
+                'reason': row[1],
+                'added_by': row[2],
+                'created_at': row[3],
+                'updated_at': row[4]
+            })
+        
+        return channels
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Не удалось получить стоп-лист: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def delete_video_and_blacklist_channel(video_id: str, reason: str = "Видео удалено пользователем") -> bool:
+    """
+    Удаляет видео и автоматически добавляет его канал в стоп-лист.
+    
+    Args:
+        video_id: ID видео для удаления
+        reason: Причина добавления канала в стоп-лист
+        
+    Returns:
+        True в случае успеха, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем информацию о канале перед удалением
+        cursor.execute("""
+            SELECT channel_title FROM videos 
+            WHERE video_id = ? AND deleted_at IS NULL
+        """, (video_id,))
+        
+        video_info = cursor.fetchone()
+        if not video_info:
+            print(f"[VideoDB] Видео {video_id} не найдено")
+            return False
+        
+        channel_title = video_info[0]
+        
+        # Удаляем видео (мягкое удаление)
+        cursor.execute("""
+            UPDATE videos 
+            SET deleted_at = datetime('now', 'utc'), 
+                updated_at = datetime('now', 'utc')
+            WHERE video_id = ?
+        """, (video_id,))
+        
+        # Удаляем связанные анализы
+        cursor.execute("""
+            DELETE FROM analyses 
+            WHERE video_id = (
+                SELECT id FROM videos WHERE video_id = ?
+            )
+        """, (video_id,))
+        
+        # Добавляем канал в стоп-лист
+        cursor.execute("""
+            INSERT OR REPLACE INTO channel_blacklist 
+            (channel_title, reason, added_by, updated_at)
+            VALUES (?, ?, 'system', datetime('now', 'utc'))
+        """, (channel_title, reason))
+        
+        conn.commit()
+        print(f"[VideoDB] Видео {video_id} удалено, канал '{channel_title}' добавлен в стоп-лист")
+        return True
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Не удалось удалить видео и заблокировать канал: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def cleanup_blacklisted_videos() -> int:
+    """
+    Очищает все видео заблокированных каналов (мягкое удаление).
+    Вызывается после добавления каналов в стоп-лист.
+    
+    Returns:
+        Количество очищенных видео
+    """
+    conn = None
+    try:
+        conn = get_video_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем количество видео для очистки
+        cursor.execute("""
+            SELECT COUNT(*) FROM videos v
+            WHERE v.deleted_at IS NULL
+            AND v.channel_title IN (
+                SELECT channel_title FROM channel_blacklist
+            )
+        """)
+        
+        count_to_cleanup = cursor.fetchone()[0]
+        
+        if count_to_cleanup > 0:
+            # Мягко удаляем видео заблокированных каналов
+            cursor.execute("""
+                UPDATE videos 
+                SET deleted_at = datetime('now', 'utc'), 
+                    updated_at = datetime('now', 'utc')
+                WHERE deleted_at IS NULL
+                AND channel_title IN (
+                    SELECT channel_title FROM channel_blacklist
+                )
+            """)
+            
+            # Удаляем связанные анализы
+            cursor.execute("""
+                DELETE FROM analyses 
+                WHERE video_id IN (
+                    SELECT id FROM videos 
+                    WHERE deleted_at IS NOT NULL
+                    AND channel_title IN (
+                        SELECT channel_title FROM channel_blacklist
+                    )
+                )
+            """)
+            
+            conn.commit()
+            print(f"[VideoDB] Очищено {count_to_cleanup} видео заблокированных каналов")
+            return count_to_cleanup
+        else:
+            print("[VideoDB] Видео заблокированных каналов для очистки не найдено")
+            return 0
+        
+    except sqlite3.Error as e:
+        print(f"[VideoDB ERROR] Не удалось очистить видео заблокированных каналов: {e}")
+        if conn:
+            conn.rollback()
+        return 0
     finally:
         if conn:
             conn.close()

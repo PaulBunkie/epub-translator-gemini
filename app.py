@@ -2228,8 +2228,8 @@ def api_delete_toptube_video(video_id: int):
         if not video:
             return jsonify({'error': 'Видео не найдено'}), 404
         
-        # Мягко удаляем видео
-        success = video_db.soft_delete_video(video_id)
+        # Удаляем видео и добавляем канал в стоп-лист
+        success = video_db.delete_video_and_blacklist_channel(video['video_id'])
         
         if success:
             return jsonify({
