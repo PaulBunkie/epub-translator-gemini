@@ -170,30 +170,42 @@
         
         /* Исправляем скроллбар и скругления */
         .chat-history::-webkit-scrollbar {
-            width: 12px;
+            width: 8px;
+            background: transparent;
         }
         
         .chat-history::-webkit-scrollbar-track {
-            background: #f1f1f1;
+            background: transparent;
             border-radius: 6px;
         }
         
         .chat-history::-webkit-scrollbar-thumb {
-            background: #8B5CF6;
-            border-radius: 6px;
-            border: 2px solid #f1f1f1;
+            background: rgba(139, 92, 246, 0.6);
+            border-radius: 4px;
+            border: none;
         }
         
         .chat-history::-webkit-scrollbar-thumb:hover {
-            background: #7C3AED;
+            background: rgba(139, 92, 246, 0.8);
+        }
+
+        /* Убираем стрелки перемотки полностью */
+        .chat-history::-webkit-scrollbar-button {
+            display: none !important;
         }
         
-        /* Для Firefox */
+        /* Дополнительно для разных браузеров */
+        .chat-history::-webkit-scrollbar-button:start:decrement,
+        .chat-history::-webkit-scrollbar-button:end:increment {
+            display: none !important;
+        }
+        
+        /* Для Firefox - убираем стрелки */
         .chat-history {
             scrollbar-width: thin;
-            scrollbar-color: #8B5CF6 #f1f1f1;
-        }
-        
+            scrollbar-color: rgba(139, 92, 246, 0.6) transparent;
+        }      
+                
         /* Улучшаем скругления */
         .chat-history {
             border-radius: 12px !important;
