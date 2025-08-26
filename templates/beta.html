@@ -473,7 +473,7 @@
             border: none;
             font-weight: 600;
             transition: all 0.3s ease;
-            animation: gradientShift 3s ease infinite;
+            animation: gradientShift 6s ease infinite;
             box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
         }
         
@@ -490,26 +490,24 @@
             transform: translateY(0) scale(0.98);
         }
         
-        /* Заголовок чата с градиентом без анимации */
-        .chat-header-gradient {
-            background: linear-gradient(
-                45deg,
-                #ff6b6b,
-                #4ecdc4,
-                #45b7d1,
-                #96ceb4,
-                #feca57,
-                #ff9ff3,
-                #54a0ff,
-                #5f27cd
-            );
-            background-size: 400% 400%;
-            color: white;
-            border: none;
-            font-weight: 600;
-            /* Убираем анимацию */
-            /* animation: gradientShift 3s ease infinite; */
-        }
+                 /* Заголовок чата с градиентом как на изображении */
+         .chat-header-gradient {
+             background: linear-gradient(to right, #1e293b, #7c3aed);
+             color: white;
+             border: none;
+             font-weight: 600;
+         }
+         
+         /* Стили для поля ввода чата */
+         #chatInput:focus {
+             border-color: #8B5CF6 !important;
+             box-shadow: 0 0 0 0.2rem rgba(139, 92, 246, 0.25) !important;
+             outline: none !important;
+         }
+         
+         #chatInput {
+             transition: all 0.2s ease;
+         }
     </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -517,9 +515,9 @@
     <div class="relative overflow-hidden">
         <div class="relative px-6 py-12">
             <div class="max-w-6xl mx-auto text-center">
-                <h1 class="text-5xl font-bold text-white mb-4">
-                    <i class="fas fa-play-circle text-white me-2"></i><span class="ai-gradient">ai</span><span class="text-white">Tube</span>
-                </h1>
+                                 <h1 class="text-5xl font-bold text-white mb-4">
+                     <i class="fas fa-play-circle text-white me-2"></i><span class="ai-gradient">ai</span><span class="text-white">Tube</span>
+                 </h1>
                 <p class="text-xl text-gray-300 mb-8">
                     ИИ-анализ популярных видео
                 </p>
@@ -970,7 +968,7 @@
                         </button>
                         ${video.analysis_result || video.analysis_summary ? `
                             <button class="btn btn-ai-gradient btn-sm w-100 mt-2" onclick="toggleVideoChat()">
-                                <i class="fas fa-robot me-1"></i> Обсудить с AI
+                                <i class="fas fa-robot me-1"></i> Обсудить с ИИ
                             </button>
                         ` : ''}
                     </div>
@@ -981,7 +979,7 @@
                         ${video.analysis_result || video.analysis_summary ? `
                             <div class="mt-4 text-center">
                                 <button class="btn btn-ai-gradient" onclick="toggleVideoChat()">
-                                    <i class="fas fa-robot me-2"></i>Обсудить с AI
+                                    <i class="fas fa-robot me-2"></i>Обсудить с ИИ
                                 </button>
                             </div>
                         ` : ''}
@@ -994,7 +992,7 @@
                     <div class="card">
                         <div class="card-header chat-header-gradient">
                             <h6 class="mb-0 text-white">
-                                <i class="fas fa-robot me-2"></i>Обсуждение с AI
+                                <i class="fas fa-robot me-2"></i>Обсуждение с ИИ
                                 <button type="button" class="btn btn-sm btn-outline-light float-end" onclick="toggleVideoChat()">
                                     <i class="fas fa-times"></i>
                                 </button>
@@ -1011,8 +1009,8 @@
                             
                             <!-- Поле для ввода сообщения -->
                             <div class="input-group">
-                                <input type="text" class="form-control" id="chatInput" placeholder="Задайте вопрос о содержании видео..." onkeypress="handleChatKeyPress(event)">
-                                <button class="btn btn-success" type="button" onclick="sendChatMessage()">
+                                <input type="text" class="form-control" id="chatInput" placeholder="Задайте вопрос о содержании видео..." onkeypress="handleChatKeyPress(event)" style="border-color: #8B5CF6; box-shadow: 0 0 0 0.2rem rgba(139, 92, 246, 0.25);">
+                                <button class="btn" type="button" onclick="sendChatMessage()" style="background-color: #8B5CF6; border-color: #8B5CF6; color: white;">
                                     <i class="fas fa-paper-plane"></i>
                                 </button>
                             </div>
