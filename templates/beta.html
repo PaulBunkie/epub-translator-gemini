@@ -156,7 +156,58 @@
             transform: scale(0.8);
             transition: all 0.3s ease;
             border: 3px solid rgba(255, 255, 255, 0.2);
+        }      
+        
+        /* Делаем кнопку "Закрыть" такой же как "Поделиться" */
+        .modal-footer .btn-secondary {
+            background-color: transparent !important;
+            border-color: #8B5CF6 !important;
+            color: #8B5CF6 !important;
         }
+        
+        /* Стили для поля ввода чата */
+        #chatInput:focus {
+            border-color: #8B5CF6 !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+       
+        #chatInput {
+            transition: all 0.2s ease;
+            box-shadow: none !important;
+        }
+        
+        /* Делаем кнопку "Закрыть" точно такой же как "Поделиться" */
+        .modal-footer .btn-secondary {
+            background-color: white !important;
+            border-color: #6c757d !important;
+            color: #6c757d !important;
+            border-radius: 0.375rem !important;
+            padding: 0.375rem 0.75rem !important;
+            font-size: 0.875rem !important;
+            line-height: 1.5 !important;
+        }
+        
+        .modal-footer .btn-secondary:hover {
+            background-color: #f8f9fa !important;
+            border-color: #5a6268 !important;
+            color: #5a6268 !important;
+        }         
+
+        /* Делаем спиннер "ИИ обдумывает ответ" сиреневым */
+        #chatLoader .spinner-border {
+            color: #8B5CF6 !important;
+        }
+        
+        /* Дополнительно для всех спиннеров в чате */
+        #videoChatSection .spinner-border {
+            color: #8B5CF6 !important;
+        }
+        
+        /* Для текста "ИИ обдумывает ответ..." */
+        #chatLoader .text-muted {
+            color: #8B5CF6 !important;
+        }        
 
         /* ТОЛЬКО цвет рамки чата - без изменения толщины, скруглений и теней */
         #videoChatSection .card {
