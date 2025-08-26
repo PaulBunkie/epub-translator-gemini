@@ -20,14 +20,7 @@
         }
     </script>
     <style>
-        /* ТОЛЬКО цвет рамки чата - без изменения толщины, скруглений и теней */
-        .card {
-            border-color: #8B5CF6 !important; /* Только цвет рамки */
-        }
-        
-        #videoChatSection .card {
-            border-color: #8B5CF6 !important; /* Только цвет рамки для чата */
-        }
+
         
         @keyframes fadeInUp {
             from {
@@ -164,6 +157,11 @@
             transition: all 0.3s ease;
             border: 3px solid rgba(255, 255, 255, 0.2);
         }
+
+        /* ТОЛЬКО цвет рамки чата - без изменения толщины, скруглений и теней */
+        #videoChatSection .card {
+            border-color: #8B5CF6 !important; /* Сиреневая рамка для чата */
+        }        
         
         .video-thumbnail-clickable:hover .play-button {
             transform: scale(1);
@@ -197,7 +195,7 @@
         }
         
         .user-bubble {
-            background-color: #007bff;
+            background-color: #7C3AED; /* Темно-сиреневый вместо светло-сиреневого */
             color: white;
             margin-left: auto;
             border-bottom-right-radius: 6px;
@@ -507,16 +505,17 @@
              font-weight: 600;
          }
          
-         /* Стили для поля ввода чата */
-         #chatInput:focus {
-             border-color: #8B5CF6 !important;
-             box-shadow: 0 0 0 0.2rem rgba(139, 92, 246, 0.25) !important;
-             outline: none !important;
-         }
-         
-         #chatInput {
-             transition: all 0.2s ease;
-         }
+                                       /* Стили для поля ввода чата */
+           #chatInput:focus {
+               border-color: #8B5CF6 !important;
+               box-shadow: none !important;
+               outline: none !important;
+           }
+          
+          #chatInput {
+              transition: all 0.2s ease;
+              box-shadow: none !important;
+          }
     </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
