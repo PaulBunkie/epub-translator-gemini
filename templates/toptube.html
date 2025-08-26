@@ -868,9 +868,6 @@
                     <!-- Контент будет загружен динамически -->
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-success" id="modalChatBtn" style="display: none;" onclick="toggleVideoChat()">
-                        <i class="fas fa-comments me-1"></i>Обсудить
-                    </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
                 </div>
             </div>
@@ -1258,24 +1255,19 @@
                     analysisDiv.innerHTML = '<p class="text-muted">Анализ недоступен</p>';
                 }
                 
-                // Показываем кнопку "Обсудить" в футере если есть анализ
-                const modalChatBtn = document.getElementById('modalChatBtn');
+                // Сохраняем ID видео для чата
+                const previousVideoId = window.currentVideoId;
+                window.currentVideoId = videoId;
+                console.log(`[VideoModal] Переключение видео: ${previousVideoId || 'none'} → ${videoId}`);
+                
+                // НЕ отменяем запросы - позволяем им завершиться и сохранить ответы в соответствующие чаты
+                if (previousVideoId && previousVideoId !== videoId) {
+                    console.log(`[RequestIsolation] Переключение ${previousVideoId} → ${videoId}. Активные запросы предыдущего видео продолжат выполнение`);
+                }
+                
+                // Загружаем умные подсказки для видео (асинхронно)
                 if (video.analysis_result || video.analysis_summary) {
-                    modalChatBtn.style.display = 'inline-block';
-                    // Сохраняем ID видео для чата
-                    const previousVideoId = window.currentVideoId;
-                    window.currentVideoId = videoId;
-                    console.log(`[VideoModal] Переключение видео: ${previousVideoId || 'none'} → ${videoId}`);
-                    
-                    // НЕ отменяем запросы - позволяем им завершиться и сохранить ответы в соответствующие чаты
-                    if (previousVideoId && previousVideoId !== videoId) {
-                        console.log(`[RequestIsolation] Переключение ${previousVideoId} → ${videoId}. Активные запросы предыдущего видео продолжат выполнение`);
-                    }
-                    
-                    // Загружаем умные подсказки для видео (асинхронно)
                     loadVideoSuggestions(videoId);
-                } else {
-                    modalChatBtn.style.display = 'none';
                 }
             }, 0);
             // Очищаем предыдущее выделение при открытии нового видео
