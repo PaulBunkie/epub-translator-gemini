@@ -1086,7 +1086,7 @@
                         <!-- Кнопка "Обсудить с AI" внизу контента -->
                         ${video.analysis_result || video.analysis_summary ? `
                             <div class="mt-4 text-center">
-                                <button class="btn btn-ai-gradient" onclick="toggleVideoChat()">
+                                <button class="btn btn-ai-gradient bottom-chat-button" onclick="toggleVideoChat()">
                                     <i class="fas fa-robot me-2"></i>Обсудить с ИИ
                                 </button>
                             </div>
@@ -1233,13 +1233,33 @@
             if (isVisible) {
                 // Скрываем диалог
                 chatSection.style.display = 'none';
+                // Показываем нижнюю кнопку "Обсудить с ИИ"
+                showBottomChatButton();
             } else {
                 // Показываем диалог
                 chatSection.style.display = 'block';
+                // Скрываем нижнюю кнопку "Обсудить с ИИ"
+                hideBottomChatButton();
                 // Фокусируемся на поле ввода
                 document.getElementById('chatInput').focus();
                 // Инициализируем диалог если нужно
                 initializeVideoChat();
+            }
+        }
+        
+        // Функция для скрытия нижней кнопки "Обсудить с ИИ"
+        function hideBottomChatButton() {
+            const bottomButton = document.querySelector('.bottom-chat-button');
+            if (bottomButton) {
+                bottomButton.style.display = 'none';
+            }
+        }
+        
+        // Функция для показа нижней кнопки "Обсудить с ИИ"
+        function showBottomChatButton() {
+            const bottomButton = document.querySelector('.bottom-chat-button');
+            if (bottomButton) {
+                bottomButton.style.display = 'block';
             }
         }
 
@@ -1249,6 +1269,9 @@
             chatHistory.innerHTML = '';
             
             console.log(`[ChatHistory] Инициализация чата для видео ${window.currentVideoId}`);
+            
+            // Скрываем нижнюю кнопку "Обсудить с ИИ" при инициализации чата
+            hideBottomChatButton();
             
             // Восстанавливаем историю из памяти
             if (window.currentVideoId) {
