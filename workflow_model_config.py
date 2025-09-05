@@ -15,9 +15,9 @@ MODEL_CONFIG = {
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'translate': {
-        'primary': 'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'microsoft/mai-ds-r1:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'fallback_level2': 'deepseek/deepseek-chat-v3-0324:free'
     },
     'reduce': {
         'primary': 'meta-llama/llama-3.1-405b-instruct:free',
