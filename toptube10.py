@@ -12,13 +12,13 @@ import video_analyzer
 
 # Константы
 DAYS = 5
-Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|дудь|вдудь|варламов|собчак|лебедев|rogan|tucker|редакция|investigation|расследование"
+Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|редакция|investigation|расследование|путешествие|travel"
 
 # Словарь игровых ключевых слов для исключения
 # Добавляйте сюда новые игровые ключевые слова по мере необходимости
 # Система будет автоматически исключать видео, содержащие эти слова в заголовке
 GAMING_KEYWORDS = [
-    "JYNXZI",  "Loonie", "CaseOh", "KreekCraft" # Игровой стример
+    "JYNXZI",  "Loonie", "CaseOh", "KreekCraft", "Roblox" 
     # Примеры для добавления:
     # "FORTNITE", "MINECRAFT", "GTA", "CS2", "VALORANT",
     # "STREAMER", "GAMEPLAY", "WALKTHROUGH", "SPEEDRUN"
