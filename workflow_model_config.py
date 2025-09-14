@@ -15,7 +15,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'translate': {
-        'primary': 'openrouter/sonoma-dusk-alpha', #'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level1': 'microsoft/mai-ds-r1:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
