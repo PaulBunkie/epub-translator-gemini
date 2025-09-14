@@ -1788,7 +1788,8 @@ def workflow_start_existing_book(book_id):
 @app.route('/video-analysis', methods=['GET'])
 def video_analysis_page():
     """Отображает страницу для анализа видео."""
-    return render_template('video_analysis.html')
+    admin = request.args.get('admin') == 'true'
+    return render_template('video_analysis.html', admin=admin)
 
 @app.route('/api/analyze-video', methods=['POST'])
 def api_analyze_video():

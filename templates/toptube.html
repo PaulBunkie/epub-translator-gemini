@@ -695,18 +695,20 @@
 </head>
 <body>
     <!-- Навигация -->
+    {% if admin %}
     <nav class="navbar navbar-expand-lg navbar-dark" style="background: #3a256a !important;">
         <div class="container">
             <div class="navbar-nav justify-content-center w-100">
-                <a class="nav-link" href="/books{% if admin %}?admin=true{% endif %}"><i class="fas fa-book me-1"></i>Перевод</a>
-                <a class="nav-link" href="/workflow{% if admin %}?admin=true{% endif %}"><i class="fas fa-cogs me-1"></i>Workflow</a>
-                <a class="nav-link" href="/user{% if admin %}?admin=true{% endif %}"><i class="fas fa-user me-1"></i>Пользователь</a>
-                <a class="nav-link active" href="/?admin=true"><i class="fas fa-video me-1"></i>Видео</a>
-                <a class="nav-link" href="/video-analysis{% if admin %}?admin=true{% endif %}"><i class="fas fa-chart-bar me-1"></i>Видео-анализ</a>
-                <a class="nav-link" href="/trump{% if admin %}?admin=true{% endif %}"><i class="fas fa-map-marker-alt me-1"></i>Локации</a>
+                <a class="nav-link" href="{{ url_for('books', admin='true' if admin else None) }}"><i class="fas fa-book me-1"></i>Перевод</a>
+                <a class="nav-link" href="{{ url_for('workflow_index', admin='true' if admin else None) }}"><i class="fas fa-cogs me-1"></i>Workflow</a>
+                <a class="nav-link" href="{{ url_for('user_main_page', admin='true' if admin else None) }}"><i class="fas fa-user me-1"></i>Пользователь</a>
+                <a class="nav-link active" href="{{ url_for('toptube_page', admin='true' if admin else None) }}"><i class="fas fa-video me-1"></i>Видео</a>
+                <a class="nav-link" href="{{ url_for('video_analysis_page', admin='true' if admin else None) }}"><i class="fas fa-chart-bar me-1"></i>Видео-анализ</a>
+                <a class="nav-link" href="{{ url_for('find_locations_form_page', admin='true' if admin else None) }}"><i class="fas fa-map-marker-alt me-1"></i>Локации</a>
             </div>
         </div>
     </nav>
+    {% endif %}
 
     <div class="main-content">
         <!-- Заголовок и статистика -->
