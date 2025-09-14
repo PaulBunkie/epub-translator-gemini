@@ -5,22 +5,22 @@
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'openrouter/sonoma-sky-alpha', #'qwen/qwen-2.5-72b-instruct:free',
+        'primary': 'qwen/qwen-2.5-72b-instruct:free',
         'fallback_level1': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
-        'primary': 'openrouter/sonoma-sky-alpha', #'microsoft/mai-ds-r1:free',
+        'primary': 'microsoft/mai-ds-r1:free',
         'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'translate': {
-        'primary': 'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'openrouter/sonoma-dusk-alpha', #'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level1': 'microsoft/mai-ds-r1:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'reduce': {
-        'primary': 'openrouter/sonoma-sky-alpha', #'meta-llama/llama-3.1-405b-instruct:free',
+        'primary': 'meta-llama/llama-3.1-405b-instruct:free',
         'fallback_level1': 'models/gemini-2.5-flash-preview-05-20',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
