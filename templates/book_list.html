@@ -7,23 +7,44 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; line-height: 1.5; }
-        h1, h2 { border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 30px;}
-        h1:first-child { margin-top: 0; }
-        form p { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold;}
+        /* Изолированные стили для контента страницы */
+        #book-list-content {
+            font-family: sans-serif; 
+            padding: 20px; 
+            max-width: 900px; 
+            margin: auto; 
+            line-height: 1.5;
+        }
+        #book-list-content h1, #book-list-content h2 { 
+            border-bottom: 1px solid #eee; 
+            padding-bottom: 5px; 
+            margin-top: 30px;
+            font-size: 2em; /* Default h1 */
+        }
+        #book-list-content h2 { font-size: 1.5em; } /* Default h2 */
+        #book-list-content h1:first-child { margin-top: 0; }
+        #book-list-content form p { margin-bottom: 15px; }
+        #book-list-content label { display: block; margin-bottom: 5px; font-weight: bold;}
         /* Стили для полей формы */
-        input[type="file"], select { padding: 8px 12px; width: 100%; max-width: 400px; box-sizing: border-box; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px;}
+        #book-list-content input[type="file"], #book-list-content select { 
+            padding: 8px 12px; 
+            width: 100%; 
+            max-width: 400px; 
+            box-sizing: border-box; 
+            margin-bottom: 10px; 
+            border: 1px solid #ccc; 
+            border-radius: 4px;
+        }
         /* Стиль для неактивного select */
-        select:disabled {
-            background-color: #e9ecef; /* Светло-серый фон */
-            opacity: 0.7; /* Немного прозрачности */
+        #book-list-content select:disabled {
+            background-color: #e9ecef;
+            opacity: 0.7;
             cursor: not-allowed;
         }
         /* Единый стиль для кнопок */
-        button, .button-link {
+        #book-list-content button, #book-list-content .button-link {
             cursor: pointer;
-            background-color: #007bff; /* Синий */
+            background-color: #007bff;
             color: white;
             border: none;
             border-radius: 4px;
@@ -35,29 +56,29 @@
             line-height: 1.5;
             margin-bottom: 5px;
         }
-        button:hover, .button-link:hover {
+        #book-list-content button:hover, #book-list-content .button-link:hover {
             background-color: #0056b3;
         }
-        button:disabled {
+        #book-list-content button:disabled {
             background-color: #ccc;
             opacity: 0.7;
             cursor: not-allowed;
         }
         /* Специфичные кнопки */
-        button.delete-btn { background-color: #dc3545; width: auto; margin-left: 5px;}
-        button.delete-btn:hover { background-color: #c82333;}
-        form button[type="submit"] { width: 100%; max-width: 400px; }
+        #book-list-content button.delete-btn { background-color: #dc3545; width: auto; margin-left: 5px;}
+        #book-list-content button.delete-btn:hover { background-color: #c82333;}
+        #book-list-content form button[type="submit"] { width: 100%; max-width: 400px; }
 
         /* Список книг */
-        ul { list-style: none; padding: 0; }
-        li.book-item { border-bottom: 1px solid #eee; padding: 5px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;}
-        li.book-item:last-child { border-bottom: none; }
-        .book-info { flex-grow: 1; margin-right: 15px; word-break: break-all; }
-        .book-title { font-weight: bold; display: block; margin-bottom: 3px;}
-        .book-status { font-size: 0.9em; color: #555; }
-        .book-actions { flex-shrink: 0; display: flex; gap: 5px;}
-        .book-actions a { text-decoration: none; }
-        .book-actions button { width: auto; }
+        #book-list-content ul { list-style: none; padding: 0; }
+        #book-list-content li.book-item { border-bottom: 1px solid #eee; padding: 5px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;}
+        #book-list-content li.book-item:last-child { border-bottom: none; }
+        #book-list-content .book-info { flex-grow: 1; margin-right: 15px; word-break: break-all; }
+        #book-list-content .book-title { font-weight: bold; display: block; margin-bottom: 3px;}
+        #book-list-content .book-status { font-size: 0.9em; color: #555; }
+        #book-list-content .book-actions { flex-shrink: 0; display: flex; gap: 5px;}
+        #book-list-content .book-actions a { text-decoration: none; }
+        #book-list-content .book-actions button { width: auto; }
 
         /* Оверлей для загрузки */
         #loading-overlay {
@@ -78,10 +99,9 @@
     </style>
 </head>
 <body>
-    <!-- Навигация -->
     {% if is_admin_mode %}
     {% set active_page = request.endpoint %}
-    <nav class="navbar navbar-expand-sm navbar-dark bg-primary mb-4 rounded">
+    <nav class="navbar navbar-expand-sm navbar-dark bg-primary mb-4 rounded" style="max-width: 900px; margin: 20px auto;">
         <div class="container-fluid" style="padding-left: 2em; padding-right: 2em;">
             <div class="navbar-nav">
                 <a class="nav-link {% if active_page == 'books' %}active{% endif %}" href="{{ url_for('books', admin='true' if is_admin_mode else None) }}">
@@ -107,109 +127,111 @@
     </nav>
     {% endif %}
 
-    <!-- Оверлей для показа во время загрузки -->
-    <div id="loading-overlay">
-        <div>
-            <div class="loader"></div>
-            Загрузка и обработка EPUB...<br>
-            Перевод оглавления может занять некоторое время.<br>
-            Пожалуйста, подождите.
+    <div id="book-list-content">
+        <!-- Оверлей для показа во время загрузки -->
+        <div id="loading-overlay">
+            <div>
+                <div class="loader"></div>
+                Загрузка и обработка EPUB...<br>
+                Перевод оглавления может занять некоторое время.<br>
+                Пожалуйста, подождите.
+            </div>
         </div>
-    </div>
 
-    <h1>EPUB Переводчик</h1>
+        <h1>EPUB Переводчик</h1>
 
-    <h2>Загрузить новую книгу</h2>
-    <form id="upload-form" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
-        <p>
-            <label for="epub_file">Выберите файл EPUB:</label>
-            <input type="file" id="epub_file" name="epub_file" accept=".epub" required>
-        </p>
-        <p>
-            <label for="target_language">Целевой язык:</label>
-             <select id="target_language" name="target_language">
-                 <option value="russian" {% if default_language == 'russian' %}selected{% endif %}>Russian</option>
-                 <option value="english" {% if default_language == 'english' %}selected{% endif %}>English</option>
-                 <option value="german" {% if default_language == 'german' %}selected{% endif %}>German</option>
-                 <option value="french" {% if default_language == 'french' %}selected{% endif %}>French</option>
-                 <option value="spanish" {% if default_language == 'spanish' %}selected{% endif %}>Spanish</option>
-            </select>
-        </p>
-        <p>
-            <label for="model-display">Текущая модель перевода:</label>
-            <select id="model-display" name="model_display_disabled" disabled>
-                {% if available_models %}
-                    <!-- Google Models -->
-                    <optgroup label="Google Models">
-                    {% for model_obj in available_models %}
-                        {% if model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/') %}
-                        <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
-                            {{ model_obj.display_name }}
-                        </option>
-                        {% endif %}
-                    {% endfor %}
-                    </optgroup>
-                    
-                    <!-- OpenRouter Models -->
-                    <optgroup label="{{ 'All OpenRouter Models' if is_admin_mode else 'Free OpenRouter Models' }}">
-                    {% for model_obj in available_models %}
-                        {% if not (model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/')) %}
-                        <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
-                            {{ model_obj.display_name }}
-                        </option>
-                        {% endif %}
-                    {% endfor %}
-                    </optgroup>
-                {% else %}
-                    <option value="{{ selected_model | default('meta-llama/llama-4-maverick:free') }}" selected>
-                        {{ selected_model | default('meta-llama/llama-4-maverick:free') }}
-                    </option>
-                    <option disabled>Не удалось загрузить список моделей</option>
-                {% endif %}
-            </select>
-             <small style="display: block; margin-top: -5px; color: #555;">Модель выбирается на странице просмотра книги.</small>
-        </p>
-        <p>
-            <button type="submit">Загрузить</button>
-        </p>
-    </form>
-
-    <h2>Ранее загруженные книги</h2>
-
-    <ul>
-        {% if uploaded_books %}
-            {% for book in uploaded_books %}
-                <li class="book-item">
-                    <div class="book-info">
-                        <span class="book-title">
-                            {{ book.display_name | default('No Name') }}
-                            {% if book.target_language %}
-                                <span style="font-size: 0.8em; padding: 0px 3px; margin-left: 4px; background-color: #ffecec; border: 1px solid #e0c0c0; border-radius: 3px; color: #c00; white-space: nowrap;">{{ book.target_language }}</span>
+        <h2>Загрузить новую книгу</h2>
+        <form id="upload-form" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+            <p>
+                <label for="epub_file">Выберите файл EPUB:</label>
+                <input type="file" id="epub_file" name="epub_file" accept=".epub" required>
+            </p>
+            <p>
+                <label for="target_language">Целевой язык:</label>
+                 <select id="target_language" name="target_language">
+                     <option value="russian" {% if default_language == 'russian' %}selected{% endif %}>Russian</option>
+                     <option value="english" {% if default_language == 'english' %}selected{% endif %}>English</option>
+                     <option value="german" {% if default_language == 'german' %}selected{% endif %}>German</option>
+                     <option value="french" {% if default_language == 'french' %}selected{% endif %}>French</option>
+                     <option value="spanish" {% if default_language == 'spanish' %}selected{% endif %}>Spanish</option>
+                </select>
+            </p>
+            <p>
+                <label for="model-display">Текущая модель перевода:</label>
+                <select id="model-display" name="model_display_disabled" disabled>
+                    {% if available_models %}
+                        <!-- Google Models -->
+                        <optgroup label="Google Models">
+                        {% for model_obj in available_models %}
+                            {% if model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/') %}
+                            <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
+                                {{ model_obj.display_name }}
+                            </option>
                             {% endif %}
-                        </span>
-                        <span class="book-status" style="font-size: 0.8em;">
-                             {% set total = book.total_sections | default(0) %}
-                             {% if total > 0 %}
-                                 Статус: {{ book.status | default('N/A') | replace('_', ' ') | capitalize }}
-                             {% else %}
-                                 Статус: Ошибка структуры? ({{ book.total_sections }} секций)
-                             {% endif %}
-                         </span>
-                    </div>
-                    <div class="book-actions">
-                         <a href="{{ url_for('view_book', book_id=book.book_id) }}">
-                              <button style="padding: 6px 12px; font-size: 0.95em; line-height: 1.2;">Просмотр</button>
-                         </a>
-                         <form action="{{ url_for('delete_book_request', book_id=book.book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Удалить книгу \'{{ book.display_name | escape }}\'?');">
-                             <button type="submit" class="delete-btn" style="padding: 6px 12px; font-size: 0.95em; line-height: 1.2;">Удалить</button>
-                         </form>
-                    </div>
-                </li>
-            {% endfor %}
-        {% else %}
-            <p>Еще не загружено ни одной книги.</p>
-        {% endif %}
-    </ul>
+                        {% endfor %}
+                        </optgroup>
+                        
+                        <!-- OpenRouter Models -->
+                        <optgroup label="{{ 'All OpenRouter Models' if is_admin_mode else 'Free OpenRouter Models' }}">
+                        {% for model_obj in available_models %}
+                            {% if not (model_obj.name.startswith('gemini-') or model_obj.name.startswith('models/')) %}
+                            <option value="{{ model_obj.name }}" {% if selected_model == model_obj.name %}selected{% endif %}>
+                                {{ model_obj.display_name }}
+                            </option>
+                            {% endif %}
+                        {% endfor %}
+                        </optgroup>
+                    {% else %}
+                        <option value="{{ selected_model | default('meta-llama/llama-4-maverick:free') }}" selected>
+                            {{ selected_model | default('meta-llama/llama-4-maverick:free') }}
+                        </option>
+                        <option disabled>Не удалось загрузить список моделей</option>
+                    {% endif %}
+                </select>
+                 <small style="display: block; margin-top: -5px; color: #555;">Модель выбирается на странице просмотра книги.</small>
+            </p>
+            <p>
+                <button type="submit">Загрузить</button>
+            </p>
+        </form>
+
+        <h2>Ранее загруженные книги</h2>
+
+        <ul>
+            {% if uploaded_books %}
+                {% for book in uploaded_books %}
+                    <li class="book-item">
+                        <div class="book-info">
+                            <span class="book-title">
+                                {{ book.display_name | default('No Name') }}
+                                {% if book.target_language %}
+                                    <span style="font-size: 0.8em; padding: 0px 3px; margin-left: 4px; background-color: #ffecec; border: 1px solid #e0c0c0; border-radius: 3px; color: #c00; white-space: nowrap;">{{ book.target_language }}</span>
+                                {% endif %}
+                            </span>
+                            <span class="book-status" style="font-size: 0.8em;">
+                                 {% set total = book.total_sections | default(0) %}
+                                 {% if total > 0 %}
+                                     Статус: {{ book.status | default('N/A') | replace('_', ' ') | capitalize }}
+                                 {% else %}
+                                     Статус: Ошибка структуры? ({{ book.total_sections }} секций)
+                                 {% endif %}
+                             </span>
+                        </div>
+                        <div class="book-actions">
+                             <a href="{{ url_for('view_book', book_id=book.book_id) }}">
+                                  <button style="padding: 6px 12px; font-size: 0.95em; line-height: 1.2;">Просмотр</button>
+                             </a>
+                             <form action="{{ url_for('delete_book_request', book_id=book.book_id) }}" method="post" style="display: inline;" onsubmit="return confirm('Удалить книгу \'{{ book.display_name | escape }}\'?');">
+                                 <button type="submit" class="delete-btn" style="padding: 6px 12px; font-size: 0.95em; line-height: 1.2;">Удалить</button>
+                             </form>
+                        </div>
+                    </li>
+                {% endfor %}
+            {% else %}
+                <p>Еще не загружено ни одной книги.</p>
+            {% endif %}
+        </ul>
+    </div>
 
 <script>
     // Скрипт для показа оверлея при отправке формы
