@@ -794,8 +794,8 @@
                 let width = 1;
                 let height = 1;
                 
-                // Логика определения размера ТОЛЬКО на основе просмотров
-                const isPopular = video.views > 500000; // Больше 500K просмотров
+                // Логика определения размера: ИЛИ >100К просмотров, ИЛИ >1М подписчиков
+                const isPopular = video.views > 100000 || video.subscribers > 1000000;
                 
                 if (isPopular) {
                     // Популярные видео - большие карточки (2x1)
@@ -929,7 +929,7 @@
                 sizeClass = customSizeClass;
             } else {
                 // Стандартная логика для обычного макета
-                const isPopular = video.views > 500000; // Больше 500K просмотров
+                const isPopular = video.views > 100000 || video.subscribers > 1000000;
                 
                 if (isPopular) {
                     // Большая карточка для популярных видео
