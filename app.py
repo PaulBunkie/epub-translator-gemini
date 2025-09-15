@@ -1245,7 +1245,7 @@ def workflow_index():
 
     resp = make_response(render_template('workflow_index.html', workflow_books=workflow_books, admin=admin))
     # Наследуем CSP политику от основной страницы
-    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: https://unpkg.com;"
     resp.headers['Content-Security-Policy'] = csp_policy
 
     return resp
@@ -1789,7 +1789,10 @@ def workflow_start_existing_book(book_id):
 def video_analysis_page():
     """Отображает страницу для анализа видео."""
     admin = request.args.get('admin') == 'true'
-    return render_template('video_analysis.html', admin=admin)
+    resp = make_response(render_template('video_analysis.html', admin=admin))
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: https://unpkg.com;"
+    resp.headers['Content-Security-Policy'] = csp_policy
+    return resp
 
 @app.route('/api/analyze-video', methods=['POST'])
 def api_analyze_video():
@@ -2289,7 +2292,7 @@ def books():
     except Exception as e: print(f"ОШИБКА при получении списка книг: {e}"); traceback.print_exc()
 
     resp = make_response(render_template('book_list.html', uploaded_books=uploaded_books, default_language=default_language, selected_model=selected_model, available_models=available_models, is_admin_mode=is_admin_mode))
-    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: https://unpkg.com;"
     resp.headers['Content-Security-Policy'] = csp_policy
     return resp
 

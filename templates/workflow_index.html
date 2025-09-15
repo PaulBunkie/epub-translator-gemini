@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EPUB Translator Workflow</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
+        /* Оригинальные стили страницы */
         body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
@@ -16,6 +18,23 @@
         }
         h1, h2 {
             color: #333;
+        }
+        /* Стили workflow, изолированные от Bootstrap */
+        #workflow-content {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+        }
+        #workflow-content .container {
+            max-width: 800px;
+            margin: 20px auto;
+        }
+        #workflow-content h1 {
+            color: #333;
+            font-size: 2em; /* Browser default */
+        }
+        #workflow-content h2 {
+            color: #333;
+            font-size: 1.5em; /* Browser default */
         }
         .upload-form {
             margin-bottom: 30px;
@@ -156,101 +175,268 @@
             color: #6f42c1;
         }
 
+        /* Минимальные стили Bootstrap для меню */
+        .navbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding-top: .5rem; padding-bottom: .5rem; }
+        .navbar-expand-sm { flex-wrap: nowrap; justify-content: flex-start; }
+        .navbar-nav { display: flex; flex-direction: column; padding-left: 0; margin-bottom: 0; list-style: none; }
+        .navbar-expand-sm .navbar-nav { flex-direction: row; }
+        .nav-link { display: block; padding: .5rem 1rem; color: rgba(255,255,255,.75); text-decoration: none; transition: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out; }
+        .nav-link:hover, .nav-link:focus { color: rgba(255,255,255,1); }
+        .navbar-dark .navbar-nav .nav-link.active { color: #fff; }
+        .bg-primary { background-color: #0d6efd !important; }
+        .navbar-dark { color: #fff; }
+        .mb-4 { margin-bottom: 1.5rem !important; }
+        .rounded { border-radius: .375rem !important; }
+        .me-1 { margin-right: .25rem !important; }
+
+        .upload-form {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+
+        .book-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .book-item {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .book-info strong {
+            font-size: 1.1em;
+        }
+
+        .book-status {
+            font-size: 0.9em;
+            color: #555;
+        }
+         .book-info span.language {
+            font-size: 0.8em;
+            color: red;
+            margin-left: 5px;
+            font-weight: bold;
+            vertical-align: middle;
+         }
+        .book-actions button {
+            margin-left: 10px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+         .status-processing {
+            color: orange;
+            font-weight: bold;
+         }
+         .status-completed {
+            color: green;
+            font-weight: bold;
+         }
+         .status-completed_with_errors {
+            color: darkorange;
+            font-weight: bold;
+         }
+         .status-error, .status-error_unknown {
+            color: red;
+            font-weight: bold;
+         }
+         .status-idle {
+            color: gray;
+         }
+
+        /* Styles for the workflow progress overlay */
+        .workflow-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Styles for the content inside the workflow overlay */
+        .workflow-overlay-content {
+            background-color: #fff;
+            color: #333;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .workflow-overlay-content h2 {
+            margin-top: 0;
+            color: #333; /* Ensure heading is dark */
+        }
+
+        .workflow-overlay-content p {
+            margin-bottom: 0;
+        }
+
+        /* Style for error status in overlay */
+        .workflow-overlay-content .status-error {
+            color: red;
+            font-weight: bold;
+        }
+
+        /* Styles for the book list toggle */
+        .hidden-list {
+            display: none;
+        }
+
+        /* Styles for the book list toggle link */
+        .toggle-list-link {
+            font-size: 0.6em; /* Match previous size, not too small */
+            text-decoration: none;
+            border-bottom: 1px dotted #007bff; /* Blue dotted underline */
+            color: #007bff; /* Blue color */
+            cursor: pointer;
+            font-weight: normal; /* Remove bold inherited from h2 */
+        }
+
+        .status-details {
+            margin-top: 8px;
+        }
+        .status-details div {
+            margin: 2px 0 2px 0;
+            font-size: 14px;
+        }
+        .stage-status {
+            font-weight: 500;
+            color: #667eea;
+        }
+        .stage-status[data-stage="summarize"] {
+            color: #28a745;
+        }
+        .stage-status[data-stage="analyze"] {
+            color: #ffc107;
+        }
+        .stage-status[data-stage="translate"] {
+            color: #17a2b8;
+        }
+        .stage-status[data-stage="epub_creation"] {
+            color: #6f42c1;
+        }
+
 
 
     </style>
 </head>
 <body>
-
-
-
-
     <div class="container">
         {% if admin %}
-        <nav style="background: #e9ecef; padding: 0.4em 1em; border-radius: 6px; margin-bottom: 18px;">
-            <div style="display: flex; gap: 1.5em; align-items: center;">
-                <a href="{{ url_for('books', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Перевод</a>
-                <a href="{{ url_for('workflow_index', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500; background-color: #d1ecf1; padding: 2px 6px; border-radius: 3px;">Workflow</a>
-                <a href="{{ url_for('user_main_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Пользователь</a>
-                <a href="{{ url_for('toptube_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Видео</a>
-                <a href="{{ url_for('video_analysis_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Видео-анализ</a>
-                <a href="{{ url_for('find_locations_form_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Локации</a>
+        {% set active_page = request.endpoint %}
+        <nav class="navbar navbar-expand-sm navbar-dark bg-primary mb-4 rounded">
+            <div class="navbar-nav">
+                <a class="nav-link {% if active_page == 'books' %}active{% endif %}" href="{{ url_for('books', admin='true' if admin else None) }}">
+                    <i class="fas fa-language me-1"></i>Перевод
+                </a>
+                <a class="nav-link {% if active_page == 'workflow_index' %}active{% endif %}" href="{{ url_for('workflow_index', admin='true' if admin else None) }}">
+                    <i class="fas fa-cogs me-1"></i>Workflow
+                </a>
+                <a class="nav-link {% if active_page == 'user_main_page' %}active{% endif %}" href="{{ url_for('user_main_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-user me-1"></i>Пользователь
+                </a>
+                <a class="nav-link {% if active_page == 'toptube_page' %}active{% endif %}" href="{{ url_for('toptube_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-video me-1"></i>Видео
+                </a>
+                <a class="nav-link {% if active_page == 'video_analysis_page' %}active{% endif %}" href="{{ url_for('video_analysis_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-chart-bar me-1"></i>Видео-анализ
+                </a>
+                <a class="nav-link {% if active_page == 'find_locations_form_page' %}active{% endif %}" href="{{ url_for('find_locations_form_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-map-marker-alt me-1"></i>Локации
+                </a>
             </div>
         </nav>
         {% endif %}
 
-        <h1>EPUB Workflow Dashboard</h1>
+        <div id="workflow-content">
+            <h1>EPUB Workflow Dashboard</h1>
 
-        <div class="upload-form">
-            <h2>Upload New EPUB for Workflow</h2>
-            <form action="{{ url_for('workflow_upload_file') }}" method="post" enctype="multipart/form-data">
-                <input type="file" name="epub_file" accept=".epub" required>
-                {% if admin %}<input type="hidden" name="admin" value="true">{% endif %}
-                 <label for="target_language">Target Language:</label>
-                <select name="target_language" id="target_language">
-                    <option value="russian">Russian</option>
-                    <option value="english">English</option>
-                    <option value="german">German</option>
-                    <option value="french">French</option>
-                    <option value="spanish">Spanish</option>
-                    <!-- Add more languages as needed -->
-                </select>
-                <button type="submit">Upload and Start Workflow</button>
-            </form>
-        </div>
+            <div class="upload-form">
+                <h2>Upload New EPUB for Workflow</h2>
+                <form action="{{ url_for('workflow_upload_file') }}" method="post" enctype="multipart/form-data">
+                    <input type="file" name="epub_file" accept=".epub" required>
+                    {% if admin %}<input type="hidden" name="admin" value="true">{% endif %}
+                     <label for="target_language">Target Language:</label>
+                    <select name="target_language" id="target_language">
+                        <option value="russian">Russian</option>
+                        <option value="english">English</option>
+                        <option value="german">German</option>
+                        <option value="french">French</option>
+                        <option value="spanish">Spanish</option>
+                        <!-- Add more languages as needed -->
+                    </select>
+                    <button type="submit">Upload and Start Workflow</button>
+                </form>
+            </div>
 
-        <h2>
-            <a href="#" id="toggleBookListBtn" class="toggle-list-link">Hide ▼</a>
-        </h2>
-        <div id="bookListContainer">
-        <ul class="book-list">
-            {% for book in workflow_books %}
-                <li class="book-item" data-book-id="{{ book.book_id }}">
-                    <div class="book-info">
-                        <strong>{{ book.filename }}</strong>
-                        {% if book.target_language %}
-                            <span class="language">({{ book.target_language }})</span>
-                        {% endif %}
-                        <div class="book-status book-status-{{ book.status | lower }}">
-                            Status: <span class="book-overall-status">{{ book.status or 'unknown' }}</span>
-                            {% if book.book_stage_statuses %}
-                                <div style="margin-top: 6px;">
-                                {% for stage_name, stage_data in book.book_stage_statuses.items() %}
-                                    <div style="margin-bottom: 2px;">
-                                        <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
-                                        <span class="stage-status" data-stage="{{ stage_name }}">
-                                            {{ stage_data.status or 'pending' }}
-                                            {% if stage_data.is_per_section %}
-                                                ({{ book['processed_sections_count_' ~ stage_name] or 0 }} / {{ book.total_sections or 0 }} секций)
-                                            {% endif %}
-                                        </span>
-                                        {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}
-                                            <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать суммаризацию</a>
-                                        {% endif %}
-                                        {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty']) %}
-                                            <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать анализ</a>
-                                        {% endif %}
-                                        {% if stage_name == 'epub_creation' and (stage_data.status in ['completed', 'completed_with_errors']) %}
-                                            <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать EPUB</a>
-                                        {% endif %}
-                                    </div>
-                                {% endfor %}
-                                </div>
+            <h2>
+                <a href="#" id="toggleBookListBtn" class="toggle-list-link">Hide ▼</a>
+            </h2>
+            <div id="bookListContainer">
+            <ul class="book-list">
+                {% for book in workflow_books %}
+                    <li class="book-item" data-book-id="{{ book.book_id }}">
+                        <div class="book-info">
+                            <strong>{{ book.filename }}</strong>
+                            {% if book.target_language %}
+                                <span class="language">({{ book.target_language }})</span>
                             {% endif %}
+                            <div class="book-status book-status-{{ book.status | lower }}">
+                                Status: <span class="book-overall-status">{{ book.status or 'unknown' }}</span>
+                                {% if book.book_stage_statuses %}
+                                    <div style="margin-top: 6px;">
+                                    {% for stage_name, stage_data in book.book_stage_statuses.items() %}
+                                        <div style="margin-bottom: 2px;">
+                                            <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
+                                            <span class="stage-status" data-stage="{{ stage_name }}">
+                                                {{ stage_data.status or 'pending' }}
+                                                {% if stage_data.is_per_section %}
+                                                    ({{ book['processed_sections_count_' ~ stage_name] or 0 }} / {{ book.total_sections or 0 }} секций)
+                                                {% endif %}
+                                            </span>
+                                            {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}
+                                                <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать суммаризацию</a>
+                                            {% endif %}
+                                            {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty']) %}
+                                                <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать анализ</a>
+                                            {% endif %}
+                                            {% if stage_name == 'epub_creation' and (stage_data.status in ['completed', 'completed_with_errors']) %}
+                                                <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать EPUB</a>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
                         </div>
-                    </div>
-                    <div class="book-actions" style="margin-top: 10px;">
-                        <button class="start-workflow-button" data-book-id="{{ book.book_id }}">Start Workflow</button>
-                        <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
-                    </div>
-                </li>
-            {% else %}
-                <p>No books found in the workflow yet. Upload one above!</p>
-            {% endfor %}
-        </ul>
+                        <div class="book-actions" style="margin-top: 10px;">
+                            <button class="start-workflow-button" data-book-id="{{ book.book_id }}">Start Workflow</button>
+                            <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
+                        </div>
+                    </li>
+                {% else %}
+                    <p>No books found in the workflow yet. Upload one above!</p>
+                {% endfor %}
+            </ul>
+            </div>
         </div>
     </div>
-
     <!-- Overlay for progress display -->
     <div id="progressOverlay" class="workflow-overlay" style="display: none;">
         <div class="workflow-overlay-content">

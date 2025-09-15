@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Анализ контента</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         body { 
             font-family: sans-serif; 
@@ -204,14 +206,29 @@
 </head>
 <body>
     {% if admin %}
-    <nav style="background: #e9ecef; padding: 0.4em 1em;">
-        <div style="display: flex; gap: 1.5em; align-items: center;">
-            <a href="{{ url_for('books', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Перевод</a>
-            <a href="{{ url_for('workflow_index', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Workflow</a>
-            <a href="{{ url_for('user_main_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Пользователь</a>
-            <a href="{{ url_for('toptube_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Видео</a>
-            <a href="{{ url_for('video_analysis_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500; background-color: #d1ecf1; padding: 2px 6px; border-radius: 3px;">Видео-анализ</a>
-            <a href="{{ url_for('find_locations_form_page', admin='true' if admin else None) }}" style="color: #222; text-decoration: none; font-weight: 500;">Локации</a>
+    {% set active_page = request.endpoint %}
+    <nav class="navbar navbar-expand-sm navbar-dark bg-primary mb-4 rounded">
+        <div class="container-fluid">
+            <div class="navbar-nav">
+                <a class="nav-link {% if active_page == 'books' %}active{% endif %}" href="{{ url_for('books', admin='true' if admin else None) }}">
+                    <i class="fas fa-language me-1"></i>Перевод
+                </a>
+                <a class="nav-link {% if active_page == 'workflow_index' %}active{% endif %}" href="{{ url_for('workflow_index', admin='true' if admin else None) }}">
+                    <i class="fas fa-cogs me-1"></i>Workflow
+                </a>
+                <a class="nav-link {% if active_page == 'user_main_page' %}active{% endif %}" href="{{ url_for('user_main_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-user me-1"></i>Пользователь
+                </a>
+                <a class="nav-link {% if active_page == 'toptube_page' %}active{% endif %}" href="{{ url_for('toptube_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-video me-1"></i>Видео
+                </a>
+                <a class="nav-link {% if active_page == 'video_analysis_page' %}active{% endif %}" href="{{ url_for('video_analysis_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-chart-bar me-1"></i>Видео-анализ
+                </a>
+                <a class="nav-link {% if active_page == 'find_locations_form_page' %}active{% endif %}" href="{{ url_for('find_locations_form_page', admin='true' if admin else None) }}">
+                    <i class="fas fa-map-marker-alt me-1"></i>Локации
+                </a>
+            </div>
         </div>
     </nav>
     {% endif %}
