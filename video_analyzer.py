@@ -51,7 +51,12 @@ class VideoAnalyzer:
         
         # Извлекаем yandex_csyr из session_id
         match = re.search(r':(\d+)\.', self.session_id)
-        yandex_csyr = match.group(1) if match else int(datetime.now().timestamp())
+        if match:
+            yandex_csyr = match.group(1)
+            print(f"yandex_csyr извлечен из Session_id: {yandex_csyr}")
+        else:
+            yandex_csyr = int(datetime.now().timestamp())
+            print(f"yandex_csyr не найден в Session_id, сгенерирован новый: {yandex_csyr}")
         
         return {
             'accept': '*/*',
