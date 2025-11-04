@@ -207,10 +207,10 @@
                             <th class="sortable-header" data-sort="initial_odds">K0</th>
                             <th class="sortable-header" data-sort="last_odds">K1</th>
                             <th class="sortable-header" data-sort="live_odds">K60</th>
-                            <th class="sortable-header" data-sort="status">Статус</th>
-                            <th>Статистика 60м</th>
+                            <th class="sortable-header" data-sort="bet">Bet</th>
                             <th class="sortable-header" data-sort="bet_ai">Прогноз ИИ</th>
                             <th class="sortable-header" data-sort="final_score">Итоговый счёт</th>
+                            <th class="sortable-header" data-sort="status">Статус</th>
                         </tr>
                     </thead>
                     <tbody id="matches-table-body">
@@ -221,7 +221,10 @@
                             <td id="total-k0" class="odds">-</td>
                             <td id="total-k1" class="odds">-</td>
                             <td id="total-k60" class="odds">-</td>
-                            <td colspan="4"></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -292,7 +295,7 @@
                     const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                     valueA = dateTimeA.getTime();
                     valueB = dateTimeB.getTime();
-                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds') {
+                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet') {
                     // Для коэффициентов - преобразуем в числа
                     valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
@@ -441,12 +444,12 @@
                         document.getElementById('matches-container').style.display = 'block';
                         document.getElementById('empty-state').style.display = 'none';
                         
-                        // Если есть активная сортировка - применяем ее, иначе просто отображаем
-                        if (currentSortField) {
-                            sortTable(currentSortField);
-                        } else {
-                            displayMatches(allMatches);
+                        // Сортировка по умолчанию: дата и время (по убыванию - новые матчи сверху)
+                        if (!currentSortField) {
+                            currentSortField = 'match_date';
+                            currentSortDirection = 'desc';
                         }
+                        sortTable(currentSortField);
                     } else {
                         allMatches = [];
                         document.getElementById('empty-state').style.display = 'block';
@@ -527,16 +530,6 @@
                     'finished': 'Завершен'
                 }[match.status] || match.status;
                 
-                let statsText = '';
-                if (match.stats_60min) {
-                    try {
-                        const stats = JSON.parse(match.stats_60min);
-                        statsText = JSON.stringify(stats, null, 2);
-                    } catch (e) {
-                        statsText = match.stats_60min;
-                    }
-                }
-                
                 const finalScore = match.final_score_home !== null && match.final_score_away !== null
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
@@ -550,10 +543,10 @@
                     <td><span class="odds">${match.initial_odds || '-'}</span></td>
                     <td><span class="odds">${match.last_odds || '-'}</span></td>
                     <td><span class="odds">${match.live_odds || '-'}</span></td>
-                    <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
-                    <td class="stats-col">${statsText}</td>
+                    <td>${(match.bet && parseFloat(match.bet) > 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td><span class="odds">${match.bet_ai || '-'}</span></td>
                     <td>${finalScore}</td>
+                    <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
                 
                 tbody.appendChild(row);

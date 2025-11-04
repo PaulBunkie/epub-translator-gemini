@@ -2400,7 +2400,7 @@ class FootballManager:
             home_score = score.get('home', 0)
             away_score = score.get('away', 0)
 
-            # Условие 1: Фаворит проигрывает ровно на 1 гол
+            # Условие 1: Фаворит проигрывает на 1 мяч или меньше (разница <= 1)
             if fav_is_home:
                 fav_score = home_score
                 opp_score = away_score
@@ -2409,8 +2409,9 @@ class FootballManager:
                 opp_score = home_score
 
             goal_diff = opp_score - fav_score
-            if goal_diff != 1:
-                print(f"[Football] Условие не выполнено: фаворит {fav_team} не проигрывает ровно на 1 гол (счет: {fav_score}-{opp_score})")
+            # Условие 1: Фаворит проигрывает на 1 мяч или меньше (разница <= 1)
+            if goal_diff > 1:
+                print(f"[Football] Условие не выполнено: фаворит {fav_team} проигрывает более чем на 1 гол (счет: {fav_score}-{opp_score}, разница: {goal_diff})")
                 return (0, None)
 
             # Условие 2: Владение фаворита > 70%
