@@ -153,12 +153,61 @@
             opacity: 1;
             color: #0d6efd;
         }
+        
+        .stats-tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+        }
+        
+        .stats-tooltip .tooltip-content {
+            visibility: hidden;
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            text-align: left;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 0.85rem;
+            white-space: pre-line;
+            z-index: 1000;
+            min-width: 300px;
+            max-width: 500px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .stats-tooltip:hover .tooltip-content {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        .stats-tooltip .tooltip-content::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+        
+        .info-icon {
+            color: #17a2b8;
+            cursor: help;
+        }
     </style>
 </head>
 <body>
     <div class="main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1><i class="fas fa-futbol"></i> Анализ футбольных матчей</h1>
+            {% if admin %}
             <div>
                 <button class="btn btn-primary" id="sync-button" onclick="syncAndLoad()">
                     <i class="fas fa-sync-alt" id="sync-icon"></i> <span id="sync-text">Обновить</span>
@@ -167,8 +216,10 @@
                     <span class="visually-hidden">Синхронизация...</span>
                 </div>
             </div>
+            {% endif %}
         </div>
         
+        {% if admin %}
         <!-- Блок лимитов API -->
         <div class="api-limits-card" id="api-limits-card">
             <h5><i class="fas fa-chart-line"></i> Лимиты API The Odds API</h5>
@@ -187,6 +238,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
         
         <div id="loading" class="text-center my-5">
             <div class="spinner-border text-primary" role="status">
@@ -201,7 +253,7 @@
                         <tr>
                             <th class="sortable-header" data-sort="match_date">Дата</th>
                             <th class="sortable-header" data-sort="match_time">Время</th>
-                            <th class="sortable-header" data-sort="home_team">Дома</th>
+                            <th class="sortable-header" data-sort="home_team">Хозяева</th>
                             <th class="sortable-header" data-sort="away_team">Гости</th>
                             <th class="sortable-header" data-sort="fav">Фаворит</th>
                             <th class="sortable-header" data-sort="initial_odds">K0</th>
@@ -366,13 +418,17 @@
                     console.log('Проверка матчей завершена');
                     // После успешной проверки загружаем обновленные данные
                     loadMatches();
-                    loadLimits();
+                    if (isAdmin) {
+                        loadLimits();
+                    }
                 } else {
                     console.error('Ошибка проверки матчей:', data.error);
                     alert('Ошибка проверки матчей: ' + (data.error || 'Неизвестная ошибка'));
                     // Всё равно обновляем данные
                     loadMatches();
-                    loadLimits();
+                    if (isAdmin) {
+                        loadLimits();
+                    }
                 }
             })
             .catch(error => {
@@ -380,7 +436,9 @@
                 alert('Ошибка: ' + error.message);
                 // Всё равно обновляем данные
                 loadMatches();
-                loadLimits();
+                if (isAdmin) {
+                    loadLimits();
+                }
             })
             .finally(() => {
                 // Восстанавливаем кнопку
@@ -534,6 +592,62 @@
             }
         }
 
+        function formatStats(statsJson) {
+            if (!statsJson) return null;
+            
+            try {
+                const stats = typeof statsJson === 'string' ? JSON.parse(statsJson) : statsJson;
+                if (!stats || typeof stats !== 'object') return null;
+                
+                let formatted = [];
+                
+                // Счет
+                if (stats.score) {
+                    formatted.push(`Счет: ${stats.score.home || 0} - ${stats.score.away || 0}`);
+                }
+                
+                // Владение мячом
+                if (stats.possession) {
+                    formatted.push(`Владение: ${stats.possession.home || 0}% - ${stats.possession.away || 0}%`);
+                }
+                
+                // Удары в створ
+                if (stats.shotsOnTarget) {
+                    formatted.push(`Удары в створ: ${stats.shotsOnTarget.home || 0} - ${stats.shotsOnTarget.away || 0}`);
+                }
+                
+                // xG
+                if (stats.xg) {
+                    formatted.push(`xG: ${(stats.xg.home || 0).toFixed(2)} - ${(stats.xg.away || 0).toFixed(2)}`);
+                }
+                
+                // Общие удары
+                if (stats.shots) {
+                    formatted.push(`Всего ударов: ${stats.shots.home || 0} - ${stats.shots.away || 0}`);
+                }
+                
+                // Угловые
+                if (stats.corners) {
+                    formatted.push(`Угловые: ${stats.corners.home || 0} - ${stats.corners.away || 0}`);
+                }
+                
+                // Желтые карточки
+                if (stats.yellowCards) {
+                    formatted.push(`Желтые карточки: ${stats.yellowCards.home || 0} - ${stats.yellowCards.away || 0}`);
+                }
+                
+                // Фолы
+                if (stats.fouls) {
+                    formatted.push(`Фолы: ${stats.fouls.home || 0} - ${stats.fouls.away || 0}`);
+                }
+                
+                return formatted.length > 0 ? formatted.join('\n') : null;
+            } catch (e) {
+                console.error('Ошибка парсинга статистики:', e);
+                return null;
+            }
+        }
+        
         function displayMatches(matches) {
             const tbody = document.getElementById('matches-table-body');
             tbody.innerHTML = '';
@@ -552,6 +666,35 @@
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
                 
+                // Формируем ячейку K60 с tooltip
+                let k60Cell = '';
+                const statsFormatted = formatStats(match.stats_60min);
+                const hasLiveOdds = match.live_odds !== null && match.live_odds !== undefined;
+                
+                if (statsFormatted) {
+                    // Есть статистика - показываем tooltip
+                    if (hasLiveOdds) {
+                        // Есть и коэффициент, и статистика
+                        k60Cell = `
+                            <span class="stats-tooltip">
+                                <span class="odds">${match.live_odds}</span>
+                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                            </span>
+                        `;
+                    } else {
+                        // Нет коэффициента, но есть статистика - показываем иконку информации
+                        k60Cell = `
+                            <span class="stats-tooltip">
+                                <i class="fas fa-info-circle info-icon"></i>
+                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                            </span>
+                        `;
+                    }
+                } else {
+                    // Нет статистики - просто показываем коэффициент или "-"
+                    k60Cell = `<span class="odds">${match.live_odds || '-'}</span>`;
+                }
+                
                 row.innerHTML = `
                     <td>${match.match_date}</td>
                     <td>${match.match_time}</td>
@@ -560,7 +703,7 @@
                     <td><span class="fav-team">${match.fav}</span></td>
                     <td><span class="odds">${match.initial_odds || '-'}</span></td>
                     <td><span class="odds">${match.last_odds || '-'}</span></td>
-                    <td><span class="odds">${match.live_odds || '-'}</span></td>
+                    <td>${k60Cell}</td>
                     <td>${(match.bet && parseFloat(match.bet) > 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td><span class="odds">${match.bet_ai || '-'}</span></td>
                     <td>${finalScore}</td>
@@ -574,9 +717,17 @@
             calculateTotals(matches);
         }
 
-        // Загружаем матчи и лимиты при загрузке страницы
+        // Проверяем режим администратора
+        const urlParams = new URLSearchParams(window.location.search);
+        const isAdmin = urlParams.get('admin') === 'true';
+        
+        // Загружаем матчи при загрузке страницы
         loadMatches();
-        loadLimits();
+        
+        // Загружаем лимиты только в режиме администратора
+        if (isAdmin) {
+            loadLimits();
+        }
     </script>
 </body>
 </html>
