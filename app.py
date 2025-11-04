@@ -2335,6 +2335,22 @@ def api_sync_football_matches():
         traceback.print_exc()
         return jsonify({'error': f'Ошибка синхронизации: {str(e)}'}), 500
 
+@app.route('/api/football/check', methods=['POST'])
+def api_check_football_matches():
+    """API эндпойнт для запуска проверки матчей и обновления ставок/статусов."""
+    try:
+        manager = football.get_manager()
+        manager.check_matches_and_collect()
+        return jsonify({
+            'success': True,
+            'message': 'Проверка матчей завершена'
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка проверки матчей: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Ошибка проверки матчей: {str(e)}'}), 500
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ ФУТБОЛА ---
 
 @app.route('/books', methods=['GET'])

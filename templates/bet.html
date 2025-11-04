@@ -346,20 +346,38 @@
             .then(data => {
                 if (data.success) {
                     console.log('Синхронизация завершена:', data.stats);
-                    // После успешной синхронизации загружаем обновленные данные
-                    loadMatches();
-                    loadLimits();
+                    // После синхронизации запускаем проверку матчей
+                    syncText.textContent = 'Проверка матчей...';
+                    return fetch('/api/football/check', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
                 } else {
                     console.error('Ошибка синхронизации:', data.error);
                     alert('Ошибка синхронизации: ' + (data.error || 'Неизвестная ошибка'));
-                    // Всё равно обновляем данные, возможно там есть старые
+                    throw new Error('Синхронизация не удалась');
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Проверка матчей завершена');
+                    // После успешной проверки загружаем обновленные данные
+                    loadMatches();
+                    loadLimits();
+                } else {
+                    console.error('Ошибка проверки матчей:', data.error);
+                    alert('Ошибка проверки матчей: ' + (data.error || 'Неизвестная ошибка'));
+                    // Всё равно обновляем данные
                     loadMatches();
                     loadLimits();
                 }
             })
             .catch(error => {
-                console.error('Ошибка запроса синхронизации:', error);
-                alert('Ошибка синхронизации: ' + error.message);
+                console.error('Ошибка запроса:', error);
+                alert('Ошибка: ' + error.message);
                 // Всё равно обновляем данные
                 loadMatches();
                 loadLimits();
@@ -463,37 +481,37 @@
                 });
         }
 
-        function calculateTotals(matches) {
-            let sumK0 = 0;
-            let sumK1 = 0;
-            let sumK60 = 0;
-            
-            matches.forEach(match => {
-                // Пропускаем незавершенные матчи
-                if (match.status !== 'finished') {
-                    return;
-                }
-                
-                // Если фаворит выиграл (fav_won === 1), добавляем коэффициент
-                // Если проиграл или ничья (fav_won !== 1), вычитаем 1
-                if (match.fav_won === 1) {
-                    // Фаворит выиграл - добавляем коэффициент
-                    if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
-                        sumK0 += parseFloat(match.initial_odds);
-                    }
-                    if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
-                        sumK1 += parseFloat(match.last_odds);
-                    }
-                    if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
-                        sumK60 += parseFloat(match.live_odds);
-                    }
-                } else {
-                    // Фаворит проиграл или ничья - вычитаем 1
-                    sumK0 -= 1;
-                    sumK1 -= 1;
-                    sumK60 -= 1;
-                }
-            });
+                 function calculateTotals(matches) {
+             let sumK0 = 0;
+             let sumK1 = 0;
+             let sumK60 = 0;
+             
+             matches.forEach(match => {
+                 // Пропускаем незавершенные матчи
+                 if (match.status !== 'finished') {
+                     return;
+                 }
+                 
+                 // Если фаворит выиграл (fav_won === 1): прибыль = коэффициент - 1 (получаем коэффициент, но вложили 1)
+                 // Если проиграл или ничья (fav_won !== 1): прибыль = -1 (теряем ставку)
+                 if (match.fav_won === 1) {
+                     // Фаворит выиграл - добавляем чистую прибыль (коэффициент - ставка)
+                     if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
+                         sumK0 += parseFloat(match.initial_odds) - 1;
+                     }
+                     if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
+                         sumK1 += parseFloat(match.last_odds) - 1;
+                     }
+                     if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
+                         sumK60 += parseFloat(match.live_odds) - 1;
+                     }
+                 } else {
+                     // Фаворит проиграл или ничья - вычитаем ставку (1)
+                     sumK0 -= 1;
+                     sumK1 -= 1;
+                     sumK60 -= 1;
+                 }
+             });
             
             // Обновляем строку итогов
             const totalsRow = document.getElementById('totals-row');

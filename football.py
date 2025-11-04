@@ -1632,6 +1632,47 @@ class FootballManager:
                     print(traceback.format_exc())
                     continue
 
+            # ===== ЧАСТЬ 1.5: Обновление live_odds для уже обработанных матчей без live_odds =====
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE status = 'in_progress'
+                AND bet IS NOT NULL
+                AND live_odds IS NULL
+                ORDER BY match_date, match_time
+            """)
+            
+            matches_for_live_odds = cursor.fetchall()
+            print(f"[Football] Найдено {len(matches_for_live_odds)} матчей с bet, но без live_odds для обновления")
+            
+            for match in matches_for_live_odds:
+                try:
+                    fixture_id = match['fixture_id']
+                    match_datetime_str = f"{match['match_date']} {match['match_time']}"
+                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
+                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    minutes_diff = (now - match_datetime).total_seconds() / 60.0
+                    
+                    # Обновляем live_odds только если прошло >= 55 минут
+                    if minutes_diff >= 55:
+                        print(f"[Football] Обновляем live_odds для матча {fixture_id} (прошло {minutes_diff:.1f} минут)...")
+                        live_odds_value = self._get_live_odds(fixture_id)
+                        if live_odds_value:
+                            print(f"[Football] Получены live odds для {fixture_id}: {live_odds_value}")
+                            cursor.execute("""
+                                UPDATE matches
+                                SET live_odds = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            """, (live_odds_value, match['id']))
+                            conn.commit()
+                        else:
+                            print(f"[Football] Не удалось получить live odds для {fixture_id}")
+                except Exception as e:
+                    print(f"[Football ERROR] Ошибка обновления live_odds для {match['fixture_id']}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+
             # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
             cursor.execute("""
                 SELECT * FROM matches
