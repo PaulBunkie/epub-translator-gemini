@@ -106,9 +106,9 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
 # ВАЖНО: Для отладки используем только 3 лиги, чтобы не выйти за лимит запросов API
 # Чтобы включить все лиги, раскомментируйте нужные строки ниже
 DEFAULT_FOOTBALL_LEAGUES = [
-    "soccer_epl",                    # Английская Премьер-лига
+    #"soccer_epl",                    # Английская Премьер-лига
     "soccer_uefa_champs_league",     # Лига Чемпионов
-    "soccer_uefa_europa_league",     # Лига Европы
+    #"soccer_uefa_europa_league",     # Лига Европы
     # --- Раскомментируйте для включения остальных лиг ---
     # "soccer_spain_la_liga",          # Ла Лига (Испания)
     # "soccer_italy_serie_a",          # Серия A (Италия)
@@ -136,7 +136,7 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_sweden_allsvenskan",     # Алльсвенскан (Швеция)
     # "soccer_sweden_superettan",      # Суперэттан (Швеция)
     # "soccer_finland_veikkausliiga",  # Вейккауслига (Финляндия)
-     "soccer_uefa_europa_conference_league", # Лига Конференций
+    # "soccer_uefa_europa_conference_league", # Лига Конференций
     # "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
     # "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
     # "soccer_brazil_campeonato",      # Серия A (Бразилия)
@@ -1557,60 +1557,152 @@ class FootballManager:
             if conn:
                 conn.close()
 
+    def _fetch_sofascore_statistics(self, sofascore_event_id: int) -> Optional[Dict]:
+        """
+        Получает статистику матча с SofaScore API.
+
+        Args:
+            sofascore_event_id: ID события в SofaScore
+
+        Returns:
+            Словарь со статистикой или None в случае ошибки
+        """
+        import random
+        
+        url = f"{SOFASCORE_API_URL}/event/{sofascore_event_id}/statistics"
+        max_retries = 5
+        attempt = 0
+        
+        while attempt < max_retries:
+            try:
+                # Выбираем случайный User-Agent
+                headers = SOFASCORE_DEFAULT_HEADERS.copy()
+                headers['User-Agent'] = random.choice(SOFASCORE_USER_AGENTS)
+                
+                # Случайная задержка перед запросом (1-3 секунды)
+                if attempt > 0:
+                    delay = random.uniform(2.0, 4.0) * (2 ** attempt)  # Экспоненциальный backoff
+                    time.sleep(delay)
+                
+                response = requests.get(url, headers=headers, timeout=30)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    return data
+                elif response.status_code == 403:
+                    print(f"[Football SofaScore] 403 Forbidden при запросе статистики для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
+                    attempt += 1
+                    if attempt < max_retries:
+                        time.sleep(random.uniform(5.0, 10.0))
+                    continue
+                elif response.status_code >= 500:
+                    print(f"[Football SofaScore] Ошибка сервера {response.status_code} при запросе статистики для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
+                    attempt += 1
+                    continue
+                else:
+                    print(f"[Football SofaScore] Ошибка {response.status_code} при запросе статистики для event_id={sofascore_event_id}")
+                    return None
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"[Football SofaScore] Сетевая ошибка при запросе статистики для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}: {e}")
+                attempt += 1
+                if attempt >= max_retries:
+                    return None
+                time.sleep(random.uniform(2.0, 4.0) * (2 ** attempt))
+        
+        print(f"[Football SofaScore] Не удалось получить статистику для event_id={sofascore_event_id} после {max_retries} попыток")
+        return None
+
+    def _get_live_odds(self, fixture_id: str) -> Optional[float]:
+        """
+        Получает актуальные live коэффициенты фаворита на победу с The Odds API.
+
+        Args:
+            fixture_id: ID матча в The Odds API
+
+        Returns:
+            Коэффициент фаворита на победу или None в случае ошибки/отсутствия live odds
+        """
+        try:
+            # Запрос live odds для конкретного матча
+            # The Odds API не поддерживает прямой запрос по fixture_id для live odds,
+            # поэтому нужно запросить все live odds и найти нужный матч
+            params = {
+                "sport": "soccer",
+                "regions": "eu",
+                "markets": "h2h",
+                "oddsFormat": "decimal"
+            }
+            
+            # Запрашиваем live odds для всех лиг (или можно указать конкретную лигу)
+            # Попробуем запросить для всех доступных лиг
+            data = self._make_api_request("/odds/live", params)
+            
+            if not data or not isinstance(data, list):
+                print(f"[Football] Не удалось получить live odds для fixture {fixture_id}")
+                return None
+            
+            # Ищем нужный матч по fixture_id
+            for match_data in data:
+                if match_data.get('id') == fixture_id:
+                    # Находим фаворита по минимальному коэффициенту
+                    fav_info = self._determine_favorite(match_data)
+                    if fav_info:
+                        return fav_info['odds']
+            
+            print(f"[Football] Матч {fixture_id} не найден в live odds или матч еще не начался")
+            return None
+            
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка получения live odds для fixture {fixture_id}: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
+
     def _collect_60min_stats(self, match: sqlite3.Row):
         """
-        Собирает статистику на 60-й минуте.
-        
+        Собирает статистику на 60-й минуте с SofaScore.
+
         Args:
             match: Запись матча из БД
         """
         try:
             fixture_id = match['fixture_id']
-            
-            # Получаем статистику от API-Football
-            params = {"fixture": str(fixture_id)}
-            data = self._make_api_request("/fixtures/statistics", params)
-            
-            if not data or not data.get('response'):
-                print(f"[Football] Не удалось получить статистику для fixture {fixture_id}")
+            sofascore_event_id = match.get('sofascore_event_id')
+
+            if not sofascore_event_id:
+                print(f"[Football] Нет sofascore_event_id для матча {fixture_id}, пропускаем")
                 return
-            
-            stats_data = data['response'][0] if data['response'] else None
+
+            # Получаем статистику с SofaScore
+            stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
+
             if not stats_data:
-                print(f"[Football] Пустой ответ статистики для fixture {fixture_id}")
+                print(f"[Football] Не удалось получить статистику с SofaScore для event_id={sofascore_event_id}")
                 return
-            
-            # Парсим статистику
-            stats = self._parse_statistics(stats_data)
-            
-            # Получаем счёт на данный момент
-            fixture_data = self._make_api_request("/fixtures", {"id": str(fixture_id)})
-            if fixture_data and fixture_data.get('response'):
-                fixture = fixture_data['response'][0].get('fixture', {}).get('status', {})
-                goals_home = fixture.get('halftime', {}).get('home') or fixture.get('fulltime', {}).get('home') or 0
-                goals_away = fixture.get('halftime', {}).get('away') or fixture.get('fulltime', {}).get('away') or 0
-                
-                stats['score'] = {'home': goals_home, 'away': goals_away}
-            
+
+            # Парсим статистику из SofaScore
+            stats = self._parse_sofascore_statistics(stats_data, match)
+
             # Проверяем условия и записываем bet
-            bet_value = self._calculate_bet(match, stats)
-            
+            bet_value = self._calculate_bet(match, stats, fixture_id)
+
             # Сохраняем в БД
             conn = get_football_db_connection()
             cursor = conn.cursor()
-            
+
             stats_json = json.dumps(stats)
             cursor.execute("""
-                UPDATE matches 
-                SET stats_60min = ?, updated_at = CURRENT_TIMESTAMP
+                UPDATE matches
+                SET stats_60min = ?, bet = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (stats_json, match['id']))
-            
+            """, (stats_json, bet_value, match['id']))
+
             conn.commit()
             conn.close()
-            
+
             print(f"[Football] Статистика на 60-й минуте сохранена для fixture {fixture_id}, bet: {bet_value}")
-            
+
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора статистики 60min: {e}")
             import traceback
@@ -1686,17 +1778,17 @@ class FootballManager:
             Словарь с отпарсенной статистикой
         """
         stats = {}
-        
+
         try:
-            # API-Football возвращает статистику для каждой команды
+            # API-Football возвращает статистику для каждой команды       
             for team_stats in stats_data.get('statistics', []):
                 team = team_stats.get('team', {}).get('name', '')
-                
+
                 # Парсим метрики
                 for stat in team_stats.get('statistics', []):
                     stat_type = stat.get('type', '')
                     stat_value = stat.get('value')
-                    
+
                     if stat_type == 'Ball Possession':
                         stats[team.lower()] = {'possession': stat_value}
                     elif stat_type == 'Shots on Goal':
@@ -1707,30 +1799,224 @@ class FootballManager:
                         if team.lower() not in stats:
                             stats[team.lower()] = {}
                         stats[team.lower()]['xG'] = stat_value
-            
+
         except Exception as e:
             print(f"[Football ERROR] Ошибка парсинга статистики: {e}")
+
+        return stats
+
+    def _parse_sofascore_statistics(self, stats_data: Dict, match: sqlite3.Row) -> Dict:
+        """
+        Парсит статистику из SofaScore API.
+
+        Args:
+            stats_data: Сырые данные статистики от SofaScore
+            match: Запись матча из БД
+
+        Returns:
+            Словарь с отпарсенной статистикой: {'score': {...}, 'possession': {...}, 'shots_on_target': {...}, 'xG': {...}}
+        """
+        stats = {}
+        
+        try:
+            # Получаем текущий счет
+            home_score = stats_data.get('homeScore', {}).get('current', 0)
+            away_score = stats_data.get('awayScore', {}).get('current', 0)
+            stats['score'] = {
+                'home': home_score,
+                'away': away_score
+            }
+            
+            # Получаем статистику по группам (periods или statistics)
+            periods = stats_data.get('periods', [])
+            statistics = stats_data.get('statistics', [])
+            
+            # Ищем статистику для текущего периода (обычно последний или all)
+            # SofaScore может возвращать статистику в разных форматах
+            # Попробуем найти данные во всех доступных местах
+            
+            # Вариант 1: статистика в periods
+            if periods:
+                for period in periods:
+                    # Берем статистику из последнего периода или периода 'all'
+                    if period.get('period') == 'all' or period.get('period') == 'REGULAR':
+                        home_stats = period.get('groups', [])
+                        for group in home_stats:
+                            if group.get('groupName') == 'Ball possession':
+                                stat_items = group.get('statisticsItems', [])
+                                for item in stat_items:
+                                    if item.get('name') == 'Ball possession':
+                                        home_poss = item.get('home', 0)
+                                        away_poss = item.get('away', 0)
+                                        stats['possession'] = {
+                                            'home': home_poss,
+                                            'away': away_poss
+                                        }
+                            elif group.get('groupName') == 'Shots on target':
+                                stat_items = group.get('statisticsItems', [])
+                                for item in stat_items:
+                                    if item.get('name') == 'Shots on target':
+                                        home_shots = item.get('home', 0)
+                                        away_shots = item.get('away', 0)
+                                        stats['shots_on_target'] = {
+                                            'home': home_shots,
+                                            'away': away_shots
+                                        }
+                            elif group.get('groupName') == 'Expected goals':
+                                stat_items = group.get('statisticsItems', [])
+                                for item in stat_items:
+                                    if item.get('name') == 'Expected goals':
+                                        home_xg = item.get('home', None)
+                                        away_xg = item.get('away', None)
+                                        if home_xg is not None and away_xg is not None:
+                                            stats['xG'] = {
+                                                'home': home_xg,
+                                                'away': away_xg
+                                            }
+            
+            # Вариант 2: статистика напрямую в statistics
+            if statistics:
+                for stat_group in statistics:
+                    if isinstance(stat_group, dict):
+                        if stat_group.get('groupName') == 'Ball possession' or stat_group.get('groupName') == 'Possession':
+                            stat_items = stat_group.get('statisticsItems', [])
+                            for item in stat_items:
+                                if 'possession' in item.get('name', '').lower() or item.get('name') == 'Ball possession':
+                                    stats['possession'] = {
+                                        'home': item.get('home', 0),
+                                        'away': item.get('away', 0)
+                                    }
+                        elif stat_group.get('groupName') == 'Shots on target' or 'shot' in stat_group.get('groupName', '').lower():
+                            stat_items = stat_group.get('statisticsItems', [])
+                            for item in stat_items:
+                                if 'shot' in item.get('name', '').lower() and 'target' in item.get('name', '').lower():
+                                    stats['shots_on_target'] = {
+                                        'home': item.get('home', 0),
+                                        'away': item.get('away', 0)
+                                    }
+                        elif 'expected' in stat_group.get('groupName', '').lower() or 'xg' in stat_group.get('groupName', '').lower():
+                            stat_items = stat_group.get('statisticsItems', [])
+                            for item in stat_items:
+                                if 'expected' in item.get('name', '').lower() or 'xg' in item.get('name', '').lower():
+                                    home_xg = item.get('home', None)
+                                    away_xg = item.get('away', None)
+                                    if home_xg is not None and away_xg is not None:
+                                        stats['xG'] = {
+                                            'home': home_xg,
+                                            'away': away_xg
+                                        }
+            
+            print(f"[Football] Распарсена статистика SofaScore: score={stats.get('score')}, possession={stats.get('possession')}, shots_on_target={stats.get('shots_on_target')}, xG={stats.get('xG')}")
+            
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка парсинга статистики SofaScore: {e}")
+            import traceback
+            print(traceback.format_exc())
         
         return stats
 
-    def _calculate_bet(self, match: sqlite3.Row, stats: Dict) -> int:
+    def _calculate_bet(self, match: sqlite3.Row, stats: Dict, fixture_id: str) -> Optional[float]:
         """
         Рассчитывает значение bet на основе условий.
         
+        Условия для bet:
+        1. Фаворит проигрывает ровно на 1 гол
+        2. Владение фаворита > 70%
+        3. Удары в створ фаворита ≥ 2x противника
+        4. xG фаворита > xG противника (если доступно)
+
         Args:
             match: Запись матча
-            stats: Статистика на 60-й минуте
-            
+            stats: Статистика на 60-й минуте (от SofaScore)
+            fixture_id: ID матча в The Odds API
+
         Returns:
-            1 если условия выполнены, 0 если нет (или 1 если лимит исчерпан)
+            Коэффициент live odds если условия выполнены, 0 если нет, None если лимит API исчерпан
         """
         try:
-            # TODO: Реализовать полную логику проверки условий
+            # Получаем информацию о фаворите
+            fav_team = match['fav']
+            fav_is_home = match['fav_team_id'] == 1  # 1 = home, 0 = away
             
-            return 0
+            # Проверяем наличие необходимых данных
+            score = stats.get('score', {})
+            possession = stats.get('possession', {})
+            shots_on_target = stats.get('shots_on_target', {})
+            xg = stats.get('xG', {})
             
+            home_score = score.get('home', 0)
+            away_score = score.get('away', 0)
+            
+            # Условие 1: Фаворит проигрывает ровно на 1 гол
+            if fav_is_home:
+                fav_score = home_score
+                opp_score = away_score
+            else:
+                fav_score = away_score
+                opp_score = home_score
+            
+            goal_diff = opp_score - fav_score
+            if goal_diff != 1:
+                print(f"[Football] Условие не выполнено: фаворит {fav_team} не проигрывает ровно на 1 гол (счет: {fav_score}-{opp_score})")
+                return 0
+            
+            # Условие 2: Владение фаворита > 70%
+            if fav_is_home:
+                fav_possession = possession.get('home', 0)
+            else:
+                fav_possession = possession.get('away', 0)
+            
+            if fav_possession <= 70:
+                print(f"[Football] Условие не выполнено: владение фаворита {fav_team} = {fav_possession}% (требуется > 70%)")
+                return 0
+            
+            # Условие 3: Удары в створ фаворита ≥ 2x противника
+            if fav_is_home:
+                fav_shots = shots_on_target.get('home', 0)
+                opp_shots = shots_on_target.get('away', 0)
+            else:
+                fav_shots = shots_on_target.get('away', 0)
+                opp_shots = shots_on_target.get('home', 0)
+            
+            if opp_shots == 0:
+                # Если у противника 0 ударов, проверяем что у фаворита >= 2
+                if fav_shots < 2:
+                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots} (требуется ≥ 2x противника)")
+                    return 0
+            else:
+                if fav_shots < opp_shots * 2:
+                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots}, противника = {opp_shots} (требуется ≥ 2x)")
+                    return 0
+            
+            # Условие 4: xG фаворита > xG противника (если доступно)
+            if xg:
+                if fav_is_home:
+                    fav_xg = xg.get('home', 0)
+                    opp_xg = xg.get('away', 0)
+                else:
+                    fav_xg = xg.get('away', 0)
+                    opp_xg = xg.get('home', 0)
+                
+                if fav_xg <= opp_xg:
+                    print(f"[Football] Условие не выполнено: xG фаворита {fav_team} = {fav_xg}, противника = {opp_xg} (требуется >)")
+                    return 0
+            
+            # Все условия выполнены - запрашиваем live odds
+            print(f"[Football] Все условия выполнены для матча {fixture_id}. Запрашиваем live odds...")
+            live_odds = self._get_live_odds(fixture_id)
+            
+            if live_odds is None:
+                # Если не удалось получить live odds (лимит исчерпан или матч не найден), сохраняем 1
+                print(f"[Football] Не удалось получить live odds для {fixture_id}, сохраняем 1")
+                return 1
+            
+            print(f"[Football] Получены live odds для фаворита {fav_team}: {live_odds}")
+            return live_odds
+
         except Exception as e:
             print(f"[Football ERROR] Ошибка расчета bet: {e}")
+            import traceback
+            print(traceback.format_exc())
             return 0
 
 

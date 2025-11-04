@@ -173,7 +173,7 @@ if is_fly_io:
         misfire_grace_time=1800  # 30 минут grace time
     )
     print("[Scheduler] ✅ Задание 'collect_football_matches_job' добавлено (сбор матчей на завтра каждый день в 23:00)")
-    
+
     scheduler.add_job(
         football.check_matches_and_collect_task,
         trigger='interval',
@@ -183,10 +183,21 @@ if is_fly_io:
         misfire_grace_time=300  # 5 минут grace time
     )
     print("[Scheduler] ✅ Задание 'check_football_matches_job' добавлено (проверка матчей каждые 5 минут)")
-    
+
 else:
     print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
     print("[Scheduler] 📍 Поиск локаций и анализ видео доступны только через API")
+    
+    # Исключение: проверка матчей работает и локально для тестирования
+    scheduler.add_job(
+        football.check_matches_and_collect_task,
+        trigger='interval',
+        minutes=5,  # Каждые 5 минут
+        id='check_football_matches_job',
+        replace_existing=True,
+        misfire_grace_time=300  # 5 минут grace time
+    )
+    print("[Scheduler] ✅ Задание 'check_football_matches_job' добавлено (проверка матчей каждые 5 минут) - локальный режим")
 
 try:
     scheduler.start()
