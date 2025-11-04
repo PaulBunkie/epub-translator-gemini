@@ -173,7 +173,8 @@
                             <th>Дома</th>
                             <th>Гости</th>
                             <th>Фаворит</th>
-                            <th>Коэффициент</th>
+                            <th>Начальный коэффициент</th>
+                            <th>Последний коэффициент</th>
                             <th>Статус</th>
                             <th>Статистика 60м</th>
                             <th>Итоговый счёт</th>
@@ -355,6 +356,7 @@
                     <td>${match.away_team}</td>
                     <td><span class="fav-team">${match.fav}</span></td>
                     <td><span class="odds">${match.initial_odds || '-'}</span></td>
+                    <td><span class="odds">${match.last_odds || '-'}</span></td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                     <td class="stats-col">${statsText}</td>
                     <td>${finalScore}</td>

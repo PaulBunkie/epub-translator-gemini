@@ -218,6 +218,17 @@ def init_football_db():
             print("[FootballDB] Column 'sofascore_join' added successfully.")
         else:
             print("[FootballDB] Column 'sofascore_join' already exists.")
+        
+        # --- Проверка и добавление поля last_odds ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'last_odds' not in columns:
+            print("[FootballDB] Adding 'last_odds' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN last_odds REAL")
+            conn.commit()
+            print("[FootballDB] Column 'last_odds' added successfully.")
+        else:
+            print("[FootballDB] Column 'last_odds' already exists.")
 
         # --- Создание индексов ---
         print("[FootballDB] Creating indexes...")
@@ -1328,21 +1339,24 @@ class FootballManager:
                 print(f"[Football] Нет даты для матча {event_id}")
                 return False
             
-            # Сохраняем
+                        # Сохраняем
+            # При первом сохранении initial_odds и last_odds одинаковые
+            fav_odds = fav_info['odds']
             cursor.execute("""
-                INSERT INTO matches 
-                (fixture_id, home_team, away_team, fav, fav_team_id, 
-                 match_date, match_time, initial_odds, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO matches
+                (fixture_id, home_team, away_team, fav, fav_team_id,      
+                 match_date, match_time, initial_odds, last_odds, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                event_id,  # fixture_id = event_id из The Odds API
+                event_id,  # fixture_id = event_id из The Odds API        
                 home_team,
                 away_team,
                 fav_info['team'],
                 1 if fav_info['is_home'] else 0,  # fav_team_id: 1=home, 0=away
                 match_date,
                 match_time,
-                                fav_info['odds'],
+                fav_odds,  # initial_odds - первая котировка
+                fav_odds,  # last_odds - при первом сохранении такая же
                 'scheduled'
             ))
 
@@ -1427,10 +1441,11 @@ class FootballManager:
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
-            # Обновляем только коэффициент, фаворита и время обновления
+                        # Обновляем только коэффициент (last_odds), фаворита и время обновления
+            # initial_odds не трогаем - там хранится первая котировка
             cursor.execute("""
-                UPDATE matches 
-                SET fav = ?, fav_team_id = ?, initial_odds = ?, updated_at = CURRENT_TIMESTAMP
+                UPDATE matches
+                SET fav = ?, fav_team_id = ?, last_odds = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE fixture_id = ?
             """, (
                 fav_info['team'],
