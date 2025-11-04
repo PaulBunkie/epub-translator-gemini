@@ -55,6 +55,7 @@ import video_chat_handler
 from workflow_model_config import get_model_for_operation
 import toptube10
 import video_db
+import football
 
 # Импорт Telegram бота
 try:
@@ -85,6 +86,8 @@ with app.app_context():
      workflow_db_manager.init_workflow_db()
      # Инициализируем БД для видео
      video_db.init_video_db()
+     # Инициализируем БД для футбольных матчей
+     football.init_football_db()
 
 # --- Настраиваем API перевода ---
 try:
@@ -159,6 +162,27 @@ if is_fly_io:
         misfire_grace_time=600  # 10 минут grace time
     )
     print("[Scheduler] ✅ Задание 'cleanup_expired_sessions_job' добавлено (очистка истекших сессий каждые 6 часов)")
+    
+    # --- ЗАДАНИЯ ДЛЯ ФУТБОЛА ---
+    scheduler.add_job(
+        football.collect_tomorrow_matches_task,
+        trigger='cron',
+        hour=23,  # Ежедневно в 23:00
+        id='collect_football_matches_job',
+        replace_existing=True,
+        misfire_grace_time=1800  # 30 минут grace time
+    )
+    print("[Scheduler] ✅ Задание 'collect_football_matches_job' добавлено (сбор матчей на завтра каждый день в 23:00)")
+    
+    scheduler.add_job(
+        football.check_matches_and_collect_task,
+        trigger='interval',
+        minutes=5,  # Каждые 5 минут
+        id='check_football_matches_job',
+        replace_existing=True,
+        misfire_grace_time=300  # 5 минут grace time
+    )
+    print("[Scheduler] ✅ Задание 'check_football_matches_job' добавлено (проверка матчей каждые 5 минут)")
     
 else:
     print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
@@ -2248,6 +2272,29 @@ def api_delete_toptube_video(video_id: int):
         return jsonify({'error': f'Ошибка удаления видео: {str(e)}'}), 500
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ TOPTUBE ---
+
+# --- МАРШРУТЫ ДЛЯ ФУТБОЛА ---
+
+@app.route('/bet', methods=['GET'])
+def bet_page():
+    """Отображает страницу с матчами и ставками."""
+    admin = request.args.get('admin') == 'true'
+    return render_template('bet.html', admin=admin)
+
+@app.route('/api/football/matches', methods=['GET'])
+def api_get_football_matches():
+    """API эндпойнт для получения списка матчей."""
+    try:
+        matches = football.get_all_matches()
+        return jsonify({
+            'success': True,
+            'matches': matches
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка получения матчей: {e}")
+        return jsonify({'error': f'Ошибка получения матчей: {str(e)}'}), 500
+
+# --- КОНЕЦ МАРШРУТОВ ДЛЯ ФУТБОЛА ---
 
 @app.route('/books', methods=['GET'])
 def books():

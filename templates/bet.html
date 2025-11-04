@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football Betting Analysis</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .main-content {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            margin: 20px auto;
+            padding: 30px;
+            max-width: 1400px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .table-responsive {
+            overflow-x: auto;
+        }
+        
+        .table {
+            font-size: 0.9rem;
+        }
+        
+        .status-badge {
+            font-size: 0.8rem;
+            border-radius: 20px;
+            padding: 5px 12px;
+        }
+        
+        .status-scheduled {
+            background-color: #ffc107;
+            color: #000;
+        }
+        
+        .status-in_progress {
+            background-color: #0d6efd;
+            color: white;
+        }
+        
+        .status-finished {
+            background-color: #198754;
+            color: white;
+        }
+        
+        .fav-team {
+            font-weight: bold;
+            color: #0d6efd;
+        }
+        
+        .odds {
+            font-weight: bold;
+            color: #198754;
+        }
+        
+        h1 {
+            color: #1e3c72;
+            margin-bottom: 30px;
+        }
+        
+        .stats-col {
+            white-space: pre-wrap;
+            font-size: 0.85rem;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-content">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="fas fa-futbol"></i> Анализ футбольных матчей</h1>
+            <button class="btn btn-primary" onclick="loadMatches()">
+                <i class="fas fa-sync-alt"></i> Обновить
+            </button>
+        </div>
+        
+        <div id="loading" class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+        </div>
+        
+        <div id="matches-container" style="display: none;">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Время</th>
+                            <th>Дома</th>
+                            <th>Гости</th>
+                            <th>Фаворит</th>
+                            <th>Коэффициент</th>
+                            <th>Статус</th>
+                            <th>Статистика 60м</th>
+                            <th>Итоговый счёт</th>
+                        </tr>
+                    </thead>
+                    <tbody id="matches-table-body">
+                    </tbody>
+                </table>
+            </div>
+            <div id="empty-state" class="text-center my-5" style="display: none;">
+                <i class="fas fa-futbol fa-3x text-muted mb-3"></i>
+                <p class="text-muted">Нет матчей для отображения</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function loadMatches() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('matches-container').style.display = 'none';
+            
+            fetch('/api/football/matches')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('loading').style.display = 'none';
+                    
+                    if (data.success && data.matches && data.matches.length > 0) {
+                        document.getElementById('matches-container').style.display = 'block';
+                        document.getElementById('empty-state').style.display = 'none';
+                        displayMatches(data.matches);
+                    } else {
+                        document.getElementById('empty-state').style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading matches:', error);
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('empty-state').style.display = 'block';
+                });
+        }
+
+        function displayMatches(matches) {
+            const tbody = document.getElementById('matches-table-body');
+            tbody.innerHTML = '';
+            
+            matches.forEach(match => {
+                const row = document.createElement('tr');
+                
+                const statusBadgeClass = `status-${match.status}`;
+                const statusText = {
+                    'scheduled': 'Запланирован',
+                    'in_progress': 'Идет',
+                    'finished': 'Завершен'
+                }[match.status] || match.status;
+                
+                let statsText = '';
+                if (match.stats_60min) {
+                    try {
+                        const stats = JSON.parse(match.stats_60min);
+                        statsText = JSON.stringify(stats, null, 2);
+                    } catch (e) {
+                        statsText = match.stats_60min;
+                    }
+                }
+                
+                const finalScore = match.final_score_home !== null && match.final_score_away !== null
+                    ? `${match.final_score_home}-${match.final_score_away}`
+                    : '-';
+                
+                row.innerHTML = `
+                    <td>${match.match_date}</td>
+                    <td>${match.match_time}</td>
+                    <td>${match.home_team}</td>
+                    <td>${match.away_team}</td>
+                    <td><span class="fav-team">${match.fav}</span></td>
+                    <td><span class="odds">${match.initial_odds || '-'}</span></td>
+                    <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
+                    <td class="stats-col">${statsText}</td>
+                    <td>${finalScore}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+
+        // Загружаем матчи при загрузке страницы
+        loadMatches();
+    </script>
+</body>
+</html>
+
