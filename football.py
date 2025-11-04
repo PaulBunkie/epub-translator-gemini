@@ -1855,6 +1855,63 @@ class FootballManager:
         print(f"[Football SofaScore] Не удалось получить статус для event_id={sofascore_event_id} после {max_retries} попыток")
         return None
 
+    def _fetch_sofascore_event(self, sofascore_event_id: int) -> Optional[Dict]:
+        """
+        Получает полные данные о событии из SofaScore API.
+
+        Args:
+            sofascore_event_id: ID события в SofaScore
+
+        Returns:
+            Словарь с данными события или None в случае ошибки
+        """
+        import random
+
+        url = f"{SOFASCORE_API_URL}/event/{sofascore_event_id}"
+        max_retries = 3
+        attempt = 0
+
+        while attempt < max_retries:
+            try:
+                # Выбираем случайный User-Agent
+                headers = SOFASCORE_DEFAULT_HEADERS.copy()
+                headers['User-Agent'] = random.choice(SOFASCORE_USER_AGENTS)
+
+                # Случайная задержка перед запросом
+                if attempt > 0:
+                    delay = random.uniform(2.0, 4.0) * (2 ** attempt)
+                    time.sleep(delay)
+
+                response = requests.get(url, headers=headers, timeout=30)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    return data
+
+                elif response.status_code == 403:
+                    print(f"[Football SofaScore] 403 Forbidden при запросе события для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
+                    attempt += 1
+                    if attempt < max_retries:
+                        time.sleep(random.uniform(5.0, 10.0))
+                    continue
+                elif response.status_code >= 500:
+                    print(f"[Football SofaScore] Ошибка сервера {response.status_code} при запросе события для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
+                    attempt += 1
+                    continue
+                else:
+                    print(f"[Football SofaScore] Ошибка {response.status_code} при запросе события для event_id={sofascore_event_id}")
+                    return None
+
+            except requests.exceptions.RequestException as e:
+                print(f"[Football SofaScore] Сетевая ошибка при запросе события для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}: {e}")
+                attempt += 1
+                if attempt >= max_retries:
+                    return None
+                time.sleep(random.uniform(2.0, 4.0) * (2 ** attempt))
+
+        print(f"[Football SofaScore] Не удалось получить данные события для event_id={sofascore_event_id} после {max_retries} попыток")
+        return None
+
     def _get_live_odds(self, fixture_id: str) -> Optional[float]:
         """
         Получает актуальные live коэффициенты фаворита на победу с The Odds API.
@@ -1990,47 +2047,50 @@ class FootballManager:
 
             print(f"[Football] Получаем финальный результат из SofaScore для event_id {sofascore_event_id}")
 
-            # Используем тот же метод, что и для статистики - он возвращает полные данные матча
-            stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
+            # Получаем полные данные о событии
+            event_data = self._fetch_sofascore_event(sofascore_event_id)
 
-            if not stats_data:
+            if not event_data:
                 print(f"[Football] Не удалось получить данные из SofaScore для event_id {sofascore_event_id}")
                 return
 
             # Извлекаем счет из данных SofaScore
-            # Структура данных может быть разной, проверим несколько вариантов
+            # Структура данных из /api/v1/event/{event_id}:
+            # event.homeScore.current - счет домашней команды
+            # event.awayScore.current - счет гостевой команды
+            # Также доступны: display, normaltime, period1, period2
             score_home = None
             score_away = None
 
-            # Вариант 1: напрямую из поля score
-            if 'score' in stats_data:
-                score_data = stats_data['score']
-                if isinstance(score_data, dict):
-                    score_home = score_data.get('home') or score_data.get('homeScore')
-                    score_away = score_data.get('away') or score_data.get('awayScore')
-
-            # Вариант 2: из periods (последний период - fulltime)
-            if score_home is None and 'periods' in stats_data:
-                periods = stats_data.get('periods', [])
-                if periods and len(periods) > 0:
-                    # Берем последний период (обычно это fulltime)
-                    last_period = periods[-1]
-                    if isinstance(last_period, dict):
-                        score_home = last_period.get('home') or last_period.get('homeScore')
-                        score_away = last_period.get('away') or last_period.get('awayScore')
-
-            # Вариант 3: из raw_data если есть
-            if score_home is None and 'raw_data' in stats_data:
-                raw_data = stats_data.get('raw_data', {})
-                if isinstance(raw_data, dict):
-                    score_data = raw_data.get('score', {})
-                    if isinstance(score_data, dict):
-                        score_home = score_data.get('home') or score_data.get('homeScore')
-                        score_away = score_data.get('away') or score_data.get('awayScore')
+            event = event_data.get('event', {})
+            
+            # Основной способ: event.homeScore.current и event.awayScore.current
+            home_score_obj = event.get('homeScore', {})
+            away_score_obj = event.get('awayScore', {})
+            
+            if isinstance(home_score_obj, dict):
+                # Приоритет: normaltime (обычное время) > current > display
+                score_home = home_score_obj.get('normaltime') or home_score_obj.get('current') or home_score_obj.get('display')
+            
+            if isinstance(away_score_obj, dict):
+                # Приоритет: normaltime (обычное время) > current > display
+                score_away = away_score_obj.get('normaltime') or away_score_obj.get('current') or away_score_obj.get('display')
 
             if score_home is None or score_away is None:
                 print(f"[Football] Не удалось извлечь счет из данных SofaScore для event_id {sofascore_event_id}")
-                print(f"[Football] Доступные поля: {list(stats_data.keys())}")
+                print(f"[Football] Доступные поля в event: {list(event.keys()) if event else 'N/A'}")
+                print(f"[Football] Доступные поля в корне: {list(event_data.keys())}")
+                # Попробуем вывести всю структуру для отладки
+                import json
+                print(f"[Football] Полная структура данных (первые 2000 символов): {json.dumps(event_data, indent=2, ensure_ascii=False)[:2000]}")
+                return
+
+            # Преобразуем счет в целые числа
+            try:
+                score_home = int(score_home) if score_home is not None else None
+                score_away = int(score_away) if score_away is not None else None
+            except (ValueError, TypeError):
+                print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
                 return
 
             # Определяем, выиграл ли фаворит
