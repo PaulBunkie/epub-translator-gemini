@@ -15,19 +15,121 @@ FOOTBALL_DATABASE_FILE = str(FOOTBALL_DB_FILE)
 ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 ODDS_API_URL = "https://api.the-odds-api.com/v4"
 
-# Список лиг для сбора матчей (можно переопределить через FOOTBALL_LEAGUES в .env)
-# Формат: "soccer_epl,soccer_spain_la_liga,soccer_germany_bundesliga" и т.д.
-# Если не указано, используется список по умолчанию (топ-лиги)
-DEFAULT_FOOTBALL_LEAGUES = [
-    "soccer_epl",                    # Английская Премьер-лига
-    "soccer_spain_la_liga",          # Ла Лига
-    "soccer_italy_serie_a",          # Серия A
-    "soccer_germany_bundesliga",     # Бундеслига
-    "soccer_france_ligue_one",       # Лига 1
-    "soccer_netherlands_eredivisie", # Эредивизи
-    "soccer_portugal_primeira_liga", # Примейра Лига
+# Полный список всех доступных футбольных лиг из The Odds API
+# Источник: https://api.the-odds-api.com/v4/sports/
+ALL_AVAILABLE_FOOTBALL_LEAGUES = [
+    # --- Европейские топ-лиги ---
+    "soccer_epl",                    # Английская Премьер-лига (EPL)
+    "soccer_spain_la_liga",          # Ла Лига (Испания)
+    "soccer_italy_serie_a",          # Серия A (Италия)
+    "soccer_germany_bundesliga",     # Бундеслига (Германия)
+    "soccer_france_ligue_one",       # Лига 1 (Франция)
+    "soccer_netherlands_eredivisie", # Эредивизи (Нидерланды)
+    "soccer_portugal_primeira_liga", # Примейра Лига (Португалия)
+    "soccer_spl",                    # Премьершип (Шотландия)
+    
+    # --- Европейские вторые лиги ---
+    "soccer_efl_champ",              # Чемпионшип (Англия)
+    "soccer_spain_segunda_division", # Ла Лига 2 (Испания)
+    "soccer_italy_serie_b",          # Серия B (Италия)
+    "soccer_germany_bundesliga2",    # Бундеслига 2 (Германия)
+    "soccer_germany_liga3",          # 3. Лига (Германия)
+    "soccer_france_ligue_two",       # Лига 2 (Франция)
+    "soccer_england_league1",        # Лига 1 (Англия)
+    "soccer_england_league2",        # Лига 2 (Англия)
+    "soccer_sweden_superettan",      # Суперэттан (Швеция)
+    
+    # --- Другие европейские лиги ---
+    "soccer_belgium_first_div",      # Первый дивизион (Бельгия)
+    "soccer_austria_bundesliga",     # Бундеслига (Австрия)
+    "soccer_switzerland_superleague", # Суперлига (Швейцария)
+    "soccer_greece_super_league",    # Суперлига (Греция)
+    "soccer_turkey_super_league",    # Суперлига (Турция)
+    "soccer_poland_ekstraklasa",     # Экстракласса (Польша)
+    "soccer_denmark_superliga",      # Суперлига (Дания)
+    "soccer_norway_eliteserien",     # Элитсериен (Норвегия)
+    "soccer_sweden_allsvenskan",     # Алльсвенскан (Швеция)
+    "soccer_finland_veikkausliiga",  # Вейккауслига (Финляндия)
+    "soccer_germany_liga3",          # 3. Лига (Германия) - дубликат?
+    
+    # --- Европейские клубные турниры ---
     "soccer_uefa_champs_league",     # Лига Чемпионов
     "soccer_uefa_europa_league",     # Лига Европы
+    "soccer_uefa_europa_conference_league", # Лига Конференций
+    "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
+    
+    # --- Южноамериканские лиги ---
+    "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
+    "soccer_brazil_campeonato",      # Серия A (Бразилия)
+    "soccer_brazil_serie_b",         # Серия B (Бразилия)
+    "soccer_chile_campeonato",       # Примера Дивизион (Чили)
+    "soccer_conmebol_copa_libertadores", # Копа Либертадорес
+    "soccer_conmebol_copa_sudamericana", # Копа Судамерикана
+    
+    # --- Североамериканские лиги ---
+    "soccer_usa_mls",                # MLS (США/Канада)
+    "soccer_mexico_ligamx",          # Лига MX (Мексика)
+    
+    # --- Азиатские лиги ---
+    "soccer_japan_j_league",         # J League (Япония)
+    "soccer_korea_kleague1",         # K League 1 (Корея)
+    "soccer_china_superleague",      # Суперлига (Китай)
+    
+    # --- Океания ---
+    "soccer_australia_aleague",      # A-League (Австралия)
+]
+
+# Список лиг для сбора матчей (можно переопределить через FOOTBALL_LEAGUES в .env)
+# Формат: "soccer_epl,soccer_spain_la_liga,soccer_germany_bundesliga" и т.д.
+# Если не указано, используется список по умолчанию ниже
+# 
+# ВАЖНО: Для отладки используем только 3 лиги, чтобы не выйти за лимит запросов API
+# Чтобы включить все лиги, раскомментируйте нужные строки ниже
+DEFAULT_FOOTBALL_LEAGUES = [
+    "soccer_epl",                    # Английская Премьер-лига
+    "soccer_uefa_champs_league",     # Лига Чемпионов
+    "soccer_uefa_europa_league",     # Лига Европы
+    # --- Раскомментируйте для включения остальных лиг ---
+    # "soccer_spain_la_liga",          # Ла Лига (Испания)
+    # "soccer_italy_serie_a",          # Серия A (Италия)
+    # "soccer_germany_bundesliga",     # Бундеслига (Германия)
+    # "soccer_france_ligue_one",       # Лига 1 (Франция)
+    # "soccer_netherlands_eredivisie", # Эредивизи (Нидерланды)
+    # "soccer_portugal_primeira_liga", # Примейра Лига (Португалия)
+    # "soccer_spl",                    # Премьершип (Шотландия)
+    # "soccer_efl_champ",              # Чемпионшип (Англия)
+    # "soccer_spain_segunda_division", # Ла Лига 2 (Испания)
+    # "soccer_italy_serie_b",          # Серия B (Италия)
+    # "soccer_germany_bundesliga2",    # Бундеслига 2 (Германия)
+    # "soccer_germany_liga3",          # 3. Лига (Германия)
+    # "soccer_france_ligue_two",       # Лига 2 (Франция)
+    # "soccer_england_league1",        # Лига 1 (Англия)
+    # "soccer_england_league2",        # Лига 2 (Англия)
+    # "soccer_belgium_first_div",      # Первый дивизион (Бельгия)
+    # "soccer_austria_bundesliga",     # Бундеслига (Австрия)
+    # "soccer_switzerland_superleague", # Суперлига (Швейцария)
+    # "soccer_greece_super_league",    # Суперлига (Греция)
+    # "soccer_turkey_super_league",    # Суперлига (Турция)
+    # "soccer_poland_ekstraklasa",     # Экстракласса (Польша)
+    # "soccer_denmark_superliga",      # Суперлига (Дания)
+    # "soccer_norway_eliteserien",     # Элитсериен (Норвегия)
+    # "soccer_sweden_allsvenskan",     # Алльсвенскан (Швеция)
+    # "soccer_sweden_superettan",      # Суперэттан (Швеция)
+    # "soccer_finland_veikkausliiga",  # Вейккауслига (Финляндия)
+    # "soccer_uefa_europa_conference_league", # Лига Конференций
+    # "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
+    # "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
+    # "soccer_brazil_campeonato",      # Серия A (Бразилия)
+    # "soccer_brazil_serie_b",         # Серия B (Бразилия)
+    # "soccer_chile_campeonato",       # Примера Дивизион (Чили)
+    # "soccer_conmebol_copa_libertadores", # Копа Либертадорес
+    # "soccer_conmebol_copa_sudamericana", # Копа Судамерикана
+    # "soccer_usa_mls",                # MLS (США/Канада)
+    # "soccer_mexico_ligamx",          # Лига MX (Мексика)
+    # "soccer_japan_j_league",         # J League (Япония)
+    # "soccer_korea_kleague1",         # K League 1 (Корея)
+    # "soccer_china_superleague",      # Суперлига (Китай)
+    # "soccer_australia_aleague",      # A-League (Австралия)
 ]
 
 # Глобальный экземпляр менеджера
@@ -303,7 +405,16 @@ class FootballManager:
                                 print(f"[Football] Добавлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
                     else:
                         # Коэффициент > 1.30 - удаляем из БД, если существует
+                        # НО: не удаляем, если bet уже установлен (ставка сделана)
                         if match_exists:
+                            # Проверяем, есть ли у матча значение bet
+                            bet_value = self._get_match_bet_value(fixture_id)
+                            if bet_value is not None:
+                                # У матча уже есть ставка (bet не null), не удаляем
+                                print(f"[Football] Матч {match_data.get('home_team')} vs {match_data.get('away_team')} имеет bet={bet_value}, не удаляем даже при кэф {fav_info['odds']} > 1.30")
+                                continue
+                            
+                            # bet не установлен, можно удалить
                             success = self._delete_match(fixture_id)
                             if success:
                                 stats['deleted'] += 1
@@ -512,6 +623,32 @@ class FootballManager:
         except sqlite3.Error as e:
             print(f"[Football ERROR] Ошибка проверки существования матча: {e}")
             return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _get_match_bet_value(self, fixture_id: str) -> Optional[int]:
+        """
+        Получает значение bet для матча.
+
+        Args:
+            fixture_id: ID матча из API
+
+        Returns:
+            Значение bet или None, если матч не найден или bet не установлен
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT bet FROM matches WHERE fixture_id = ?", (fixture_id,))
+            row = cursor.fetchone()
+            if row and row[0] is not None:
+                return row[0]
+            return None
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка получения bet для матча: {e}")
+            return None
         finally:
             if conn:
                 conn.close()
