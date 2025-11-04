@@ -145,15 +145,24 @@ class FootballManager:
             print(f"[Football ERROR] Ошибка парсинга JSON: {e}")
             return None
 
-    def collect_tomorrow_matches(self) -> int:
+    def sync_matches(self) -> Dict[str, int]:
         """
-        Собирает матчи на завтра с коэффициентами <= 1.30.
-        Максимум 64 матча.
+        Синхронизирует матчи из API с БД.
+        Собирает ВСЕ матчи из API, независимо от даты.
+        Обновляет существующие матчи, удаляет матчи с коэффициентами > 1.30.
         
         Returns:
-            Количество добавленных матчей
+            Словарь со статистикой: {'added': int, 'updated': int, 'deleted': int}
         """
-        print("[Football] Начинаем сбор матчей на завтра")
+        print("[Football] Начинаем синхронизацию матчей")
+        
+        stats = {
+            'added': 0,
+            'updated': 0,
+            'deleted': 0,
+            'skipped_no_fav': 0,
+            'skipped_past': 0
+        }
         
         try:
             # The Odds API отдает сразу матчи с коэффициентами
@@ -165,29 +174,25 @@ class FootballManager:
                 "oddsFormat": "decimal"
             }
             
-            data = self._make_api_request("/sports/soccer_epl/odds", params)
+            data = self._make_api_request("/sports/soccer_epl/odds", params)    
             
             if not data:
-                print("[Football] Нет матчей на завтра или ошибка запроса")
-                return 0
+                print("[Football] Нет матчей или ошибка запроса")     
+                return stats
             
             print(f"[Football] Получено {len(data)} матчей от API")
             
-            # Фильтруем матчи на ближайшие дни (для теста - ближайшие 7 дней, включая завтра)
             now = datetime.now()
-            tomorrow = now + timedelta(days=1)
-            tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
-            # Для теста расширяем до 7 дней вперед
-            days_ahead = now + timedelta(days=7)
-            tomorrow_end = days_ahead.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-            added_count = 0
-            skipped_date = 0
-            skipped_odds = 0
-            skipped_no_fav = 0
+            fixture_ids_from_api = set()  # Для отслеживания матчей из API
 
             for match_data in data:
-                # Проверяем дату матча
+                fixture_id = match_data.get('id')
+                if not fixture_id:
+                    continue
+                    
+                fixture_ids_from_api.add(fixture_id)
+                
+                # Проверяем дату матча (пропускаем только матчи в прошлом)
                 commence_time = match_data.get('commence_time')
                 if not commence_time:
                     continue
@@ -195,58 +200,70 @@ class FootballManager:
                 # Парсим время начала матча
                 try:
                     match_dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
-                    # Приводим к локальному времени
                     match_dt = match_dt.replace(tzinfo=None)
                 except Exception as e:
-                    print(f"[Football] Ошибка парсинга времени матча: {e}")
+                    print(f"[Football] Ошибка парсинга времени матча: {e}")     
                     continue
 
-                # Проверяем что матч в будущем (не в прошлом)
+                # Пропускаем матчи в прошлом
                 if match_dt < now:
-                    skipped_date += 1
-                    continue
-
-                # Проверяем что матч в диапазоне ближайших дней
-                if not (tomorrow_start <= match_dt <= tomorrow_end):
-                    skipped_date += 1
-                    if skipped_date <= 3:  # Логируем первые 3 для примера
-                        print(f"[Football] Матч {match_data.get('home_team')} vs {match_data.get('away_team')}: дата {match_dt.date()} не попадает в диапазон ({tomorrow_start.date()} - {tomorrow_end.date()})")
+                    stats['skipped_past'] += 1
                     continue
 
                 # Определяем фаворита
                 fav_info = self._determine_favorite(match_data)
                 if not fav_info:
-                    skipped_no_fav += 1
-                    print(f"[Football] Не удалось определить фаворита для матча {match_data.get('id')} ({match_data.get('home_team')} vs {match_data.get('away_team')})")
+                    stats['skipped_no_fav'] += 1
+                    print(f"[Football] Не удалось определить фаворита для матча {fixture_id} ({match_data.get('home_team')} vs {match_data.get('away_team')})")
                     continue
 
-                # Проверяем коэффициент <= 1.30
-                if fav_info['odds'] > 1.30:
-                    skipped_odds += 1
-                    if skipped_odds <= 3:  # Логируем первые 3 для примера
-                        print(f"[Football] Матч {match_data.get('id')}: коэффициент {fav_info['odds']} > 1.30, пропускаем")
-                    continue
-                
-                # Сохраняем в БД
-                success = self._save_match(match_data, fav_info)
-                if success:
-                    added_count += 1
-                    print(f"[Football] Добавлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
-                
-                # Ограничение 64 матча
-                if added_count >= 64:
-                    print(f"[Football] Достигнут лимит 64 матча")
-                    break
-            
-            print(f"[Football] Сбор завершен: добавлено {added_count} матчей")
-            print(f"[Football] Статистика пропущенных: по дате={skipped_date}, по коэффициентам={skipped_odds}, нет фаворита={skipped_no_fav}")
-            return added_count
+                # Проверяем, существует ли матч в БД
+                match_exists = self._match_exists(fixture_id)
+
+                # Если коэффициент <= 1.30 - добавляем/обновляем
+                if fav_info['odds'] <= 1.30:
+                    if match_exists:
+                        # Обновляем существующий матч
+                        success = self._update_match(fixture_id, fav_info, match_data)
+                        if success:
+                            stats['updated'] += 1
+                            print(f"[Football] Обновлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, новый кэф: {fav_info['odds']}")
+                    else:
+                        # Добавляем новый матч
+                        success = self._save_match(match_data, fav_info)
+                        if success:
+                            stats['added'] += 1
+                            print(f"[Football] Добавлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
+                else:
+                    # Коэффициент > 1.30 - удаляем из БД, если существует
+                    if match_exists:
+                        success = self._delete_match(fixture_id)
+                        if success:
+                            stats['deleted'] += 1
+                            print(f"[Football] Удален матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф {fav_info['odds']} > 1.30")
+
+            # Удаляем матчи из БД, которых больше нет в API (опционально, если нужно)
+            # Пока не реализовано, так как API может не возвращать все матчи
+
+            print(f"[Football] Синхронизация завершена: добавлено={stats['added']}, обновлено={stats['updated']}, удалено={stats['deleted']}, пропущено (нет фаворита)={stats['skipped_no_fav']}, пропущено (прошлое)={stats['skipped_past']}")
+            return stats
             
         except Exception as e:
-            print(f"[Football ERROR] Ошибка при сборе матчей: {e}")
+            print(f"[Football ERROR] Ошибка при синхронизации матчей: {e}")
             import traceback
             print(traceback.format_exc())
-            return 0
+            return stats
+
+    def collect_tomorrow_matches(self) -> int:
+        """
+        Алиас для sync_matches для обратной совместимости.
+        Теперь использует sync_matches.
+        
+        Returns:
+            Количество добавленных матчей
+        """
+        stats = self.sync_matches()
+        return stats['added']
 
     def _determine_favorite(self, match_data: Dict) -> Optional[Dict]:
         """
@@ -391,18 +408,116 @@ class FootballManager:
                 1 if fav_info['is_home'] else 0,  # fav_team_id: 1=home, 0=away
                 match_date,
                 match_time,
-                fav_info['odds'],
+                                fav_info['odds'],
                 'scheduled'
             ))
-            
+
             conn.commit()
             return True
-            
+
         except sqlite3.Error as e:
             print(f"[Football ERROR] Ошибка сохранения матча: {e}")
             return False
         except Exception as e:
             print(f"[Football ERROR] Неожиданная ошибка: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _match_exists(self, fixture_id: str) -> bool:
+        """
+        Проверяет, существует ли матч в БД.
+
+        Args:
+            fixture_id: ID матча из API
+
+        Returns:
+            True если матч существует, False если нет
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM matches WHERE fixture_id = ?", (fixture_id,))
+            return cursor.fetchone() is not None
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка проверки существования матча: {e}")
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _update_match(self, fixture_id: str, fav_info: Dict, match_data: Dict) -> bool:
+        """
+        Обновляет коэффициент существующего матча.
+
+        Args:
+            fixture_id: ID матча из API
+            fav_info: Информация о фаворите
+            match_data: Данные матча от API
+
+        Returns:
+            True если успешно, False если ошибка
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            # Обновляем только коэффициент, фаворита и время обновления
+            cursor.execute("""
+                UPDATE matches 
+                SET fav = ?, fav_team_id = ?, initial_odds = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE fixture_id = ?
+            """, (
+                fav_info['team'],
+                1 if fav_info['is_home'] else 0,
+                fav_info['odds'],
+                fixture_id
+            ))
+
+            conn.commit()
+            return True
+
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка обновления матча: {e}")
+            return False
+        except Exception as e:
+            print(f"[Football ERROR] Неожиданная ошибка при обновлении: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _delete_match(self, fixture_id: str) -> bool:
+        """
+        Удаляет матч из БД.
+
+        Args:
+            fixture_id: ID матча из API
+
+        Returns:
+            True если успешно, False если ошибка
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM matches WHERE fixture_id = ?", (fixture_id,))
+            conn.commit()
+            return True
+
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка удаления матча: {e}")
+            return False
+        except Exception as e:
+            print(f"[Football ERROR] Неожиданная ошибка при удалении: {e}")
             import traceback
             print(traceback.format_exc())
             return False
