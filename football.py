@@ -1602,10 +1602,10 @@ class FootballManager:
                         )
                         conn.commit()
 
-                    # Проверяем 60-я минута (с допуском ±5 минут)
+                    # Проверяем 60-я минута (минимум 55 минут, верхнее ограничение убрано для тестирования)
                     # Обрабатываем только необработанные матчи (bet IS NULL)
-                    if 55 <= minutes_diff <= 65:
-                        print(f"[Football] Матч {fixture_id} в диапазоне 60-й минуты (прошло {minutes_diff:.1f} минут). Собираем статистику и обрабатываем...")
+                    if minutes_diff >= 55:
+                        print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут (>= 55). Собираем статистику и обрабатываем...")
                         try:
                             self._collect_60min_stats(match)
                         except Exception as e:
@@ -1618,18 +1618,13 @@ class FootballManager:
                                 (match_id,)
                             )
                             conn.commit()
-                    elif minutes_diff < 55:
-                        # Матч еще не достиг диапазона 55-65 минут - оставляем bet = NULL для следующей проверки
-                        print(f"[Football] Матч {fixture_id} еще не достиг 60-й минуты - прошло {minutes_diff:.1f} минут (меньше 55). Оставляем для следующей проверки.")
-                        # Не трогаем bet - оставляем NULL
                     else:
-                        # Матч уже прошел 65 минут - помечаем как пропущенный
-                        print(f"[Football] Матч {fixture_id} пропущен - прошло {minutes_diff:.1f} минут (больше 65). Устанавливаем bet = -1")
-                        cursor.execute(
-                            "UPDATE matches SET bet = -1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (match_id,)
-                        )
-                        conn.commit()
+                        # Матч еще не достиг 55 минут или еще не начался - оставляем bet = NULL для следующей проверки
+                        if minutes_diff < 0:
+                            print(f"[Football] Матч {fixture_id} еще не начался - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
+                        else:
+                            print(f"[Football] Матч {fixture_id} еще не достиг 55 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
+                        # Не трогаем bet - оставляем NULL
 
                 except Exception as e:
                     print(f"[Football ERROR] Ошибка проверки матча на 60-ю минуту {fixture_id}: {e}")
@@ -1994,10 +1989,18 @@ class FootballManager:
             # Парсим статистику из SofaScore
             stats = self._parse_sofascore_statistics(stats_data, match)
 
-            # Проверяем условия и записываем bet
-            bet_value, live_odds_value = self._calculate_bet(match, stats, fixture_id)
+            # ВСЕГДА запрашиваем live_odds, независимо от условий
+            print(f"[Football] Запрашиваем live odds для матча {fixture_id}...")
+            live_odds_value = self._get_live_odds(fixture_id)
+            if live_odds_value:
+                print(f"[Football] Получены live odds для {fixture_id}: {live_odds_value}")
+            else:
+                print(f"[Football] Не удалось получить live odds для {fixture_id}")
 
-            # Сохраняем в БД
+            # Проверяем условия и записываем bet
+            bet_value, _ = self._calculate_bet(match, stats, fixture_id)
+
+            # Сохраняем в БД (всегда сохраняем live_odds, даже если условия не выполнены)
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
