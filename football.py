@@ -224,6 +224,11 @@ class FootballManager:
         
         self.api_key = ODDS_API_KEY
         
+        # Переменные для отслеживания лимитов API (в памяти)
+        self.requests_remaining = None
+        self.requests_used = None
+        self.requests_last_cost = None
+        
         # Получаем список лиг для сбора (из переменной окружения или по умолчанию)
         leagues_env = os.getenv("FOOTBALL_LEAGUES")
         if leagues_env:
@@ -237,7 +242,76 @@ class FootballManager:
         # Инициализируем БД
         init_football_db()
         
+        # Получаем начальные значения лимитов через запрос к /sports
+        self._initialize_api_limits()
+        
         print("[Football] Менеджер инициализирован")
+
+    def _extract_api_limits_from_headers(self, response: requests.Response):
+        """
+        Извлекает лимиты API из заголовков ответа и обновляет переменные класса.
+        
+        Args:
+            response: Объект ответа от requests
+        """
+        try:
+            # Извлекаем заголовки (API использует lowercase заголовки)
+            remaining = response.headers.get('x-requests-remaining')
+            used = response.headers.get('x-requests-used')
+            last_cost = response.headers.get('x-requests-last')
+            
+            if remaining is not None:
+                try:
+                    self.requests_remaining = int(remaining)
+                except (ValueError, TypeError):
+                    pass
+            
+            if used is not None:
+                try:
+                    self.requests_used = int(used)
+                except (ValueError, TypeError):
+                    pass
+            
+            if last_cost is not None:
+                try:
+                    self.requests_last_cost = int(last_cost)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Логируем текущие значения лимитов
+            if self.requests_remaining is not None:
+                print(f"[Football API Limits] Осталось запросов: {self.requests_remaining}, Использовано: {self.requests_used}, Стоимость последнего: {self.requests_last_cost}")
+                
+                # Предупреждение при низком лимите
+                if self.requests_remaining < 50:
+                    print(f"[Football WARNING] Критически низкий лимит запросов: {self.requests_remaining}")
+                elif self.requests_remaining < 100:
+                    print(f"[Football WARNING] Низкий лимит запросов: {self.requests_remaining}")
+                    
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка извлечения лимитов из заголовков: {e}")
+
+    def _initialize_api_limits(self):
+        """
+        Инициализирует начальные значения лимитов API через запрос к /sports.
+        Вызывается при старте приложения.
+        """
+        try:
+            print("[Football] Получение начальных значений лимитов API через запрос к /sports...")
+            params = {'apiKey': self.api_key}
+            
+            url = f"{ODDS_API_URL}/sports"
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            
+            # Извлекаем лимиты из заголовков
+            self._extract_api_limits_from_headers(response)
+            
+            print(f"[Football] Начальные лимиты API установлены: осталось={self.requests_remaining}, использовано={self.requests_used}")
+            
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка инициализации лимитов API: {e}")
+            # Не падаем, если не удалось получить лимиты - продолжим без них
 
     def _make_api_request(self, endpoint: str, params: dict) -> Optional[list]:
         """
@@ -259,6 +333,9 @@ class FootballManager:
             
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
+            
+            # Извлекаем и обновляем лимиты из заголовков ответа
+            self._extract_api_limits_from_headers(response)
             
             data = response.json()
             
@@ -1014,7 +1091,7 @@ def check_matches_and_collect_task():
 def get_all_matches() -> List[Dict[str, Any]]:
     """
     Получает все матчи для UI.
-    
+
     Returns:
         Список матчей
     """
@@ -1022,19 +1099,42 @@ def get_all_matches() -> List[Dict[str, Any]]:
     try:
         conn = get_football_db_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute("""
-            SELECT * FROM matches 
+            SELECT * FROM matches
             ORDER BY match_date DESC, match_time DESC
         """)
-        
+
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
-        
+
     except sqlite3.Error as e:
         print(f"[Football ERROR] Ошибка получения матчей: {e}")
         return []
     finally:
         if conn:
             conn.close()
+
+
+def get_api_limits() -> Dict[str, Any]:
+    """
+    Получает текущие лимиты API для UI.
+
+    Returns:
+        Словарь с информацией о лимитах API
+    """
+    try:
+        manager = get_manager()
+        return {
+            'requests_remaining': manager.requests_remaining,
+            'requests_used': manager.requests_used,
+            'requests_last_cost': manager.requests_last_cost
+        }
+    except Exception as e:
+        print(f"[Football ERROR] Ошибка получения лимитов API: {e}")
+        return {
+            'requests_remaining': None,
+            'requests_used': None,
+            'requests_last_cost': None
+        }
 

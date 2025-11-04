@@ -2294,6 +2294,36 @@ def api_get_football_matches():
         print(f"[Football API] Ошибка получения матчей: {e}")
         return jsonify({'error': f'Ошибка получения матчей: {str(e)}'}), 500
 
+@app.route('/api/football/limits', methods=['GET'])
+def api_get_football_limits():
+    """API эндпойнт для получения лимитов API."""
+    try:
+        limits = football.get_api_limits()
+        return jsonify({
+            'success': True,
+            'limits': limits
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка получения лимитов: {e}")
+        return jsonify({'error': f'Ошибка получения лимитов: {str(e)}'}), 500
+
+@app.route('/api/football/sync', methods=['POST'])
+def api_sync_football_matches():
+    """API эндпойнт для запуска синхронизации матчей с API."""
+    try:
+        manager = football.get_manager()
+        stats = manager.sync_matches()
+        return jsonify({
+            'success': True,
+            'message': 'Синхронизация завершена',
+            'stats': stats
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка синхронизации: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Ошибка синхронизации: {str(e)}'}), 500
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ ФУТБОЛА ---
 
 @app.route('/books', methods=['GET'])

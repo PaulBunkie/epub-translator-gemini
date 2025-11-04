@@ -71,15 +71,90 @@
             font-size: 0.85rem;
             max-width: 300px;
         }
+        
+        .api-limits-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .api-limits-card h5 {
+            color: white;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        
+        .limits-row {
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .limit-item {
+            text-align: center;
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .limit-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .limit-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .limit-warning {
+            color: #ffc107;
+        }
+        
+        .limit-critical {
+            color: #dc3545;
+        }
+        
+        .limit-ok {
+            color: #28a745;
+        }
     </style>
 </head>
 <body>
     <div class="main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h1><i class="fas fa-futbol"></i> Анализ футбольных матчей</h1>
-            <button class="btn btn-primary" onclick="loadMatches()">
-                <i class="fas fa-sync-alt"></i> Обновить
-            </button>
+            <div>
+                <button class="btn btn-primary" id="sync-button" onclick="syncAndLoad()">
+                    <i class="fas fa-sync-alt" id="sync-icon"></i> <span id="sync-text">Обновить</span>
+                </button>
+                <div class="spinner-border spinner-border-sm text-primary ms-2" id="sync-spinner" role="status" style="display: none;">
+                    <span class="visually-hidden">Синхронизация...</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Блок лимитов API -->
+        <div class="api-limits-card" id="api-limits-card">
+            <h5><i class="fas fa-chart-line"></i> Лимиты API The Odds API</h5>
+            <div class="limits-row" id="limits-row">
+                <div class="limit-item">
+                    <div class="limit-value" id="limit-remaining">-</div>
+                    <div class="limit-label">Осталось запросов</div>
+                </div>
+                <div class="limit-item">
+                    <div class="limit-value" id="limit-used">-</div>
+                    <div class="limit-label">Использовано</div>
+                </div>
+                <div class="limit-item">
+                    <div class="limit-value" id="limit-cost">-</div>
+                    <div class="limit-label">Стоимость последнего</div>
+                </div>
+            </div>
         </div>
         
         <div id="loading" class="text-center my-5">
@@ -116,6 +191,111 @@
     </div>
 
     <script>
+        function syncAndLoad() {
+            const syncButton = document.getElementById('sync-button');
+            const syncIcon = document.getElementById('sync-icon');
+            const syncText = document.getElementById('sync-text');
+            const syncSpinner = document.getElementById('sync-spinner');
+            
+            // Блокируем кнопку и показываем спиннер
+            syncButton.disabled = true;
+            syncIcon.style.display = 'none';
+            syncText.textContent = 'Синхронизация...';
+            syncSpinner.style.display = 'inline-block';
+            
+            // Запускаем синхронизацию
+            fetch('/api/football/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Синхронизация завершена:', data.stats);
+                    // После успешной синхронизации загружаем обновленные данные
+                    loadMatches();
+                    loadLimits();
+                } else {
+                    console.error('Ошибка синхронизации:', data.error);
+                    alert('Ошибка синхронизации: ' + (data.error || 'Неизвестная ошибка'));
+                    // Всё равно обновляем данные, возможно там есть старые
+                    loadMatches();
+                    loadLimits();
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка запроса синхронизации:', error);
+                alert('Ошибка синхронизации: ' + error.message);
+                // Всё равно обновляем данные
+                loadMatches();
+                loadLimits();
+            })
+            .finally(() => {
+                // Восстанавливаем кнопку
+                syncButton.disabled = false;
+                syncIcon.style.display = 'inline';
+                syncText.textContent = 'Обновить';
+                syncSpinner.style.display = 'none';
+            });
+        }
+        
+        function loadLimits() {
+            fetch('/api/football/limits')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.limits) {
+                        const limits = data.limits;
+                        
+                        // Осталось запросов
+                        const remainingEl = document.getElementById('limit-remaining');
+                        if (limits.requests_remaining !== null && limits.requests_remaining !== undefined) {
+                            remainingEl.textContent = limits.requests_remaining;
+                            
+                            // Цвет в зависимости от количества
+                            remainingEl.className = 'limit-value';
+                            if (limits.requests_remaining < 50) {
+                                remainingEl.classList.add('limit-critical');
+                            } else if (limits.requests_remaining < 100) {
+                                remainingEl.classList.add('limit-warning');
+                            } else {
+                                remainingEl.classList.add('limit-ok');
+                            }
+                        } else {
+                            remainingEl.textContent = 'N/A';
+                            remainingEl.className = 'limit-value';
+                        }
+                        
+                        // Использовано
+                        const usedEl = document.getElementById('limit-used');
+                        if (limits.requests_used !== null && limits.requests_used !== undefined) {
+                            usedEl.textContent = limits.requests_used;
+                            usedEl.className = 'limit-value';
+                        } else {
+                            usedEl.textContent = 'N/A';
+                            usedEl.className = 'limit-value';
+                        }
+                        
+                        // Стоимость последнего запроса
+                        const costEl = document.getElementById('limit-cost');
+                        if (limits.requests_last_cost !== null && limits.requests_last_cost !== undefined) {
+                            costEl.textContent = limits.requests_last_cost;
+                            costEl.className = 'limit-value';
+                        } else {
+                            costEl.textContent = 'N/A';
+                            costEl.className = 'limit-value';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading API limits:', error);
+                    document.getElementById('limit-remaining').textContent = 'Ошибка';
+                    document.getElementById('limit-used').textContent = 'Ошибка';
+                    document.getElementById('limit-cost').textContent = 'Ошибка';
+                });
+        }
+        
         function loadMatches() {
             document.getElementById('loading').style.display = 'block';
             document.getElementById('matches-container').style.display = 'none';
@@ -184,8 +364,9 @@
             });
         }
 
-        // Загружаем матчи при загрузке страницы
+        // Загружаем матчи и лимиты при загрузке страницы
         loadMatches();
+        loadLimits();
     </script>
 </body>
 </html>
