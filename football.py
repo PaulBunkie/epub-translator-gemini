@@ -2,7 +2,7 @@ import sqlite3
 import requests
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 import os
 from dotenv import load_dotenv
@@ -106,9 +106,9 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
 # ВАЖНО: Для отладки используем только 3 лиги, чтобы не выйти за лимит запросов API
 # Чтобы включить все лиги, раскомментируйте нужные строки ниже
 DEFAULT_FOOTBALL_LEAGUES = [
-    #"soccer_epl",                    # Английская Премьер-лига
+    "soccer_epl",                    # Английская Премьер-лига
     "soccer_uefa_champs_league",     # Лига Чемпионов
-    #"soccer_uefa_europa_league",     # Лига Европы
+    "soccer_uefa_europa_league",     # Лига Европы
     # --- Раскомментируйте для включения остальных лиг ---
     # "soccer_spain_la_liga",          # Ла Лига (Испания)
     # "soccer_italy_serie_a",          # Серия A (Италия)
@@ -136,7 +136,7 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_sweden_allsvenskan",     # Алльсвенскан (Швеция)
     # "soccer_sweden_superettan",      # Суперэттан (Швеция)
     # "soccer_finland_veikkausliiga",  # Вейккауслига (Финляндия)
-    # "soccer_uefa_europa_conference_league", # Лига Конференций
+    "soccer_uefa_europa_conference_league", # Лига Конференций
     # "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
     # "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
     # "soccer_brazil_campeonato",      # Серия A (Бразилия)
@@ -739,9 +739,11 @@ class FootballManager:
             home_normalized = self._normalize_team_name(home_team_odds)
             away_normalized = self._normalize_team_name(away_team_odds)
             
-            # Парсим время матча из БД
+            # Парсим время матча из БД (в UTC, но без tzinfo)
             try:
-                match_datetime = datetime.strptime(f"{match_date} {match_time}", "%Y-%m-%d %H:%M")
+                match_datetime_naive = datetime.strptime(f"{match_date} {match_time}", "%Y-%m-%d %H:%M")
+                # Добавляем UTC часовой пояс, так как время в БД сохранено в UTC
+                match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
             except Exception as e:
                 print(f"[Football SofaScore] Ошибка парсинга времени матча: {e}")
                 return None
@@ -765,7 +767,8 @@ class FootballManager:
                         continue
                     
                     try:
-                        event_datetime = datetime.fromtimestamp(start_timestamp)
+                        # startTimestamp от SofaScore - это Unix timestamp в UTC
+                        event_datetime = datetime.fromtimestamp(start_timestamp, tz=timezone.utc)
                         time_diff_seconds = abs((match_datetime - event_datetime).total_seconds())
                         time_diff_minutes = time_diff_seconds / 60
                         
@@ -881,7 +884,8 @@ class FootballManager:
                 for event in sofascore_events:
                     event_time = event.get('startTimestamp')
                     if event_time:
-                        event_dt = datetime.fromtimestamp(event_time)
+                        # startTimestamp от SofaScore - это Unix timestamp в UTC
+                        event_dt = datetime.fromtimestamp(event_time, tz=timezone.utc)
                         time_diff = abs((match_datetime - event_dt).total_seconds()) / 60
                         if time_diff <= 60:  # В пределах часа
                             event_home = event.get('homeTeam', {}).get('name', 'N/A')
@@ -900,7 +904,8 @@ class FootballManager:
                         event_away = event.get('awayTeam', {}).get('name', 'N/A')
                         event_time = event.get('startTimestamp')
                         if event_time:
-                            event_dt = datetime.fromtimestamp(event_time)
+                            # startTimestamp от SofaScore - это Unix timestamp в UTC
+                            event_dt = datetime.fromtimestamp(event_time, tz=timezone.utc)
                             time_diff = abs((match_datetime - event_dt).total_seconds()) / 60
                             print(f"[Football SofaScore DEBUG 2nd pass]   Событие {idx+1}: {event_home} vs {event_away}, время: {event_dt}, разница: {time_diff:.1f} мин")
                         else:
@@ -1309,11 +1314,13 @@ class FootballManager:
                 print(f"[Football] Нет названий команд для матча {event_id}")
                 return False
             
-            # Дата и время матча
+            # Дата и время матча (в UTC от The Odds API)
             commence_time = match_data.get('commence_time')
             if commence_time:
+                # Парсим UTC время от The Odds API
                 dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
-                # Приводим к локальному времени
+                # Сохраняем в UTC (без tzinfo для совместимости с текстовыми полями БД)
+                # ВАЖНО: время в БД хранится в UTC, при чтении нужно добавлять timezone.utc
                 dt = dt.replace(tzinfo=None)
                 match_date = dt.strftime('%Y-%m-%d')
                 match_time = dt.strftime('%H:%M')
@@ -1511,9 +1518,13 @@ class FootballManager:
                 match_datetime_str = f"{match['match_date']} {match['match_time']}"
                 
                 try:
-                    # Парсим дату и время
-                    match_datetime = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
-                    now = datetime.now()
+                    # Парсим дату и время из БД (они в UTC, но без tzinfo)
+                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
+                    # Добавляем UTC часовой пояс, так как время в БД сохранено в UTC
+                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
+                    
+                    # Используем UTC время для сравнения (независимо от часового пояса сервера)
+                    now = datetime.now(timezone.utc)
                     
                     # Вычисляем разницу во времени
                     time_diff = now - match_datetime
