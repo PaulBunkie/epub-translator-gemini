@@ -215,6 +215,15 @@
                     </thead>
                     <tbody id="matches-table-body">
                     </tbody>
+                    <tfoot id="totals-row" style="display: none;">
+                        <tr style="background-color: #f8f9fa; font-weight: bold;">
+                            <td colspan="5" style="text-align: right;">Итого:</td>
+                            <td id="total-k0" class="odds">-</td>
+                            <td id="total-k1" class="odds">-</td>
+                            <td id="total-k60" class="odds">-</td>
+                            <td colspan="4"></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             <div id="empty-state" class="text-center my-5" style="display: none;">
@@ -451,6 +460,59 @@
                 });
         }
 
+        function calculateTotals(matches) {
+            let sumK0 = 0;
+            let sumK1 = 0;
+            let sumK60 = 0;
+            
+            matches.forEach(match => {
+                // Пропускаем незавершенные матчи
+                if (match.status !== 'finished') {
+                    return;
+                }
+                
+                // Если фаворит выиграл (fav_won === 1), добавляем коэффициент
+                // Если проиграл или ничья (fav_won !== 1), вычитаем 1
+                if (match.fav_won === 1) {
+                    // Фаворит выиграл - добавляем коэффициент
+                    if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
+                        sumK0 += parseFloat(match.initial_odds);
+                    }
+                    if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
+                        sumK1 += parseFloat(match.last_odds);
+                    }
+                    if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
+                        sumK60 += parseFloat(match.live_odds);
+                    }
+                } else {
+                    // Фаворит проиграл или ничья - вычитаем 1
+                    sumK0 -= 1;
+                    sumK1 -= 1;
+                    sumK60 -= 1;
+                }
+            });
+            
+            // Обновляем строку итогов
+            const totalsRow = document.getElementById('totals-row');
+            const totalK0El = document.getElementById('total-k0');
+            const totalK1El = document.getElementById('total-k1');
+            const totalK60El = document.getElementById('total-k60');
+            
+            if (totalsRow && totalK0El && totalK1El && totalK60El) {
+                totalK0El.textContent = sumK0.toFixed(2);
+                totalK1El.textContent = sumK1.toFixed(2);
+                totalK60El.textContent = sumK60.toFixed(2);
+                
+                // Показываем строку итогов только если есть завершенные матчи
+                const finishedMatches = matches.filter(m => m.status === 'finished');
+                if (finishedMatches.length > 0) {
+                    totalsRow.style.display = '';
+                } else {
+                    totalsRow.style.display = 'none';
+                }
+            }
+        }
+
         function displayMatches(matches) {
             const tbody = document.getElementById('matches-table-body');
             tbody.innerHTML = '';
@@ -496,6 +558,9 @@
                 
                 tbody.appendChild(row);
             });
+            
+            // Рассчитываем и отображаем итоги
+            calculateTotals(matches);
         }
 
         // Загружаем матчи и лимиты при загрузке страницы
