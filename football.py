@@ -15,6 +15,21 @@ FOOTBALL_DATABASE_FILE = str(FOOTBALL_DB_FILE)
 ODDS_API_KEY = os.getenv("ODDS_API_KEY")
 ODDS_API_URL = "https://api.the-odds-api.com/v4"
 
+# Список лиг для сбора матчей (можно переопределить через FOOTBALL_LEAGUES в .env)
+# Формат: "soccer_epl,soccer_spain_la_liga,soccer_germany_bundesliga" и т.д.
+# Если не указано, используется список по умолчанию (топ-лиги)
+DEFAULT_FOOTBALL_LEAGUES = [
+    "soccer_epl",                    # Английская Премьер-лига
+    "soccer_spain_la_liga",          # Ла Лига
+    "soccer_italy_serie_a",          # Серия A
+    "soccer_germany_bundesliga",     # Бундеслига
+    "soccer_france_ligue_one",       # Лига 1
+    "soccer_netherlands_eredivisie", # Эредивизи
+    "soccer_portugal_primeira_liga", # Примейра Лига
+    "soccer_uefa_champs_league",     # Лига Чемпионов
+    "soccer_uefa_europa_league",     # Лига Европы
+]
+
 # Глобальный экземпляр менеджера
 _manager = None
 
@@ -107,6 +122,16 @@ class FootballManager:
         
         self.api_key = ODDS_API_KEY
         
+        # Получаем список лиг для сбора (из переменной окружения или по умолчанию)
+        leagues_env = os.getenv("FOOTBALL_LEAGUES")
+        if leagues_env:
+            # Парсим список лиг из переменной окружения (через запятую)
+            self.leagues = [league.strip() for league in leagues_env.split(",") if league.strip()]
+            print(f"[Football] Используются лиги из FOOTBALL_LEAGUES: {len(self.leagues)} лиг")
+        else:
+            self.leagues = DEFAULT_FOOTBALL_LEAGUES
+            print(f"[Football] Используются лиги по умолчанию: {len(self.leagues)} лиг")
+        
         # Инициализируем БД
         init_football_db()
         
@@ -145,114 +170,155 @@ class FootballManager:
             print(f"[Football ERROR] Ошибка парсинга JSON: {e}")
             return None
 
-    def sync_matches(self) -> Dict[str, int]:
+    def get_available_soccer_leagues(self) -> List[Dict[str, Any]]:
         """
-        Синхронизирует матчи из API с БД.
-        Собирает ВСЕ матчи из API, независимо от даты.
-        Обновляет существующие матчи, удаляет матчи с коэффициентами > 1.30.
+        Получает список доступных футбольных лиг из API.
         
         Returns:
-            Словарь со статистикой: {'added': int, 'updated': int, 'deleted': int}
+            Список словарей с информацией о лигах: [{'key': 'soccer_epl', 'title': 'EPL', ...}, ...]
         """
-        print("[Football] Начинаем синхронизацию матчей")
+        try:
+            data = self._make_api_request("/sports", {})
+            
+            if not data:
+                print("[Football] Не удалось получить список лиг")
+                return []
+            
+            # Фильтруем только футбольные лиги (без outrights)
+            soccer_leagues = [
+                league for league in data
+                if league.get('group') == 'Soccer' and not league.get('has_outrights', False)
+            ]
+            
+            print(f"[Football] Найдено {len(soccer_leagues)} доступных футбольных лиг")
+            return soccer_leagues
+            
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка получения списка лиг: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return []
+
+    def sync_matches(self, leagues: Optional[List[str]] = None) -> Dict[str, int]:
+        """
+        Синхронизирует матчи из API с БД.
+        Собирает ВСЕ матчи из указанных лиг, независимо от даты.
+        Обновляет существующие матчи, удаляет матчи с коэффициентами > 1.30.
+        
+        Args:
+            leagues: Список ключей лиг для сбора (например, ['soccer_epl', 'soccer_spain_la_liga']).
+                     Если None, используется список из self.leagues.
+        
+        Returns:
+            Словарь со статистикой: {'added': int, 'updated': int, 'deleted': int, ...}
+        """
+        # Используем переданный список лиг или список по умолчанию
+        leagues_to_process = leagues if leagues is not None else self.leagues
+        
+        print(f"[Football] Начинаем синхронизацию матчей из {len(leagues_to_process)} лиг")
         
         stats = {
             'added': 0,
             'updated': 0,
             'deleted': 0,
             'skipped_no_fav': 0,
-            'skipped_past': 0
+            'skipped_past': 0,
+            'leagues_processed': 0,
+            'leagues_failed': 0
         }
         
-        try:
-            # The Odds API отдает сразу матчи с коэффициентами
-            # Используем soccer_epl для английской премьер-лиги
-            params = {
-                "sport": "soccer_epl",
-                "regions": "eu",
-                "markets": "h2h",
-                "oddsFormat": "decimal"
-            }
-            
-            data = self._make_api_request("/sports/soccer_epl/odds", params)    
-            
-            if not data:
-                print("[Football] Нет матчей или ошибка запроса")     
-                return stats
-            
-            print(f"[Football] Получено {len(data)} матчей от API")
-            
-            now = datetime.now()
-            fixture_ids_from_api = set()  # Для отслеживания матчей из API
+        now = datetime.now()
+        fixture_ids_from_api = set()  # Для отслеживания матчей из API
 
-            for match_data in data:
-                fixture_id = match_data.get('id')
-                if not fixture_id:
-                    continue
-                    
-                fixture_ids_from_api.add(fixture_id)
+        # Обрабатываем каждую лигу
+        for league_key in leagues_to_process:
+            try:
+                print(f"[Football] Обрабатываем лигу: {league_key}")
                 
-                # Проверяем дату матча (пропускаем только матчи в прошлом)
-                commence_time = match_data.get('commence_time')
-                if not commence_time:
+                params = {
+                    "regions": "eu",
+                    "markets": "h2h",
+                    "oddsFormat": "decimal"
+                }
+                
+                                # Запрашиваем матчи для конкретной лиги
+                data = self._make_api_request(f"/sports/{league_key}/odds", params)
+
+                if not data:
+                    print(f"[Football] Нет матчей для лиги {league_key} или ошибка запроса")
+                    stats['leagues_failed'] += 1
                     continue
+                
+                print(f"[Football] Получено {len(data)} матчей из лиги {league_key}")
+                stats['leagues_processed'] += 1
+                
+                for match_data in data:
+                    fixture_id = match_data.get('id')
+                    if not fixture_id:
+                        continue
+                    
+                    fixture_ids_from_api.add(fixture_id)
+                    
+                    # Проверяем дату матча (пропускаем только матчи в прошлом)      
+                    commence_time = match_data.get('commence_time')
+                    if not commence_time:
+                        continue
 
-                # Парсим время начала матча
-                try:
-                    match_dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
-                    match_dt = match_dt.replace(tzinfo=None)
-                except Exception as e:
-                    print(f"[Football] Ошибка парсинга времени матча: {e}")     
-                    continue
+                    # Парсим время начала матча
+                    try:
+                        match_dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
+                        match_dt = match_dt.replace(tzinfo=None)
+                    except Exception as e:
+                        print(f"[Football] Ошибка парсинга времени матча: {e}")     
+                        continue
 
-                # Пропускаем матчи в прошлом
-                if match_dt < now:
-                    stats['skipped_past'] += 1
-                    continue
+                    # Пропускаем матчи в прошлом
+                    if match_dt < now:
+                        stats['skipped_past'] += 1
+                        continue
 
-                # Определяем фаворита
-                fav_info = self._determine_favorite(match_data)
-                if not fav_info:
-                    stats['skipped_no_fav'] += 1
-                    print(f"[Football] Не удалось определить фаворита для матча {fixture_id} ({match_data.get('home_team')} vs {match_data.get('away_team')})")
-                    continue
+                    # Определяем фаворита
+                    fav_info = self._determine_favorite(match_data)
+                    if not fav_info:
+                        stats['skipped_no_fav'] += 1
+                        print(f"[Football] Не удалось определить фаворита для матча {fixture_id} ({match_data.get('home_team')} vs {match_data.get('away_team')})")
+                        continue
 
-                # Проверяем, существует ли матч в БД
-                match_exists = self._match_exists(fixture_id)
+                    # Проверяем, существует ли матч в БД
+                    match_exists = self._match_exists(fixture_id)
 
-                # Если коэффициент <= 1.30 - добавляем/обновляем
-                if fav_info['odds'] <= 1.30:
-                    if match_exists:
-                        # Обновляем существующий матч
-                        success = self._update_match(fixture_id, fav_info, match_data)
-                        if success:
-                            stats['updated'] += 1
-                            print(f"[Football] Обновлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, новый кэф: {fav_info['odds']}")
+                    # Если коэффициент <= 1.30 - добавляем/обновляем
+                    if fav_info['odds'] <= 1.30:
+                        if match_exists:
+                            # Обновляем существующий матч
+                            success = self._update_match(fixture_id, fav_info, match_data)
+                            if success:
+                                stats['updated'] += 1
+                                print(f"[Football] Обновлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, новый кэф: {fav_info['odds']}")
+                        else:
+                            # Добавляем новый матч
+                            success = self._save_match(match_data, fav_info)
+                            if success:
+                                stats['added'] += 1
+                                print(f"[Football] Добавлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
                     else:
-                        # Добавляем новый матч
-                        success = self._save_match(match_data, fav_info)
-                        if success:
-                            stats['added'] += 1
-                            print(f"[Football] Добавлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
-                else:
-                    # Коэффициент > 1.30 - удаляем из БД, если существует
-                    if match_exists:
-                        success = self._delete_match(fixture_id)
-                        if success:
-                            stats['deleted'] += 1
-                            print(f"[Football] Удален матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф {fav_info['odds']} > 1.30")
+                        # Коэффициент > 1.30 - удаляем из БД, если существует
+                        if match_exists:
+                            success = self._delete_match(fixture_id)
+                            if success:
+                                stats['deleted'] += 1
+                                print(f"[Football] Удален матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф {fav_info['odds']} > 1.30")
+                
+            except Exception as e:
+                print(f"[Football ERROR] Ошибка при обработке лиги {league_key}: {e}")
+                stats['leagues_failed'] += 1
+                continue
 
-            # Удаляем матчи из БД, которых больше нет в API (опционально, если нужно)
-            # Пока не реализовано, так как API может не возвращать все матчи
+        # Удаляем матчи из БД, которых больше нет в API (опционально, если нужно)
+        # Пока не реализовано, так как API может не возвращать все матчи
 
-            print(f"[Football] Синхронизация завершена: добавлено={stats['added']}, обновлено={stats['updated']}, удалено={stats['deleted']}, пропущено (нет фаворита)={stats['skipped_no_fav']}, пропущено (прошлое)={stats['skipped_past']}")
-            return stats
-            
-        except Exception as e:
-            print(f"[Football ERROR] Ошибка при синхронизации матчей: {e}")
-            import traceback
-            print(traceback.format_exc())
-            return stats
+        print(f"[Football] Синхронизация завершена: лиг обработано={stats['leagues_processed']}, лиг с ошибками={stats['leagues_failed']}, добавлено={stats['added']}, обновлено={stats['updated']}, удалено={stats['deleted']}, пропущено (нет фаворита)={stats['skipped_no_fav']}, пропущено (прошлое)={stats['skipped_past']}")
+        return stats
 
     def collect_tomorrow_matches(self) -> int:
         """
