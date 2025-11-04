@@ -1845,101 +1845,159 @@ class FootballManager:
         stats = {}
         
         try:
-            # Получаем текущий счет
+            # Сохраняем весь ответ API в raw_data для полноты информации
+            stats['raw_data'] = stats_data
+
+            # Получаем текущий счет (для удобства выносим отдельно)
             home_score = stats_data.get('homeScore', {}).get('current', 0)
             away_score = stats_data.get('awayScore', {}).get('current', 0)
             stats['score'] = {
                 'home': home_score,
                 'away': away_score
             }
+
+            # Сохраняем все остальные поля из API
+            # Сохраняем периоды со всей статистикой
+            if 'periods' in stats_data:
+                stats['periods'] = stats_data['periods']
             
-            # Получаем статистику по группам (periods или statistics)
+            # Сохраняем статистику напрямую (если есть)
+            if 'statistics' in stats_data:
+                stats['statistics'] = stats_data['statistics']
+            
+            # Сохраняем все остальные поля из API
+            for key in stats_data:
+                if key not in ['homeScore', 'awayScore', 'periods', 'statistics']:
+                    stats[key] = stats_data[key]
+
+            # Получаем статистику по группам (periods или statistics) для парсинга
             periods = stats_data.get('periods', [])
             statistics = stats_data.get('statistics', [])
             
-            # Ищем статистику для текущего периода (обычно последний или all)
-            # SofaScore может возвращать статистику в разных форматах
-            # Попробуем найти данные во всех доступных местах
-            
-            # Вариант 1: статистика в periods
+            # Парсим часто используемые поля для удобства доступа
+            # Извлекаем часто используемые поля из periods
             if periods:
                 for period in periods:
-                    # Берем статистику из последнего периода или периода 'all'
                     if period.get('period') == 'all' or period.get('period') == 'REGULAR':
-                        home_stats = period.get('groups', [])
-                        for group in home_stats:
-                            if group.get('groupName') == 'Ball possession':
-                                stat_items = group.get('statisticsItems', [])
-                                for item in stat_items:
-                                    if item.get('name') == 'Ball possession':
-                                        home_poss = item.get('home', 0)
-                                        away_poss = item.get('away', 0)
-                                        stats['possession'] = {
-                                            'home': home_poss,
-                                            'away': away_poss
-                                        }
-                            elif group.get('groupName') == 'Shots on target':
-                                stat_items = group.get('statisticsItems', [])
-                                for item in stat_items:
-                                    if item.get('name') == 'Shots on target':
-                                        home_shots = item.get('home', 0)
-                                        away_shots = item.get('away', 0)
-                                        stats['shots_on_target'] = {
-                                            'home': home_shots,
-                                            'away': away_shots
-                                        }
-                            elif group.get('groupName') == 'Expected goals':
-                                stat_items = group.get('statisticsItems', [])
-                                for item in stat_items:
-                                    if item.get('name') == 'Expected goals':
-                                        home_xg = item.get('home', None)
-                                        away_xg = item.get('away', None)
-                                        if home_xg is not None and away_xg is not None:
-                                            stats['xG'] = {
-                                                'home': home_xg,
-                                                'away': away_xg
-                                            }
-            
-            # Вариант 2: статистика напрямую в statistics
+                        groups = period.get('groups', [])
+                        parsed_stats = {}
+                        for group in groups:
+                            group_name = group.get('groupName', '')
+                            stat_items = group.get('statisticsItems', [])
+                            for item in stat_items:
+                                item_name = item.get('name', '')
+                                # Сохраняем все статистики из группы
+                                if group_name not in parsed_stats:
+                                    parsed_stats[group_name] = []
+                                parsed_stats[group_name].append({
+                                    'name': item_name,
+                                    'home': item.get('home'),
+                                    'away': item.get('away'),
+                                    'total': item.get('total')
+                                })
+                        if parsed_stats:
+                            stats['parsed_period_all'] = parsed_stats
+
+            # Извлекаем часто используемые поля из statistics
             if statistics:
+                parsed_stats = {}
                 for stat_group in statistics:
                     if isinstance(stat_group, dict):
-                        if stat_group.get('groupName') == 'Ball possession' or stat_group.get('groupName') == 'Possession':
-                            stat_items = stat_group.get('statisticsItems', [])
-                            for item in stat_items:
-                                if 'possession' in item.get('name', '').lower() or item.get('name') == 'Ball possession':
-                                    stats['possession'] = {
-                                        'home': item.get('home', 0),
-                                        'away': item.get('away', 0)
-                                    }
-                        elif stat_group.get('groupName') == 'Shots on target' or 'shot' in stat_group.get('groupName', '').lower():
-                            stat_items = stat_group.get('statisticsItems', [])
-                            for item in stat_items:
-                                if 'shot' in item.get('name', '').lower() and 'target' in item.get('name', '').lower():
-                                    stats['shots_on_target'] = {
-                                        'home': item.get('home', 0),
-                                        'away': item.get('away', 0)
-                                    }
-                        elif 'expected' in stat_group.get('groupName', '').lower() or 'xg' in stat_group.get('groupName', '').lower():
-                            stat_items = stat_group.get('statisticsItems', [])
-                            for item in stat_items:
-                                if 'expected' in item.get('name', '').lower() or 'xg' in item.get('name', '').lower():
-                                    home_xg = item.get('home', None)
-                                    away_xg = item.get('away', None)
-                                    if home_xg is not None and away_xg is not None:
-                                        stats['xG'] = {
-                                            'home': home_xg,
-                                            'away': away_xg
-                                        }
-            
-            print(f"[Football] Распарсена статистика SofaScore: score={stats.get('score')}, possession={stats.get('possession')}, shots_on_target={stats.get('shots_on_target')}, xG={stats.get('xG')}")
+                        group_name = stat_group.get('groupName', '')
+                        stat_items = stat_group.get('statisticsItems', [])
+                        parsed_items = []
+                        for item in stat_items:
+                            parsed_items.append({
+                                'name': item.get('name', ''),
+                                'home': item.get('home'),
+                                'away': item.get('away'),
+                                'total': item.get('total')
+                            })
+                        if parsed_items:
+                            parsed_stats[group_name] = parsed_items
+                if parsed_stats:
+                    stats['parsed_statistics'] = parsed_stats
+
+            print(f"[Football] Распарсена полная статистика SofaScore: score={stats.get('score')}, сохранено {len(stats)} полей")
             
         except Exception as e:
             print(f"[Football ERROR] Ошибка парсинга статистики SofaScore: {e}")
             import traceback
             print(traceback.format_exc())
+            # В случае ошибки всё равно сохраняем сырые данные
+            stats = {'raw_data': stats_data}
+            if 'homeScore' in stats_data and 'awayScore' in stats_data:
+                stats['score'] = {
+                    'home': stats_data.get('homeScore', {}).get('current', 0),
+                    'away': stats_data.get('awayScore', {}).get('current', 0)
+                }
         
         return stats
+
+    def _extract_stat_value(self, stats: Dict, stat_group_name: str, stat_item_name: str) -> Dict[str, float]:
+        """
+        Извлекает значение статистики из новой структуры данных.
+        
+        Args:
+            stats: Словарь со статистикой
+            stat_group_name: Название группы статистики (например, 'Ball possession', 'Shots on target')
+            stat_item_name: Название конкретной статистики (например, 'Ball possession', 'Shots on target')
+        
+        Returns:
+            Словарь {'home': value, 'away': value} или пустой словарь если не найдено
+        """
+        result = {'home': 0, 'away': 0}
+        
+        # Пытаемся найти в parsed_period_all
+        if 'parsed_period_all' in stats:
+            parsed = stats['parsed_period_all']
+            if stat_group_name in parsed:
+                for item in parsed[stat_group_name]:
+                    if item.get('name') == stat_item_name:
+                        result['home'] = item.get('home', 0) or 0
+                        result['away'] = item.get('away', 0) or 0
+                        return result
+        
+        # Пытаемся найти в parsed_statistics
+        if 'parsed_statistics' in stats:
+            parsed = stats['parsed_statistics']
+            if stat_group_name in parsed:
+                for item in parsed[stat_group_name]:
+                    if item.get('name') == stat_item_name:
+                        result['home'] = item.get('home', 0) or 0
+                        result['away'] = item.get('away', 0) or 0
+                        return result
+        
+        # Пытаемся найти в raw_data через periods
+        if 'raw_data' in stats:
+            raw_data = stats['raw_data']
+            periods = raw_data.get('periods', [])
+            for period in periods:
+                if period.get('period') == 'all' or period.get('period') == 'REGULAR':
+                    groups = period.get('groups', [])
+                    for group in groups:
+                        if group.get('groupName') == stat_group_name:
+                            stat_items = group.get('statisticsItems', [])
+                            for item in stat_items:
+                                if item.get('name') == stat_item_name:
+                                    result['home'] = item.get('home', 0) or 0
+                                    result['away'] = item.get('away', 0) or 0
+                                    return result
+        
+        # Пытаемся найти в raw_data через statistics
+        if 'raw_data' in stats:
+            raw_data = stats['raw_data']
+            statistics = raw_data.get('statistics', [])
+            for stat_group in statistics:
+                if isinstance(stat_group, dict) and stat_group.get('groupName') == stat_group_name:
+                    stat_items = stat_group.get('statisticsItems', [])
+                    for item in stat_items:
+                        if item.get('name') == stat_item_name:
+                            result['home'] = item.get('home', 0) or 0
+                            result['away'] = item.get('away', 0) or 0
+                            return result
+        
+        return result
 
     def _calculate_bet(self, match: sqlite3.Row, stats: Dict, fixture_id: str) -> Optional[float]:
         """
@@ -1962,17 +2020,37 @@ class FootballManager:
         try:
             # Получаем информацию о фаворите
             fav_team = match['fav']
-            fav_is_home = match['fav_team_id'] == 1  # 1 = home, 0 = away
-            
+            fav_is_home = match['fav_team_id'] == 1  # 1 = home, 0 = away 
+
             # Проверяем наличие необходимых данных
             score = stats.get('score', {})
-            possession = stats.get('possession', {})
-            shots_on_target = stats.get('shots_on_target', {})
-            xg = stats.get('xG', {})
             
+            # Извлекаем статистику из новой структуры
+            possession = self._extract_stat_value(stats, 'Ball possession', 'Ball possession')
+            if not possession.get('home') and not possession.get('away'):
+                # Пробуем альтернативные названия
+                possession = self._extract_stat_value(stats, 'Possession', 'Possession')
+            
+            shots_on_target = self._extract_stat_value(stats, 'Shots on target', 'Shots on target')
+            if not shots_on_target.get('home') and not shots_on_target.get('away'):
+                # Пробуем найти любую группу со shots
+                for group_name in ['Shots', 'Shot statistics']:
+                    shots_on_target = self._extract_stat_value(stats, group_name, 'Shots on target')
+                    if shots_on_target.get('home') or shots_on_target.get('away'):
+                        break
+            
+            xg_dict = self._extract_stat_value(stats, 'Expected goals', 'Expected goals')
+            if not xg_dict.get('home') and not xg_dict.get('away'):
+                # Пробуем альтернативные названия
+                for group_name in ['Expected goals (xG)', 'xG']:
+                    xg_dict = self._extract_stat_value(stats, group_name, 'Expected goals')
+                    if xg_dict.get('home') or xg_dict.get('away'):
+                        break
+            xg = xg_dict if (xg_dict.get('home') or xg_dict.get('away')) else {}
+
             home_score = score.get('home', 0)
             away_score = score.get('away', 0)
-            
+
             # Условие 1: Фаворит проигрывает ровно на 1 гол
             if fav_is_home:
                 fav_score = home_score
@@ -1980,22 +2058,22 @@ class FootballManager:
             else:
                 fav_score = away_score
                 opp_score = home_score
-            
+
             goal_diff = opp_score - fav_score
             if goal_diff != 1:
                 print(f"[Football] Условие не выполнено: фаворит {fav_team} не проигрывает ровно на 1 гол (счет: {fav_score}-{opp_score})")
                 return 0
-            
+
             # Условие 2: Владение фаворита > 70%
             if fav_is_home:
                 fav_possession = possession.get('home', 0)
             else:
                 fav_possession = possession.get('away', 0)
-            
+
             if fav_possession <= 70:
                 print(f"[Football] Условие не выполнено: владение фаворита {fav_team} = {fav_possession}% (требуется > 70%)")
                 return 0
-            
+
             # Условие 3: Удары в створ фаворита ≥ 2x противника
             if fav_is_home:
                 fav_shots = shots_on_target.get('home', 0)
@@ -2003,7 +2081,7 @@ class FootballManager:
             else:
                 fav_shots = shots_on_target.get('away', 0)
                 opp_shots = shots_on_target.get('home', 0)
-            
+
             if opp_shots == 0:
                 # Если у противника 0 ударов, проверяем что у фаворита >= 2
                 if fav_shots < 2:
@@ -2011,10 +2089,10 @@ class FootballManager:
                     return 0
             else:
                 if fav_shots < opp_shots * 2:
-                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots}, противника = {opp_shots} (требуется ≥ 2x)")
+                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots}, противника = {opp_shots} (требуется ≥ 2x)") 
                     return 0
-            
-            # Условие 4: xG фаворита > xG противника (если доступно)
+
+            # Условие 4: xG фаворита > xG противника (если доступно)      
             if xg:
                 if fav_is_home:
                     fav_xg = xg.get('home', 0)
@@ -2022,20 +2100,20 @@ class FootballManager:
                 else:
                     fav_xg = xg.get('away', 0)
                     opp_xg = xg.get('home', 0)
-                
+
                 if fav_xg <= opp_xg:
                     print(f"[Football] Условие не выполнено: xG фаворита {fav_team} = {fav_xg}, противника = {opp_xg} (требуется >)")
                     return 0
-            
+
             # Все условия выполнены - запрашиваем live odds
             print(f"[Football] Все условия выполнены для матча {fixture_id}. Запрашиваем live odds...")
             live_odds = self._get_live_odds(fixture_id)
-            
+
             if live_odds is None:
                 # Если не удалось получить live odds (лимит исчерпан или матч не найден), сохраняем 1
                 print(f"[Football] Не удалось получить live odds для {fixture_id}, сохраняем 1")
                 return 1
-            
+
             print(f"[Football] Получены live odds для фаворита {fav_team}: {live_odds}")
             return live_odds
 
