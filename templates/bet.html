@@ -204,8 +204,9 @@
                             <th class="sortable-header" data-sort="home_team">Дома</th>
                             <th class="sortable-header" data-sort="away_team">Гости</th>
                             <th class="sortable-header" data-sort="fav">Фаворит</th>
-                            <th class="sortable-header" data-sort="initial_odds">Начальный коэффициент</th>
-                            <th class="sortable-header" data-sort="last_odds">Последний коэффициент</th>
+                            <th class="sortable-header" data-sort="initial_odds">K0</th>
+                            <th class="sortable-header" data-sort="last_odds">K1</th>
+                            <th class="sortable-header" data-sort="live_odds">K60</th>
                             <th class="sortable-header" data-sort="status">Статус</th>
                             <th>Статистика 60м</th>
                             <th class="sortable-header" data-sort="bet_ai">Прогноз ИИ</th>
@@ -282,7 +283,7 @@
                     const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                     valueA = dateTimeA.getTime();
                     valueB = dateTimeB.getTime();
-                } else if (field === 'initial_odds' || field === 'last_odds') {
+                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds') {
                     // Для коэффициентов - преобразуем в числа
                     valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
@@ -486,6 +487,7 @@
                     <td><span class="fav-team">${match.fav}</span></td>
                     <td><span class="odds">${match.initial_odds || '-'}</span></td>
                     <td><span class="odds">${match.last_odds || '-'}</span></td>
+                    <td><span class="odds">${match.live_odds || '-'}</span></td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                     <td class="stats-col">${statsText}</td>
                     <td><span class="odds">${match.bet_ai || '-'}</span></td>

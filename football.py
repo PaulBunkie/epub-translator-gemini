@@ -113,12 +113,12 @@ DEFAULT_FOOTBALL_LEAGUES = [
     "soccer_uefa_champs_league",     # Лига Чемпионов
     "soccer_uefa_europa_league",     # Лига Европы
     # --- Раскомментируйте для включения остальных лиг ---
-     "soccer_spain_la_liga",          # Ла Лига (Испания)
-     "soccer_italy_serie_a",          # Серия A (Италия)
-     "soccer_germany_bundesliga",     # Бундеслига (Германия)
-     "soccer_france_ligue_one",       # Лига 1 (Франция)
-     "soccer_netherlands_eredivisie", # Эредивизи (Нидерланды)
-     "soccer_portugal_primeira_liga", # Примейра Лига (Португалия)
+    # "soccer_spain_la_liga",          # Ла Лига (Испания)
+    # "soccer_italy_serie_a",          # Серия A (Италия)
+    # "soccer_germany_bundesliga",     # Бундеслига (Германия)
+    # "soccer_france_ligue_one",       # Лига 1 (Франция)
+    # "soccer_netherlands_eredivisie", # Эредивизи (Нидерланды)
+    # "soccer_portugal_primeira_liga", # Примейра Лига (Португалия)
     # "soccer_spl",                    # Премьершип (Шотландия)
     # "soccer_efl_champ",              # Чемпионшип (Англия)
     # "soccer_spain_segunda_division", # Ла Лига 2 (Испания)
@@ -128,7 +128,7 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_france_ligue_two",       # Лига 2 (Франция)
     # "soccer_england_league1",        # Лига 1 (Англия)
     # "soccer_england_league2",        # Лига 2 (Англия)
-     "soccer_belgium_first_div",      # Первый дивизион (Бельгия)
+    # "soccer_belgium_first_div",      # Первый дивизион (Бельгия)
     # "soccer_austria_bundesliga",     # Бундеслига (Австрия)
     # "soccer_switzerland_superleague", # Суперлига (Швейцария)
     # "soccer_greece_super_league",    # Суперлига (Греция)
@@ -140,15 +140,15 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_sweden_superettan",      # Суперэттан (Швеция)
     # "soccer_finland_veikkausliiga",  # Вейккауслига (Финляндия)
     "soccer_uefa_europa_conference_league", # Лига Конференций
-     "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
-     "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
-     "soccer_brazil_campeonato",      # Серия A (Бразилия)
+    # "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
+    # "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
+    # "soccer_brazil_campeonato",      # Серия A (Бразилия)
     # "soccer_brazil_serie_b",         # Серия B (Бразилия)
-     "soccer_chile_campeonato",       # Примера Дивизион (Чили)
-     "soccer_conmebol_copa_libertadores", # Копа Либертадорес
-     "soccer_conmebol_copa_sudamericana", # Копа Судамерикана
-     "soccer_usa_mls",                # MLS (США/Канада)
-     "soccer_mexico_ligamx",          # Лига MX (Мексика)
+    # "soccer_chile_campeonato",       # Примера Дивизион (Чили)
+    # "soccer_conmebol_copa_libertadores", # Копа Либертадорес
+    # "soccer_conmebol_copa_sudamericana", # Копа Судамерикана
+    # "soccer_usa_mls",                # MLS (США/Канада)
+    # "soccer_mexico_ligamx",          # Лига MX (Мексика)
     # "soccer_japan_j_league",         # J League (Япония)
     # "soccer_korea_kleague1",         # K League 1 (Корея)
     # "soccer_china_superleague",      # Суперлига (Китай)
@@ -254,6 +254,17 @@ def init_football_db():
             print("[FootballDB] Column 'bet_ai_reason' added successfully.")
         else:
             print("[FootballDB] Column 'bet_ai_reason' already exists.")
+        
+        # --- Проверка и добавление поля live_odds ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'live_odds' not in columns:
+            print("[FootballDB] Adding 'live_odds' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN live_odds REAL")
+            conn.commit()
+            print("[FootballDB] Column 'live_odds' added successfully.")
+        else:
+            print("[FootballDB] Column 'live_odds' already exists.")
         
         # --- Создание индексов ---
         print("[FootballDB] Creating indexes...")
@@ -1984,7 +1995,7 @@ class FootballManager:
             stats = self._parse_sofascore_statistics(stats_data, match)
 
             # Проверяем условия и записываем bet
-            bet_value = self._calculate_bet(match, stats, fixture_id)
+            bet_value, live_odds_value = self._calculate_bet(match, stats, fixture_id)
 
             # Сохраняем в БД
             conn = get_football_db_connection()
@@ -1993,9 +2004,9 @@ class FootballManager:
             stats_json = json.dumps(stats)
             cursor.execute("""
                 UPDATE matches
-                SET stats_60min = ?, bet = ?, updated_at = CURRENT_TIMESTAMP
+                SET stats_60min = ?, bet = ?, live_odds = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (stats_json, bet_value, match['id']))
+            """, (stats_json, bet_value, live_odds_value, match['id']))
 
             conn.commit()
             conn.close()
@@ -2335,10 +2346,10 @@ class FootballManager:
         
         return result
 
-    def _calculate_bet(self, match: sqlite3.Row, stats: Dict, fixture_id: str) -> Optional[float]:
+    def _calculate_bet(self, match: sqlite3.Row, stats: Dict, fixture_id: str) -> Tuple[Optional[float], Optional[float]]:
         """
         Рассчитывает значение bet на основе условий.
-        
+
         Условия для bet:
         1. Фаворит проигрывает ровно на 1 гол
         2. Владение фаворита > 70%
@@ -2351,7 +2362,9 @@ class FootballManager:
             fixture_id: ID матча в The Odds API
 
         Returns:
-            Коэффициент live odds если условия выполнены, 0 если нет, None если лимит API исчерпан
+            Кортеж (bet_value, live_odds):
+            - bet_value: Коэффициент live odds если условия выполнены, 0 если нет, 1 если лимит API исчерпан
+            - live_odds: Реальное значение live odds из API (может быть None если не удалось получить)
         """
         try:
             # Получаем информацию о фаворите
@@ -2398,7 +2411,7 @@ class FootballManager:
             goal_diff = opp_score - fav_score
             if goal_diff != 1:
                 print(f"[Football] Условие не выполнено: фаворит {fav_team} не проигрывает ровно на 1 гол (счет: {fav_score}-{opp_score})")
-                return 0
+                return (0, None)
 
             # Условие 2: Владение фаворита > 70%
             if fav_is_home:
@@ -2408,7 +2421,7 @@ class FootballManager:
 
             if fav_possession <= 70:
                 print(f"[Football] Условие не выполнено: владение фаворита {fav_team} = {fav_possession}% (требуется > 70%)")
-                return 0
+                return (0, None)
 
             # Условие 3: Удары в створ фаворита ≥ 2x противника
             if fav_is_home:
@@ -2422,11 +2435,11 @@ class FootballManager:
                 # Если у противника 0 ударов, проверяем что у фаворита >= 2
                 if fav_shots < 2:
                     print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots} (требуется ≥ 2x противника)")
-                    return 0
+                    return (0, None)
             else:
                 if fav_shots < opp_shots * 2:
-                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots}, противника = {opp_shots} (требуется ≥ 2x)") 
-                    return 0
+                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots}, противника = {opp_shots} (требуется ≥ 2x)")
+                    return (0, None)
 
             # Условие 4: xG фаворита > xG противника (если доступно)      
             if xg:
@@ -2439,25 +2452,25 @@ class FootballManager:
 
                 if fav_xg <= opp_xg:
                     print(f"[Football] Условие не выполнено: xG фаворита {fav_team} = {fav_xg}, противника = {opp_xg} (требуется >)")
-                    return 0
+                    return (0, None)
 
             # Все условия выполнены - запрашиваем live odds
             print(f"[Football] Все условия выполнены для матча {fixture_id}. Запрашиваем live odds...")
             live_odds = self._get_live_odds(fixture_id)
 
             if live_odds is None:
-                # Если не удалось получить live odds (лимит исчерпан или матч не найден), сохраняем 1
-                print(f"[Football] Не удалось получить live odds для {fixture_id}, сохраняем 1")
-                return 1
+                # Если не удалось получить live odds (лимит исчерпан или матч не найден), сохраняем 1 в bet
+                print(f"[Football] Не удалось получить live odds для {fixture_id}, сохраняем bet=1, live_odds=NULL")
+                return (1, None)
 
             print(f"[Football] Получены live odds для фаворита {fav_team}: {live_odds}")
-            return live_odds
+            return (live_odds, live_odds)
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка расчета bet: {e}")
             import traceback
             print(traceback.format_exc())
-            return 0
+            return (0, None)
 
     def _get_ai_prediction(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str]]:
         """
