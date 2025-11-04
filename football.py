@@ -3,18 +3,21 @@ import requests
 import json
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import os
+import re
 from dotenv import load_dotenv
 
 
 
 from config import FOOTBALL_DB_FILE
+from workflow_model_config import get_model_for_operation
 
 load_dotenv()
 
 FOOTBALL_DATABASE_FILE = str(FOOTBALL_DB_FILE)
 ODDS_API_KEY = os.getenv("ODDS_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 ODDS_API_URL = "https://api.the-odds-api.com/v4"
 SOFASCORE_API_URL = "https://api.sofascore1.com/api/v1"
 
@@ -219,7 +222,7 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'sofascore_join' already exists.")
         
-        # --- Проверка и добавление поля last_odds ---
+                # --- Проверка и добавление поля last_odds ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
         if 'last_odds' not in columns:
@@ -229,7 +232,29 @@ def init_football_db():
             print("[FootballDB] Column 'last_odds' added successfully.")
         else:
             print("[FootballDB] Column 'last_odds' already exists.")
-
+        
+        # --- Проверка и добавление поля bet_ai ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_ai' not in columns:
+            print("[FootballDB] Adding 'bet_ai' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_ai TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'bet_ai' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_ai' already exists.")
+        
+        # --- Проверка и добавление поля bet_ai_reason ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_ai_reason' not in columns:
+            print("[FootballDB] Adding 'bet_ai_reason' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_ai_reason TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'bet_ai_reason' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_ai_reason' already exists.")
+        
         # --- Создание индексов ---
         print("[FootballDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status)")
@@ -266,6 +291,15 @@ class FootballManager:
         
         self.api_key = ODDS_API_KEY
         
+        # OpenRouter API для ИИ-прогнозов
+        self.openrouter_api_key = OPENROUTER_API_KEY
+        self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        
+        # Модели для футбольных прогнозов из конфигурации
+        self.ai_primary_model = get_model_for_operation('football_predict', 'primary')
+        self.ai_fallback_model1 = get_model_for_operation('football_predict', 'fallback_level1')
+        self.ai_fallback_model2 = get_model_for_operation('football_predict', 'fallback_level2')
+
         # Переменные для отслеживания лимитов API (в памяти)
         self.requests_remaining = None
         self.requests_used = None
@@ -1502,32 +1536,28 @@ class FootballManager:
 
     def check_matches_and_collect(self):
         """
-        Проверяет активные матчи и собирает статистику на 60-й и 300-й минутах.
+        Проверяет активные матчи и собирает статистику на 60-й минуте и финальный результат.
         Вызывается каждые 5 минут.
         """
         print("[Football] Проверка матчей и сбор статистики")
-        
+
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
-            
-            # Получаем матчи в статусе scheduled или in_progress
+
+            # ===== ЧАСТЬ 1: Обработка матчей на 60-й минуте (только bet IS NULL) =====
             cursor.execute("""
-                SELECT * FROM matches 
+                SELECT * FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
+                AND bet IS NULL
                 ORDER BY match_date, match_time
             """)
-            
-            matches = cursor.fetchall()
-            print(f"[Football] Найдено {len(matches)} активных матчей")
-            
-            if not matches:
-                print("[Football] Нет активных матчей для проверки")
-                conn.close()
-                return
-            
-            # Проверяем каждый матч
-            for match in matches:
+
+            matches_for_60min = cursor.fetchall()
+            print(f"[Football] Найдено {len(matches_for_60min)} необработанных матчей (bet IS NULL) для проверки на 60-й минуте")
+
+            # Проверяем каждый матч на 60-ю минуту
+            for match in matches_for_60min:
                 match_id = match['id']
                 fixture_id = match['fixture_id']
                 match_datetime_str = f"{match['match_date']} {match['match_time']}"
@@ -1544,36 +1574,137 @@ class FootballManager:
                     # Вычисляем разницу во времени
                     time_diff = now - match_datetime
                     minutes_diff = time_diff.total_seconds() / 60
-                    
+
+                    print(f"[Football] Матч {fixture_id}: прошло {minutes_diff:.1f} минут, статус: {match['status']}")
+
                     # Проверяем что матч уже начался
                     if minutes_diff < 0:
+                        print(f"[Football] Матч {fixture_id} еще не начался (прошло {minutes_diff:.1f} минут). Пропускаем.")
                         continue  # Матч еще не начался
-                    
-                    print(f"[Football] Матч {fixture_id}: прошло {minutes_diff:.1f} минут")
-                    
+
                     # Обновляем статус на in_progress если нужно
                     if match['status'] == 'scheduled':
+                        print(f"[Football] Обновляем статус матча {fixture_id} на 'in_progress'")
                         cursor.execute(
                             "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                             (match_id,)
                         )
                         conn.commit()
-                    
+
                     # Проверяем 60-я минута (с допуском ±5 минут)
-                    if 55 <= minutes_diff <= 65 and match['stats_60min'] is None:
-                        print(f"[Football] Собираем статистику на 60-й минуте для fixture {fixture_id}")
-                        self._collect_60min_stats(match)
-                    
-                    # Проверяем 300-я минута (окончание матча + допуск ±10 минут)
-                    if 290 <= minutes_diff <= 310:
-                        print(f"[Football] Собираем финальный результат для fixture {fixture_id}")
-                        self._collect_final_result(match)
-                    
+                    # Обрабатываем только необработанные матчи (bet IS NULL)
+                    if 55 <= minutes_diff <= 65:
+                        print(f"[Football] Матч {fixture_id} в диапазоне 60-й минуты (прошло {minutes_diff:.1f} минут). Собираем статистику и обрабатываем...")
+                        try:
+                            self._collect_60min_stats(match)
+                        except Exception as e:
+                            print(f"[Football ERROR] Ошибка сбора статистики 60min для {fixture_id}: {e}")
+                            import traceback
+                            print(traceback.format_exc())
+                            # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
+                            cursor.execute(
+                                "UPDATE matches SET bet = -1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (match_id,)
+                            )
+                            conn.commit()
+                    elif minutes_diff < 55:
+                        # Матч еще не достиг диапазона 55-65 минут - оставляем bet = NULL для следующей проверки
+                        print(f"[Football] Матч {fixture_id} еще не достиг 60-й минуты - прошло {minutes_diff:.1f} минут (меньше 55). Оставляем для следующей проверки.")
+                        # Не трогаем bet - оставляем NULL
+                    else:
+                        # Матч уже прошел 65 минут - помечаем как пропущенный
+                        print(f"[Football] Матч {fixture_id} пропущен - прошло {minutes_diff:.1f} минут (больше 65). Устанавливаем bet = -1")
+                        cursor.execute(
+                            "UPDATE matches SET bet = -1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (match_id,)
+                        )
+                        conn.commit()
+
                 except Exception as e:
-                    print(f"[Football ERROR] Ошибка проверки матча {fixture_id}: {e}")
+                    print(f"[Football ERROR] Ошибка проверки матча на 60-ю минуту {fixture_id}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
                     continue
-            
+
+            # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE status = 'in_progress'
+                ORDER BY match_date, match_time
+            """)
+
+            matches_for_final = cursor.fetchall()
+            print(f"[Football] Найдено {len(matches_for_final)} матчей in_progress для проверки финального результата")
+
+            # Проверяем каждый матч на завершение
+            for match in matches_for_final:
+                match_id = match['id']
+                fixture_id = match['fixture_id']
+                sofascore_event_id = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() and match['sofascore_event_id'] else None
+                match_datetime_str = f"{match['match_date']} {match['match_time']}"
+
+                try:
+                    # Парсим дату и время из БД (они в UTC, но без tzinfo)
+                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
+                    # Добавляем UTC часовой пояс, так как время в БД сохранено в UTC
+                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
+
+                    # Используем UTC время для сравнения (независимо от часового пояса сервера)
+                    now = datetime.now(timezone.utc)
+
+                    # Вычисляем разницу во времени
+                    time_diff = now - match_datetime
+                    minutes_diff = time_diff.total_seconds() / 60
+
+                    # Проверяем статус матча из SofaScore API (предпочтительный способ)
+                    # Вызываем только если прошло минимум 85 минут (матч может быть близок к завершению)
+                    should_check_final = False
+                    
+                    if sofascore_event_id and minutes_diff >= 85:
+                        print(f"[Football] Проверяем статус матча {fixture_id} из SofaScore API (event_id={sofascore_event_id}, прошло {minutes_diff:.1f} минут)...")
+                        event_status = self._fetch_sofascore_event_status(sofascore_event_id)
+                        
+                        if event_status == 'finished':
+                            print(f"[Football] Матч {fixture_id} завершен по статусу из SofaScore API. Собираем финальный результат...")
+                            should_check_final = True
+                        elif event_status:
+                            print(f"[Football] Статус матча {fixture_id} из SofaScore: {event_status}")
+                            # Если матч не завершен по статусу, но прошло много времени - используем запасной вариант
+                            if minutes_diff >= 200:
+                                print(f"[Football] Матч {fixture_id} еще не завершен по статусу, но прошло {minutes_diff:.1f} минут. Используем запасной вариант.")
+                                should_check_final = True
+                        else:
+                            # Если не удалось получить статус из API, используем проверку по времени
+                            print(f"[Football] Не удалось получить статус из SofaScore API для {fixture_id}. Используем проверку по времени.")
+                            if minutes_diff >= 200:
+                                print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут. Проверяем финальный результат...")
+                                should_check_final = True
+                    elif not sofascore_event_id:
+                        # Если нет sofascore_event_id, используем только проверку по времени
+                        print(f"[Football] У матча {fixture_id} нет sofascore_event_id. Используем проверку по времени.")
+                        if minutes_diff >= 200:
+                            print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут. Проверяем финальный результат...")
+                            should_check_final = True
+                    elif minutes_diff < 85:
+                        # Матч еще слишком рано (меньше 85 минут) - не проверяем статус из API
+                        print(f"[Football] Матч {fixture_id} прошло только {minutes_diff:.1f} минут (меньше 85). Пропускаем проверку статуса.")
+
+                    if should_check_final:
+                        try:
+                            self._collect_final_result(match)
+                        except Exception as e:
+                            print(f"[Football ERROR] Ошибка сбора финального результата для {fixture_id}: {e}")
+                            import traceback
+                            print(traceback.format_exc())
+
+                except Exception as e:
+                    print(f"[Football ERROR] Ошибка проверки финального результата для {fixture_id}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+
             conn.close()
+            print(f"[Football] Обработка матчей завершена. Проверено на 60-ю минуту: {len(matches_for_60min)}, на финальный результат: {len(matches_for_final)}")
             
         except Exception as e:
             print(f"[Football ERROR] Ошибка проверки матчей: {e}")
@@ -1639,6 +1770,91 @@ class FootballManager:
         print(f"[Football SofaScore] Не удалось получить статистику для event_id={sofascore_event_id} после {max_retries} попыток")
         return None
 
+    def _fetch_sofascore_event_status(self, sofascore_event_id: int) -> Optional[str]:
+        """
+        Получает статус матча из SofaScore API.
+
+        Args:
+            sofascore_event_id: ID события в SofaScore
+
+        Returns:
+            Статус матча ('finished', 'live', 'notstarted', 'postponed' и т.д.) или None в случае ошибки
+        """
+        import random
+
+        url = f"{SOFASCORE_API_URL}/event/{sofascore_event_id}"
+        max_retries = 3
+        attempt = 0
+
+        while attempt < max_retries:
+            try:
+                # Выбираем случайный User-Agent
+                headers = SOFASCORE_DEFAULT_HEADERS.copy()
+                headers['User-Agent'] = random.choice(SOFASCORE_USER_AGENTS)
+
+                # Случайная задержка перед запросом
+                if attempt > 0:
+                    delay = random.uniform(2.0, 4.0) * (2 ** attempt)
+                    time.sleep(delay)
+
+                response = requests.get(url, headers=headers, timeout=30)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Извлекаем статус из различных возможных полей
+                    # Обычно статус находится в event.status или event.statusText
+                    event = data.get('event', {})
+                    
+                    # Варианты полей со статусом
+                    status = event.get('status') or event.get('statusText') or event.get('statusDescription')
+                    
+                    if status:
+                        # Нормализуем статус
+                        status_lower = str(status).lower()
+                        if 'finished' in status_lower or 'ft' in status_lower:
+                            return 'finished'
+                        elif 'live' in status_lower or 'inprogress' in status_lower:
+                            return 'live'
+                        elif 'notstarted' in status_lower or 'not started' in status_lower:
+                            return 'notstarted'
+                        elif 'postponed' in status_lower or 'cancelled' in status_lower:
+                            return 'postponed'
+                        else:
+                            return status_lower
+                    
+                    # Если статус не найден, проверяем другие поля
+                    # Иногда статус может быть в корне объекта
+                    status = data.get('status') or data.get('statusText')
+                    if status:
+                        return str(status).lower()
+                    
+                    return None
+                    
+                elif response.status_code == 403:
+                    print(f"[Football SofaScore] 403 Forbidden при запросе статуса для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
+                    attempt += 1
+                    if attempt < max_retries:
+                        time.sleep(random.uniform(5.0, 10.0))
+                    continue
+                elif response.status_code >= 500:
+                    print(f"[Football SofaScore] Ошибка сервера {response.status_code} при запросе статуса для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
+                    attempt += 1
+                    continue
+                else:
+                    print(f"[Football SofaScore] Ошибка {response.status_code} при запросе статуса для event_id={sofascore_event_id}")
+                    return None
+
+            except requests.exceptions.RequestException as e:
+                print(f"[Football SofaScore] Сетевая ошибка при запросе статуса для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}: {e}")
+                attempt += 1
+                if attempt >= max_retries:
+                    return None
+                time.sleep(random.uniform(2.0, 4.0) * (2 ** attempt))
+
+        print(f"[Football SofaScore] Не удалось получить статус для event_id={sofascore_event_id} после {max_retries} попыток")
+        return None
+
     def _get_live_odds(self, fixture_id: str) -> Optional[float]:
         """
         Получает актуальные live коэффициенты фаворита на победу с The Odds API.
@@ -1694,7 +1910,7 @@ class FootballManager:
         """
         try:
             fixture_id = match['fixture_id']
-            sofascore_event_id = match.get('sofascore_event_id')
+            sofascore_event_id = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() else None
 
             if not sofascore_event_id:
                 print(f"[Football] Нет sofascore_event_id для матча {fixture_id}, пропускаем")
@@ -1728,6 +1944,29 @@ class FootballManager:
             conn.close()
 
             print(f"[Football] Статистика на 60-й минуте сохранена для fixture {fixture_id}, bet: {bet_value}")
+            
+            # Получаем прогноз от ИИ
+            print(f"[Football] Запрашиваем ИИ-прогноз для fixture {fixture_id}...")
+            bet_ai, bet_ai_reason = self._get_ai_prediction(match, stats)
+            
+            if bet_ai or bet_ai_reason:
+                # Сохраняем результат ИИ в БД
+                conn = get_football_db_connection()
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    UPDATE matches
+                    SET bet_ai = ?, bet_ai_reason = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (bet_ai, bet_ai_reason, match['id']))
+                
+                conn.commit()
+                conn.close()
+                
+                if bet_ai:
+                    print(f"[Football] ИИ-прогноз сохранен для fixture {fixture_id}: {bet_ai}")
+                else:
+                    print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора статистики 60min: {e}")
@@ -1736,58 +1975,95 @@ class FootballManager:
 
     def _collect_final_result(self, match: sqlite3.Row):
         """
-        Собирает финальный результат матча.
-        
+        Собирает финальный результат матча из SofaScore API.
+
         Args:
             match: Запись матча из БД
         """
         try:
             fixture_id = match['fixture_id']
-            
-            # Получаем финальный счёт
-            params = {"id": str(fixture_id)}
-            data = self._make_api_request("/fixtures", params)
-            
-            if not data or not data.get('response'):
-                print(f"[Football] Не удалось получить результат для fixture {fixture_id}")
+            sofascore_event_id = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() and match['sofascore_event_id'] else None
+
+            if not sofascore_event_id:
+                print(f"[Football] У матча {fixture_id} нет sofascore_event_id, пропускаем сбор финального результата")
                 return
-            
-            fixture = data['response'][0].get('fixture', {})
-            score = fixture.get('score', {}).get('fulltime', {})
-            
-            goals_home = score.get('home', 0)
-            goals_away = score.get('away', 0)
-            
-            # Определяем кто выиграл
-            # fav_team_id - это ID фаворита (home_team_id или away_team_id)
+
+            print(f"[Football] Получаем финальный результат из SofaScore для event_id {sofascore_event_id}")
+
+            # Используем тот же метод, что и для статистики - он возвращает полные данные матча
+            stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
+
+            if not stats_data:
+                print(f"[Football] Не удалось получить данные из SofaScore для event_id {sofascore_event_id}")
+                return
+
+            # Извлекаем счет из данных SofaScore
+            # Структура данных может быть разной, проверим несколько вариантов
+            score_home = None
+            score_away = None
+
+            # Вариант 1: напрямую из поля score
+            if 'score' in stats_data:
+                score_data = stats_data['score']
+                if isinstance(score_data, dict):
+                    score_home = score_data.get('home') or score_data.get('homeScore')
+                    score_away = score_data.get('away') or score_data.get('awayScore')
+
+            # Вариант 2: из periods (последний период - fulltime)
+            if score_home is None and 'periods' in stats_data:
+                periods = stats_data.get('periods', [])
+                if periods and len(periods) > 0:
+                    # Берем последний период (обычно это fulltime)
+                    last_period = periods[-1]
+                    if isinstance(last_period, dict):
+                        score_home = last_period.get('home') or last_period.get('homeScore')
+                        score_away = last_period.get('away') or last_period.get('awayScore')
+
+            # Вариант 3: из raw_data если есть
+            if score_home is None and 'raw_data' in stats_data:
+                raw_data = stats_data.get('raw_data', {})
+                if isinstance(raw_data, dict):
+                    score_data = raw_data.get('score', {})
+                    if isinstance(score_data, dict):
+                        score_home = score_data.get('home') or score_data.get('homeScore')
+                        score_away = score_data.get('away') or score_data.get('awayScore')
+
+            if score_home is None or score_away is None:
+                print(f"[Football] Не удалось извлечь счет из данных SofaScore для event_id {sofascore_event_id}")
+                print(f"[Football] Доступные поля: {list(stats_data.keys())}")
+                return
+
+            # Определяем, выиграл ли фаворит
+            # fav_team_id: 1 = home, 0 = away
             fav_team_id = match['fav_team_id']
-            home_team_id = match['id']  # Это неправильно, нужно получить из fixture
-            
-            # TODO: Правильно определить кто выиграл сравнив ID
-            # Пока просто проверяем счёт
-            if goals_home > goals_away:
-                winner_is_home = True
-            elif goals_away > goals_home:
-                winner_is_home = False
+            fav_won = None
+
+            if score_home > score_away:
+                # Домашняя команда выиграла
+                fav_won = 1 if fav_team_id == 1 else 0
+            elif score_away > score_home:
+                # Гостевая команда выиграла
+                fav_won = 1 if fav_team_id == 0 else 0
             else:
-                winner_is_home = None  # Ничья
-            
+                # Ничья
+                fav_won = 0
+
             # Сохраняем
             conn = get_football_db_connection()
             cursor = conn.cursor()
-            
+
             cursor.execute("""
-                UPDATE matches 
-                SET final_score_home = ?, final_score_away = ?, 
-                    status = 'finished', updated_at = CURRENT_TIMESTAMP
+                UPDATE matches
+                SET final_score_home = ?, final_score_away = ?,
+                    fav_won = ?, status = 'finished', updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (goals_home, goals_away, match['id']))
-            
+            """, (score_home, score_away, fav_won, match['id']))
+
             conn.commit()
             conn.close()
-            
-            print(f"[Football] Финальный результат сохранен для fixture {fixture_id}: {goals_home}-{goals_away}")
-            
+
+            print(f"[Football] Финальный результат сохранен для fixture {fixture_id}: {score_home}-{score_away}, фаворит выиграл: {fav_won == 1}")
+
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора финального результата: {e}")
             import traceback
@@ -2123,6 +2399,174 @@ class FootballManager:
             print(traceback.format_exc())
             return 0
 
+    def _get_ai_prediction(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Получает прогноз от ИИ на основе статистики матча.
+        
+        Args:
+            match: Запись матча из БД
+            stats: Статистика на 60-й минуте (из stats_60min)
+        
+        Returns:
+            Кортеж (bet_ai, bet_ai_reason):
+            - bet_ai: Прогноз ('1', '1X', 'X', 'X2', '2') или None
+            - bet_ai_reason: Полный ответ от ИИ или None
+        """
+        if not self.openrouter_api_key:
+            print("[Football] OpenRouter API ключ не установлен, пропускаем ИИ-прогноз")
+            return None, None
+        
+        try:
+            # Формируем промпт
+            home_team = match['home_team']
+            away_team = match['away_team']
+            fav = match['fav']
+            initial_odds = match['initial_odds'] if 'initial_odds' in match.keys() and match['initial_odds'] is not None else '-'
+            last_odds = match['last_odds'] if 'last_odds' in match.keys() and match['last_odds'] is not None else '-'
+            
+            score = stats.get('score', {})
+            home_score = score.get('home', 0)
+            away_score = score.get('away', 0)
+            
+            # Форматируем статистику как JSON для передачи ИИ
+            stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
+            
+            prompt = f"""Ты - спортивный аналитик. Изучи предоставленную статистику матча после первого тайма, хорошо подумай и сделай прогноз на итоговый результат матча в основное время.
+
+Информация о матче:
+- Команды: {home_team} vs {away_team}
+- Фаворит: {fav} (коэффициент {initial_odds} → {last_odds})
+- Текущий счет на 60-й минуте: {home_score} - {away_score}
+
+Статистика матча:
+{stats_json}
+
+Ответ верни ТОЛЬКО в виде одного из вариантов: 1 или 1X или X или X2 или 2
+Где:
+- 1 = победа домашней команды
+- 1X = ничья или победа домашней команды
+- X = ничья
+- X2 = ничья или победа гостевой команды
+- 2 = победа гостевой команды"""
+            
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            
+            # Список моделей для попыток (основная + два fallback)
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2]
+            
+            for model_idx, model in enumerate(models_to_try):
+                if not model:
+                    continue
+                    
+                print(f"[Football AI] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
+                
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "max_tokens": 2000,
+                        "temperature": 0.3  # Низкая температура для более детерминированного ответа
+                    }
+                    
+                    print(f"[Football AI] Отправка запроса к OpenRouter API (модель: {model})")
+                    
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=60
+                    )
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            if 'choices' in data and len(data['choices']) > 0:
+                                ai_response = data['choices'][0]['message']['content']
+                                print(f"[Football AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                                
+                                # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
+                                bet_ai = self._parse_ai_prediction(ai_response)
+                                
+                                if bet_ai:
+                                    print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
+                                    return bet_ai, ai_response
+                                else:
+                                    print(f"[Football AI] Не удалось распознать валидный прогноз в ответе: {ai_response[:200]}...")
+                                    # Продолжаем с следующей моделью
+                                    continue
+                            else:
+                                print(f"[Football AI] Неверный формат ответа от OpenRouter API для модели {model}")
+                                continue
+                        except json.JSONDecodeError as e:
+                            print(f"[Football AI] Ошибка парсинга JSON для модели {model}: {e}")
+                            continue
+                    else:
+                        print(f"[Football AI] HTTP ошибка OpenRouter API для модели {model}: {response.status_code}")
+                        try:
+                            error_details = response.json()
+                            print(f"[Football AI] Детали ошибки: {error_details}")
+                            
+                            # Если это ошибка 503 "No instances available", переходим к следующей модели
+                            if response.status_code == 503 and "No instances available" in str(error_details):
+                                print(f"[Football AI] Модель {model} недоступна (503), переходим к следующей")
+                                continue
+                        except:
+                            print(f"[Football AI] Текст ошибки: {response.text[:500]}...")
+                        continue
+                        
+                except requests.exceptions.Timeout:
+                    print(f"[Football AI] Таймаут запроса к модели {model}")
+                    continue
+                except requests.exceptions.RequestException as e:
+                    print(f"[Football AI] Ошибка запроса к модели {model}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"[Football AI] Неожиданная ошибка при запросе к модели {model}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+            
+            # Если все модели не дали валидного ответа
+            print("[Football AI] Все модели не дали валидного прогноза")
+            return None, None
+            
+        except Exception as e:
+            print(f"[Football AI ERROR] Ошибка получения ИИ-прогноза: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None, None
+    
+    def _parse_ai_prediction(self, ai_response: str) -> Optional[str]:
+        """
+        Парсит ответ ИИ и извлекает прогноз (1, 1X, X, X2, 2).
+        
+        Args:
+            ai_response: Полный ответ от ИИ
+        
+        Returns:
+            Прогноз ('1', '1X', 'X', 'X2', '2') или None если не найден
+        """
+        # Ищем один из вариантов в ответе (регистронезависимо)
+        # Используем word boundary чтобы не захватывать часть других слов
+        valid_predictions = ['1X', 'X2', '1', 'X', '2']
+        
+        # Сначала ищем двухсимвольные варианты (1X, X2), потом односимвольные
+        for pred in valid_predictions:
+            # Используем регулярное выражение для поиска точного совпадения
+            pattern = r'\b' + re.escape(pred) + r'\b'
+            if re.search(pattern, ai_response, re.IGNORECASE):
+                return pred.upper()
+        
+        return None
 
 # === Функции для APScheduler ===
 

@@ -177,6 +177,7 @@
                             <th>Последний коэффициент</th>
                             <th>Статус</th>
                             <th>Статистика 60м</th>
+                            <th>Прогноз ИИ</th>
                             <th>Итоговый счёт</th>
                         </tr>
                     </thead>
@@ -359,6 +360,7 @@
                     <td><span class="odds">${match.last_odds || '-'}</span></td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                     <td class="stats-col">${statsText}</td>
+                    <td><span class="odds">${match.bet_ai || '-'}</span></td>
                     <td>${finalScore}</td>
                 `;
                 
