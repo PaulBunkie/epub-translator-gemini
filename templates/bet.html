@@ -210,12 +210,17 @@
             color: #17a2b8;
             cursor: help;
         }
+        
+        /* Стили для красной буквы "ai" в заголовке */
+        .ai-logo-a {
+            color: #b23c17;
+        }
     </style>
 </head>
 <body>
     <div class="main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1><i class="fas fa-futbol"></i> Анализ футбольных матчей</h1>
+            <h1><i class="fas fa-futbol"></i> Футбольная <span class="ai-logo-a">ai</span>налитика</h1>
             {% if admin %}
             <div>
                 <button class="btn btn-primary" id="sync-button" onclick="syncAndLoad()">
