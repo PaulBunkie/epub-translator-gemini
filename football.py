@@ -2020,6 +2020,29 @@ class FootballManager:
                 print(f"[Football] Нет sofascore_event_id для матча {fixture_id}, пропускаем")
                 return
 
+            # Сначала получаем основное событие для актуального счета
+            event_data = self._fetch_sofascore_event(sofascore_event_id)
+            actual_score = None
+            if event_data and 'event' in event_data:
+                event = event_data['event']
+                home_score_obj = event.get('homeScore', {})
+                away_score_obj = event.get('awayScore', {})
+                
+                if isinstance(home_score_obj, dict) and isinstance(away_score_obj, dict):
+                    # Приоритет: current (текущий счет) > normaltime > display
+                    score_home = home_score_obj.get('current') or home_score_obj.get('normaltime') or home_score_obj.get('display')
+                    score_away = away_score_obj.get('current') or away_score_obj.get('normaltime') or away_score_obj.get('display')
+                    
+                    if score_home is not None and score_away is not None:
+                        try:
+                            actual_score = {
+                                'home': int(score_home),
+                                'away': int(score_away)
+                            }
+                            print(f"[Football] Актуальный счет для fixture {fixture_id}: {actual_score['home']}-{actual_score['away']}")
+                        except (ValueError, TypeError):
+                            print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
+
             # Получаем статистику с SofaScore
             stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
 
@@ -2029,6 +2052,11 @@ class FootballManager:
 
             # Парсим статистику из SofaScore
             stats = self._parse_sofascore_statistics(stats_data, match)
+            
+            # Перезаписываем счет актуальным из основного события, если он был получен
+            if actual_score:
+                stats['score'] = actual_score
+                print(f"[Football] Счет заменен на актуальный из основного события: {actual_score}")
 
             # ВСЕГДА запрашиваем live_odds, независимо от условий
             print(f"[Football] Запрашиваем live odds для матча {fixture_id}...")

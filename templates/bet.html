@@ -160,42 +160,51 @@
             cursor: help;
         }
         
-        .stats-tooltip .tooltip-content {
-            visibility: hidden;
-            position: absolute;
-            bottom: 125%;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: #333;
-            color: white;
-            text-align: left;
-            border-radius: 8px;
-            padding: 12px;
-            font-size: 0.85rem;
-            white-space: pre-line;
-            z-index: 1000;
-            min-width: 300px;
-            max-width: 500px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        
-        .stats-tooltip:hover .tooltip-content {
-            visibility: visible;
-            opacity: 1;
-        }
-        
-        .stats-tooltip .tooltip-content::after {
-            content: "";
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border-width: 5px;
-            border-style: solid;
-            border-color: #333 transparent transparent transparent;
-        }
+                 .stats-tooltip .tooltip-content {
+             visibility: hidden;
+             position: fixed;
+             background-color: #333;
+             color: white;
+             text-align: left;
+             border-radius: 8px;
+             padding: 12px;
+             font-size: 0.85rem;
+             white-space: pre-line;
+             z-index: 10000;
+             min-width: 300px;
+             max-width: 500px;
+             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+             opacity: 0;
+             transition: opacity 0.3s;
+             pointer-events: none;
+         }
+         
+         .stats-tooltip:hover .tooltip-content {
+             visibility: visible;
+             opacity: 1;
+         }
+         
+         .stats-tooltip .tooltip-content::after {
+             content: "";
+             position: absolute;
+             top: 100%;
+             left: 50%;
+             transform: translateX(-50%);
+             border-width: 5px;
+             border-style: solid;
+             border-color: #333 transparent transparent transparent;
+         }
+         
+         .stats-tooltip.tooltip-bottom .tooltip-content::after {
+             top: auto;
+             bottom: 100%;
+             border-color: transparent transparent #333 transparent;
+         }
+         
+         .table-responsive {
+             overflow-x: auto;
+             overflow-y: visible;
+         }
         
         .info-icon {
             color: #17a2b8;
@@ -592,6 +601,100 @@
             }
         }
 
+        function extractStatValue(stats, statGroupName, statItemName) {
+            // Функция для извлечения значения из элемента статистики
+            const getValue = (item) => {
+                // Используем homeValue/awayValue если они есть (числовые значения)
+                if (item.homeValue !== undefined && item.awayValue !== undefined) {
+                    return {
+                        home: item.homeValue,
+                        away: item.awayValue
+                    };
+                }
+                // Иначе пытаемся парсить из строк home/away (могут быть "70%" или "10")
+                const parseValue = (str) => {
+                    if (!str) return 0;
+                    const num = parseFloat(str.toString().replace('%', '').trim());
+                    return isNaN(num) ? 0 : num;
+                };
+                return {
+                    home: parseValue(item.home),
+                    away: parseValue(item.away)
+                };
+            };
+            
+            // Пытаемся найти в raw_data.statistics (приоритет - там данные для периода "ALL")
+            if (stats.raw_data && stats.raw_data.statistics && Array.isArray(stats.raw_data.statistics)) {
+                for (const statPeriod of stats.raw_data.statistics) {
+                    // Ищем период "ALL" (общая статистика матча)
+                    if (statPeriod.period === 'ALL' && statPeriod.groups && Array.isArray(statPeriod.groups)) {
+                        for (const group of statPeriod.groups) {
+                            if (group.groupName === statGroupName && group.statisticsItems && Array.isArray(group.statisticsItems)) {
+                                for (const item of group.statisticsItems) {
+                                    if (item.name === statItemName) {
+                                        return getValue(item);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Пытаемся найти в statistics (верхний уровень)
+            if (stats.statistics && Array.isArray(stats.statistics)) {
+                for (const statPeriod of stats.statistics) {
+                    if (statPeriod.period === 'ALL' && statPeriod.groups && Array.isArray(statPeriod.groups)) {
+                        for (const group of statPeriod.groups) {
+                            if (group.groupName === statGroupName && group.statisticsItems && Array.isArray(group.statisticsItems)) {
+                                for (const item of group.statisticsItems) {
+                                    if (item.name === statItemName) {
+                                        return getValue(item);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Пытаемся найти в periods (старый формат)
+            if (stats.periods && Array.isArray(stats.periods)) {
+                for (const period of stats.periods) {
+                    if ((period.period === 'all' || period.period === 'REGULAR' || period.period === 'ALL') && period.groups && Array.isArray(period.groups)) {
+                        for (const group of period.groups) {
+                            if (group.groupName === statGroupName && group.statisticsItems && Array.isArray(group.statisticsItems)) {
+                                for (const item of group.statisticsItems) {
+                                    if (item.name === statItemName) {
+                                        return getValue(item);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Пытаемся найти в raw_data.periods (старый формат)
+            if (stats.raw_data && stats.raw_data.periods && Array.isArray(stats.raw_data.periods)) {
+                for (const period of stats.raw_data.periods) {
+                    if ((period.period === 'all' || period.period === 'REGULAR' || period.period === 'ALL') && period.groups && Array.isArray(period.groups)) {
+                        for (const group of period.groups) {
+                            if (group.groupName === statGroupName && group.statisticsItems && Array.isArray(group.statisticsItems)) {
+                                for (const item of group.statisticsItems) {
+                                    if (item.name === statItemName) {
+                                        return getValue(item);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return null;
+        }
+        
         function formatStats(statsJson) {
             if (!statsJson) return null;
             
@@ -606,44 +709,92 @@
                     formatted.push(`Счет: ${stats.score.home || 0} - ${stats.score.away || 0}`);
                 }
                 
-                // Владение мячом
-                if (stats.possession) {
-                    formatted.push(`Владение: ${stats.possession.home || 0}% - ${stats.possession.away || 0}%`);
+                // Владение мячом - в группе "Match overview"
+                let possession = extractStatValue(stats, 'Match overview', 'Ball possession');
+                if (possession) {
+                    formatted.push(`Владение: ${possession.home || 0}% - ${possession.away || 0}%`);
                 }
                 
-                // Удары в створ
-                if (stats.shotsOnTarget) {
-                    formatted.push(`Удары в створ: ${stats.shotsOnTarget.home || 0} - ${stats.shotsOnTarget.away || 0}`);
+                // Удары в створ - в группе "Shots"
+                let shotsOnTarget = extractStatValue(stats, 'Shots', 'Shots on target');
+                if (shotsOnTarget) {
+                    formatted.push(`Удары в створ: ${shotsOnTarget.home || 0} - ${shotsOnTarget.away || 0}`);
                 }
                 
-                // xG
-                if (stats.xg) {
-                    formatted.push(`xG: ${(stats.xg.home || 0).toFixed(2)} - ${(stats.xg.away || 0).toFixed(2)}`);
+                // xG - в группе "Match overview"
+                let xg = extractStatValue(stats, 'Match overview', 'Expected goals');
+                if (xg) {
+                    formatted.push(`xG: ${(xg.home || 0).toFixed(2)} - ${(xg.away || 0).toFixed(2)}`);
                 }
                 
-                // Общие удары
-                if (stats.shots) {
-                    formatted.push(`Всего ударов: ${stats.shots.home || 0} - ${stats.shots.away || 0}`);
+                // Общие удары - в группе "Shots" или "Match overview"
+                let shots = extractStatValue(stats, 'Shots', 'Total shots');
+                if (!shots) {
+                    shots = extractStatValue(stats, 'Match overview', 'Total shots');
+                }
+                if (shots) {
+                    formatted.push(`Всего ударов: ${shots.home || 0} - ${shots.away || 0}`);
                 }
                 
-                // Угловые
-                if (stats.corners) {
-                    formatted.push(`Угловые: ${stats.corners.home || 0} - ${stats.corners.away || 0}`);
+                // Угловые - в группе "Match overview"
+                let corners = extractStatValue(stats, 'Match overview', 'Corner kicks');
+                if (corners) {
+                    formatted.push(`Угловые: ${corners.home || 0} - ${corners.away || 0}`);
                 }
                 
-                // Желтые карточки
-                if (stats.yellowCards) {
-                    formatted.push(`Желтые карточки: ${stats.yellowCards.home || 0} - ${stats.yellowCards.away || 0}`);
+                // Желтые карточки - в группе "Match overview"
+                let yellowCards = extractStatValue(stats, 'Match overview', 'Yellow cards');
+                if (yellowCards) {
+                    formatted.push(`Желтые карточки: ${yellowCards.home || 0} - ${yellowCards.away || 0}`);
                 }
                 
-                // Фолы
-                if (stats.fouls) {
-                    formatted.push(`Фолы: ${stats.fouls.home || 0} - ${stats.fouls.away || 0}`);
+                // Фолы - в группе "Match overview"
+                let fouls = extractStatValue(stats, 'Match overview', 'Fouls');
+                if (fouls) {
+                    formatted.push(`Фолы: ${fouls.home || 0} - ${fouls.away || 0}`);
+                }
+                
+                // Если ничего не нашлось, показываем структуру для отладки
+                if (formatted.length === 1 && formatted[0].startsWith('Счет:')) {
+                    console.warn('Найдена только статистика счета. Структура данных:', stats);
+                    // Пробуем показать все доступные группы статистики
+                    let debugInfo = ['=== Отладка структуры ==='];
+                    if (stats.periods && Array.isArray(stats.periods)) {
+                        stats.periods.forEach((period, idx) => {
+                            if (period.groups && Array.isArray(period.groups)) {
+                                period.groups.forEach(group => {
+                                    debugInfo.push(`Период ${idx}, Группа: ${group.groupName || 'N/A'}`);
+                                    if (group.statisticsItems && Array.isArray(group.statisticsItems)) {
+                                        group.statisticsItems.forEach(item => {
+                                            debugInfo.push(`  - ${item.name || 'N/A'}: ${item.home || 0} - ${item.away || 0}`);
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    if (stats.statistics && Array.isArray(stats.statistics)) {
+                        stats.statistics.forEach(group => {
+                            debugInfo.push(`Группа: ${group.groupName || 'N/A'}`);
+                            if (group.statisticsItems && Array.isArray(group.statisticsItems)) {
+                                group.statisticsItems.forEach(item => {
+                                    debugInfo.push(`  - ${item.name || 'N/A'}: ${item.home || 0} - ${item.away || 0}`);
+                                });
+                            }
+                        });
+                    }
+                    console.log(debugInfo.join('\n'));
+                    
+                    // Добавляем упрощенную структуру в tooltip
+                    if (debugInfo.length > 1) {
+                        formatted.push('\n' + debugInfo.slice(1).join('\n'));
+                    }
                 }
                 
                 return formatted.length > 0 ? formatted.join('\n') : null;
             } catch (e) {
                 console.error('Ошибка парсинга статистики:', e);
+                console.error('Данные статистики:', statsJson);
                 return null;
             }
         }
@@ -666,34 +817,34 @@
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
                 
-                // Формируем ячейку K60 с tooltip
-                let k60Cell = '';
-                const statsFormatted = formatStats(match.stats_60min);
-                const hasLiveOdds = match.live_odds !== null && match.live_odds !== undefined;
-                
-                if (statsFormatted) {
-                    // Есть статистика - показываем tooltip
-                    if (hasLiveOdds) {
-                        // Есть и коэффициент, и статистика
-                        k60Cell = `
-                            <span class="stats-tooltip">
-                                <span class="odds">${match.live_odds}</span>
-                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
-                            </span>
-                        `;
-                    } else {
-                        // Нет коэффициента, но есть статистика - показываем иконку информации
-                        k60Cell = `
-                            <span class="stats-tooltip">
-                                <i class="fas fa-info-circle info-icon"></i>
-                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
-                            </span>
-                        `;
-                    }
-                } else {
-                    // Нет статистики - просто показываем коэффициент или "-"
-                    k60Cell = `<span class="odds">${match.live_odds || '-'}</span>`;
-                }
+                                 // Формируем ячейку K60 с tooltip
+                 let k60Cell = '';
+                 const statsFormatted = formatStats(match.stats_60min);
+                 const hasLiveOdds = match.live_odds !== null && match.live_odds !== undefined;
+                 
+                 if (statsFormatted) {
+                     // Есть статистика - показываем tooltip
+                     if (hasLiveOdds) {
+                         // Есть и коэффициент, и статистика
+                         k60Cell = `
+                             <span class="stats-tooltip" data-tooltip-position="">
+                                 <span class="odds">${match.live_odds}</span>
+                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                             </span>
+                         `;
+                     } else {
+                         // Нет коэффициента, но есть статистика - показываем иконку информации
+                         k60Cell = `
+                             <span class="stats-tooltip" data-tooltip-position="">
+                                 <i class="fas fa-info-circle info-icon"></i>
+                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                             </span>
+                         `;
+                     }
+                 } else {
+                     // Нет статистики - просто показываем коэффициент или "-"
+                     k60Cell = `<span class="odds">${match.live_odds || '-'}</span>`;
+                 }
                 
                 row.innerHTML = `
                     <td>${match.match_date}</td>
@@ -710,12 +861,85 @@
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
                 
-                tbody.appendChild(row);
-            });
-            
-            // Рассчитываем и отображаем итоги
-            calculateTotals(matches);
-        }
+                                 tbody.appendChild(row);
+             });
+             
+             // Рассчитываем и отображаем итоги
+             calculateTotals(matches);
+             
+             // Настраиваем позицию tooltip'ов после добавления строк в DOM
+             setTimeout(() => {
+                 adjustTooltipPositions();
+             }, 0);
+         }
+         
+         function updateTooltipPosition(tooltip) {
+             const tooltipContent = tooltip.querySelector('.tooltip-content');
+             if (!tooltipContent) return;
+             
+             const rect = tooltip.getBoundingClientRect();
+             const tooltipHeight = 250; // Примерная высота tooltip
+             const spaceAbove = rect.top;
+             const spaceBelow = window.innerHeight - rect.bottom;
+             
+             // Определяем, где больше места
+             if (spaceAbove < tooltipHeight && spaceBelow >= tooltipHeight) {
+                 // Показываем снизу
+                 tooltip.classList.add('tooltip-bottom');
+                 tooltipContent.style.top = (rect.bottom + 10) + 'px';
+                 tooltipContent.style.left = (rect.left + rect.width / 2) + 'px';
+                 tooltipContent.style.bottom = 'auto';
+                 tooltipContent.style.right = 'auto';
+                 tooltipContent.style.transform = 'translateX(-50%)';
+             } else {
+                 // Показываем сверху (по умолчанию)
+                 tooltip.classList.remove('tooltip-bottom');
+                 const topPos = Math.max(10, rect.top - tooltipHeight - 10);
+                 tooltipContent.style.top = topPos + 'px';
+                 tooltipContent.style.left = (rect.left + rect.width / 2) + 'px';
+                 tooltipContent.style.bottom = 'auto';
+                 tooltipContent.style.right = 'auto';
+                 tooltipContent.style.transform = 'translateX(-50%)';
+             }
+         }
+         
+         function adjustTooltipPositions() {
+             const tooltips = document.querySelectorAll('.stats-tooltip');
+             
+             tooltips.forEach(tooltip => {
+                 const tooltipContent = tooltip.querySelector('.tooltip-content');
+                 if (!tooltipContent) return;
+                 
+                 // Добавляем обработчик для динамического определения позиции при наведении
+                 tooltip.addEventListener('mouseenter', function(e) {
+                     updateTooltipPosition(this);
+                 });
+                 
+                 // Обновляем позицию при движении мыши, если tooltip видим
+                 let isTooltipVisible = false;
+                 tooltip.addEventListener('mouseenter', function() {
+                     isTooltipVisible = true;
+                 });
+                 tooltip.addEventListener('mouseleave', function() {
+                     isTooltipVisible = false;
+                 });
+             });
+             
+             // Обновляем позицию при скролле страницы для видимых tooltip'ов
+             let scrollHandler = function() {
+                 tooltips.forEach(tooltip => {
+                     const tooltipContent = tooltip.querySelector('.tooltip-content');
+                     if (tooltipContent) {
+                         const style = window.getComputedStyle(tooltipContent);
+                         if (style.visibility === 'visible' && parseFloat(style.opacity) > 0) {
+                             updateTooltipPosition(tooltip);
+                         }
+                     }
+                 });
+             };
+             window.addEventListener('scroll', scrollHandler, true);
+             window.addEventListener('resize', scrollHandler);
+         }
 
         // Проверяем режим администратора
         const urlParams = new URLSearchParams(window.location.search);
