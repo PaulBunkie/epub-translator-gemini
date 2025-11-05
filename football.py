@@ -2420,115 +2420,40 @@ class FootballManager:
 
     def _calculate_bet(self, match: sqlite3.Row, stats: Dict, fixture_id: str) -> Tuple[Optional[float], Optional[float]]:
         """
-        Рассчитывает значение bet на основе условий.
+        Рассчитывает значение bet на основе решения ИИ.
 
-        Условия для bet:
-        1. Фаворит проигрывает ровно на 1 гол
-        2. Владение фаворита > 70%
-        3. Удары в створ фаворита ≥ 2x противника
-        4. xG фаворита > xG противника (если доступно)
+        Вместо эвристик (владение, xG и т.д.) используется ИИ, который анализирует
+        всю доступную статистику и решает ДА/НЕТ.
 
         Args:
             match: Запись матча
-            stats: Статистика на 60-й минуте (от SofaScore)
+            stats: Статистика на 60-й минуте (от SofaScore, с raw_data)
             fixture_id: ID матча в The Odds API
 
         Returns:
             Кортеж (bet_value, live_odds):
-            - bet_value: Коэффициент live odds если условия выполнены, 0 если нет, 1 если лимит API исчерпан
+            - bet_value: Коэффициент live odds если ИИ ответил ДА, 0 если НЕТ, 1 если лимит API исчерпан
             - live_odds: Реальное значение live odds из API (может быть None если не удалось получить)
         """
         try:
-            # Получаем информацию о фаворите
             fav_team = match['fav']
-            fav_is_home = match['fav_team_id'] == 1  # 1 = home, 0 = away 
-
-            # Проверяем наличие необходимых данных
-            score = stats.get('score', {})
             
-            # Извлекаем статистику из новой структуры
-            possession = self._extract_stat_value(stats, 'Ball possession', 'Ball possession')
-            if not possession.get('home') and not possession.get('away'):
-                # Пробуем альтернативные названия
-                possession = self._extract_stat_value(stats, 'Possession', 'Possession')
+            # Получаем решение от ИИ
+            print(f"[Football] Запрашиваем решение ИИ для матча {fixture_id}...")
+            is_yes, ai_reason = self._get_bet_ai_decision(match, stats)
             
-            shots_on_target = self._extract_stat_value(stats, 'Shots on target', 'Shots on target')
-            if not shots_on_target.get('home') and not shots_on_target.get('away'):
-                # Пробуем найти любую группу со shots
-                for group_name in ['Shots', 'Shot statistics']:
-                    shots_on_target = self._extract_stat_value(stats, group_name, 'Shots on target')
-                    if shots_on_target.get('home') or shots_on_target.get('away'):
-                        break
-            
-            xg_dict = self._extract_stat_value(stats, 'Expected goals', 'Expected goals')
-            if not xg_dict.get('home') and not xg_dict.get('away'):
-                # Пробуем альтернативные названия
-                for group_name in ['Expected goals (xG)', 'xG']:
-                    xg_dict = self._extract_stat_value(stats, group_name, 'Expected goals')
-                    if xg_dict.get('home') or xg_dict.get('away'):
-                        break
-            xg = xg_dict if (xg_dict.get('home') or xg_dict.get('away')) else {}
-
-            home_score = score.get('home', 0)
-            away_score = score.get('away', 0)
-
-            # Условие 1: Фаворит проигрывает на 1 мяч или меньше (разница <= 1)
-            if fav_is_home:
-                fav_score = home_score
-                opp_score = away_score
-            else:
-                fav_score = away_score
-                opp_score = home_score
-
-            goal_diff = opp_score - fav_score
-            # Условие 1: Фаворит проигрывает на 1 мяч или меньше (разница <= 1)
-            if goal_diff > 1:
-                print(f"[Football] Условие не выполнено: фаворит {fav_team} проигрывает более чем на 1 гол (счет: {fav_score}-{opp_score}, разница: {goal_diff})")
+            if is_yes is None:
+                # Не удалось получить ответ от ИИ - не делаем ставку
+                print(f"[Football] Не удалось получить решение ИИ для матча {fixture_id}, устанавливаем bet=0")
                 return (0, None)
-
-            # Условие 2: Владение фаворита > 70%
-            if fav_is_home:
-                fav_possession = possession.get('home', 0)
-            else:
-                fav_possession = possession.get('away', 0)
-
-            if fav_possession <= 70:
-                print(f"[Football] Условие не выполнено: владение фаворита {fav_team} = {fav_possession}% (требуется > 70%)")
+            
+            if not is_yes:
+                # ИИ ответил НЕТ - не делаем ставку
+                print(f"[Football] ИИ ответил НЕТ для матча {fixture_id}: {ai_reason[:200] if ai_reason else 'N/A'}...")
                 return (0, None)
-
-            # Условие 3: Удары в створ фаворита ≥ 2x противника
-            if fav_is_home:
-                fav_shots = shots_on_target.get('home', 0)
-                opp_shots = shots_on_target.get('away', 0)
-            else:
-                fav_shots = shots_on_target.get('away', 0)
-                opp_shots = shots_on_target.get('home', 0)
-
-            if opp_shots == 0:
-                # Если у противника 0 ударов, проверяем что у фаворита >= 2
-                if fav_shots < 2:
-                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots} (требуется ≥ 2x противника)")
-                    return (0, None)
-            else:
-                if fav_shots < opp_shots * 2:
-                    print(f"[Football] Условие не выполнено: удары в створ фаворита {fav_team} = {fav_shots}, противника = {opp_shots} (требуется ≥ 2x)")
-                    return (0, None)
-
-            # Условие 4: xG фаворита > xG противника (если доступно)      
-            if xg:
-                if fav_is_home:
-                    fav_xg = xg.get('home', 0)
-                    opp_xg = xg.get('away', 0)
-                else:
-                    fav_xg = xg.get('away', 0)
-                    opp_xg = xg.get('home', 0)
-
-                if fav_xg <= opp_xg:
-                    print(f"[Football] Условие не выполнено: xG фаворита {fav_team} = {fav_xg}, противника = {opp_xg} (требуется >)")
-                    return (0, None)
-
-            # Все условия выполнены - запрашиваем live odds
-            print(f"[Football] Все условия выполнены для матча {fixture_id}. Запрашиваем live odds...")
+            
+            # ИИ ответил ДА - запрашиваем live odds
+            print(f"[Football] ИИ ответил ДА для матча {fixture_id}. Запрашиваем live odds...")
             live_odds = self._get_live_odds(fixture_id)
 
             if live_odds is None:
@@ -2581,7 +2506,7 @@ class FootballManager:
 
 Информация о матче:
 - Команды: {home_team} vs {away_team}
-- Фаворит: {fav} (коэффициент {initial_odds} → {last_odds})
+- Фаворит: {fav} (текущий коэффициент ставки на победу фаворита {last_odds})
 - Текущий счет на 60-й минуте: {home_score} - {away_score}
 
 Статистика матча:
@@ -2711,6 +2636,174 @@ class FootballManager:
             pattern = r'\b' + re.escape(pred) + r'\b'
             if re.search(pattern, ai_response, re.IGNORECASE):
                 return pred.upper()
+        
+        return None
+
+    def _get_bet_ai_decision(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[bool], Optional[str]]:
+        """
+        Получает решение ИИ о том, стоит ли делать ставку (ДА/НЕТ) на основе статистики матча.
+
+        Args:
+            match: Запись матча из БД
+            stats: Статистика на 60-й минуте (из stats_60min, с raw_data)
+
+        Returns:
+            Кортеж (is_yes, ai_reason):
+            - is_yes: True если ИИ ответил ДА, False если НЕТ, None если ошибка
+            - ai_reason: Полный ответ от ИИ или None
+        """
+        if not self.openrouter_api_key:
+            print("[Football] OpenRouter API ключ не установлен, пропускаем ИИ-решение для bet")
+            return None, None
+
+        try:
+            # Формируем промпт
+            home_team = match['home_team']
+            away_team = match['away_team']
+            fav = match['fav']
+            initial_odds = match['initial_odds'] if 'initial_odds' in match.keys() and match['initial_odds'] is not None else '-'
+            last_odds = match['last_odds'] if 'last_odds' in match.keys() and match['last_odds'] is not None else '-'
+            
+            # Получаем текущий счет
+            score = stats.get('score', {})
+            home_score = score.get('home', 0)
+            away_score = score.get('away', 0)
+            
+            # Берем сырую статистику из raw_data
+            raw_stats = stats.get('raw_data', {})
+            
+            # Сериализуем статистику в JSON для промпта
+            import json
+            stats_json = json.dumps(raw_stats, ensure_ascii=False, indent=2)
+            
+            prompt = f"""Ты - футбольный аналитик. Сейчас середина матча фаворита с аутсайдером. Твоя задача - тщательно изучить предоставленную статистику матча и дать прогноз на исход. Если по твоему мнению аутсайдер играет на пределах своих возможностей и везения, а фаворит полностью контролирует игру и способен выиграть этот матч при текущем счете - ответь ДА. Если шансы на победу фаворита сомнительны из-за удивительно слаженных действия аутсайдера и растерянности фаворита - ответь НЕТ. Ответ должен состоять только из ДА или НЕТ
+
+Информация о матче:
+- Команды: {home_team} vs {away_team}
+- Фаворит: {fav} (текущий коэффициент ставки на победу фаворита {last_odds})
+- Текущий счет на 60-й минуте: {home_score} - {away_score}
+
+Статистика матча:
+{stats_json}"""
+
+            # Заголовки для OpenRouter API
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "HTTP-Referer": "https://github.com",
+                "X-Title": "Football Bet Analysis"
+            }
+
+            # Пробуем все доступные модели
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2]
+
+            for model_idx, model in enumerate(models_to_try):
+                if not model:
+                    continue
+
+                print(f"[Football Bet AI] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
+
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "max_tokens": 500,
+                        "temperature": 0.3  # Низкая температура для более детерминированного ответа
+                    }
+
+                    print(f"[Football Bet AI] Отправка запроса к OpenRouter API (модель: {model})")
+
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=60
+                    )
+
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            if 'choices' in data and len(data['choices']) > 0:
+                                ai_response = data['choices'][0]['message']['content']
+                                print(f"[Football Bet AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+
+                                # Парсим ответ - ищем ДА или НЕТ
+                                is_yes = self._parse_bet_ai_response(ai_response)
+
+                                if is_yes is not None:
+                                    print(f"[Football Bet AI] Успешно распознан ответ: {'ДА' if is_yes else 'НЕТ'}")
+                                    return is_yes, ai_response
+                                else:
+                                    print(f"[Football Bet AI] Не удалось распознать ДА/НЕТ в ответе: {ai_response[:200]}...")
+                                    # Продолжаем с следующей моделью
+                                    continue
+                            else:
+                                print(f"[Football Bet AI] Неверный формат ответа от OpenRouter API для модели {model}")
+                                continue
+                        except json.JSONDecodeError as e:
+                            print(f"[Football Bet AI] Ошибка парсинга JSON для модели {model}: {e}")
+                            continue
+                    else:
+                        print(f"[Football Bet AI] HTTP ошибка OpenRouter API для модели {model}: {response.status_code}")
+                        try:
+                            error_details = response.json()
+                            print(f"[Football Bet AI] Детали ошибки: {error_details}")
+
+                            # Если это ошибка 503 "No instances available", переходим к следующей модели
+                            if response.status_code == 503 and "No instances available" in str(error_details):
+                                print(f"[Football Bet AI] Модель {model} недоступна (503), переходим к следующей")
+                                continue
+                        except:
+                            print(f"[Football Bet AI] Текст ошибки: {response.text[:500]}...")
+                        continue
+
+                except requests.exceptions.Timeout:
+                    print(f"[Football Bet AI] Таймаут запроса к модели {model}")
+                    continue
+                except requests.exceptions.RequestException as e:
+                    print(f"[Football Bet AI] Ошибка запроса к модели {model}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"[Football Bet AI] Неожиданная ошибка при запросе к модели {model}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+
+            # Если все модели не дали валидного ответа
+            print("[Football Bet AI] Все модели не дали валидного ответа")
+            return None, None
+
+        except Exception as e:
+            print(f"[Football Bet AI ERROR] Ошибка получения ИИ-решения: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None, None
+
+    def _parse_bet_ai_response(self, ai_response: str) -> Optional[bool]:
+        """
+        Парсит ответ ИИ и извлекает ДА/НЕТ.
+
+        Args:
+            ai_response: Полный ответ от ИИ
+
+        Returns:
+            True если ДА, False если НЕТ, None если не найден
+        """
+        # Ищем ДА или НЕТ в ответе (регистронезависимо)
+        # Используем word boundary чтобы не захватывать часть других слов
+        response_upper = ai_response.upper().strip()
+        
+        # Ищем ДА (может быть написано как "ДА", "ДА.", "ДА!", "ДА," и т.д.)
+        if re.search(r'\bДА\b', response_upper):
+            return True
+        
+        # Ищем НЕТ (может быть написано как "НЕТ", "НЕТ.", "НЕТ!", "НЕТ," и т.д.)
+        if re.search(r'\bНЕТ\b', response_upper):
+            return False
         
         return None
 
