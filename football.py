@@ -274,6 +274,17 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'live_odds' already exists.")
         
+        # --- Проверка и добавление поля sport_key ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'sport_key' not in columns:
+            print("[FootballDB] Adding 'sport_key' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN sport_key TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'sport_key' added successfully.")
+        else:
+            print("[FootballDB] Column 'sport_key' already exists.")
+        
         # --- Создание индексов ---
         print("[FootballDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status)")
@@ -1317,19 +1328,36 @@ class FootballManager:
                 print(f"[Football] Не удалось получить коэффициенты для команд")
                 return None
             
-            # Берем минимальный коэффициент для каждой команды
-            min_home_odd = min(home_odds)
-            min_away_odd = min(away_odds)
+            # Сортируем коэффициенты для расчета медианы
+            home_odds_sorted = sorted(home_odds)
+            away_odds_sorted = sorted(away_odds)
             
-            # Определяем фаворита (меньший коэффициент)
-            if min_home_odd <= min_away_odd:
+            # Берем медианный коэффициент для каждой команды (устойчив к выбросам)
+            def get_median(odds_list):
+                n = len(odds_list)
+                if n == 0:
+                    return None
+                if n % 2 == 0:
+                    return (odds_list[n//2 - 1] + odds_list[n//2]) / 2.0
+                else:
+                    return odds_list[n//2]
+            
+            median_home_odd = get_median(home_odds_sorted)
+            median_away_odd = get_median(away_odds_sorted)
+            
+            if median_home_odd is None or median_away_odd is None:
+                print(f"[Football] Не удалось рассчитать медианные коэффициенты")
+                return None
+            
+            # Определяем фаворита (меньший медианный коэффициент)
+            if median_home_odd <= median_away_odd:
                 fav_team = home_team
                 fav_is_home = True
-                fav_odd = min_home_odd
+                fav_odd = median_home_odd
             else:
                 fav_team = away_team
                 fav_is_home = False
-                fav_odd = min_away_odd
+                fav_odd = median_away_odd
             
             print(f"[Football] Фаворит: {fav_team} (кэф: {fav_odd})")
             
@@ -1373,11 +1401,12 @@ class FootballManager:
             # Извлекаем данные
             home_team = match_data.get('home_team')
             away_team = match_data.get('away_team')
-            
+            sport_key = match_data.get('sport_key')
+
             if not home_team or not away_team:
                 print(f"[Football] Нет названий команд для матча {event_id}")
                 return False
-            
+
             # Дата и время матча (в UTC от The Odds API)
             commence_time = match_data.get('commence_time')
             if commence_time:
@@ -1389,17 +1418,17 @@ class FootballManager:
                 match_date = dt.strftime('%Y-%m-%d')
                 match_time = dt.strftime('%H:%M')
             else:
-                print(f"[Football] Нет даты для матча {event_id}")
+                print(f"[Football] Нет даты для матча {event_id}")        
                 return False
-            
+
                         # Сохраняем
-            # При первом сохранении initial_odds и last_odds одинаковые
+            # При первом сохранении initial_odds и last_odds одинаковые   
             fav_odds = fav_info['odds']
             cursor.execute("""
                 INSERT INTO matches
                 (fixture_id, home_team, away_team, fav, fav_team_id,      
-                 match_date, match_time, initial_odds, last_odds, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 match_date, match_time, initial_odds, last_odds, status, sport_key) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event_id,  # fixture_id = event_id из The Odds API        
                 home_team,
@@ -1409,8 +1438,9 @@ class FootballManager:
                 match_date,
                 match_time,
                 fav_odds,  # initial_odds - первая котировка
-                fav_odds,  # last_odds - при первом сохранении такая же
-                'scheduled'
+                fav_odds,  # last_odds - при первом сохранении такая же   
+                'scheduled',
+                sport_key  # sport_key для использования в запросах live odds
             ))
 
             conn.commit()
@@ -1494,16 +1524,18 @@ class FootballManager:
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
-                        # Обновляем только коэффициент (last_odds), фаворита и время обновления
+                        # Обновляем только коэффициент (last_odds), фаворита, sport_key и время обновления
             # initial_odds не трогаем - там хранится первая котировка
+            sport_key = match_data.get('sport_key')
             cursor.execute("""
                 UPDATE matches
-                SET fav = ?, fav_team_id = ?, last_odds = ?, updated_at = CURRENT_TIMESTAMP
+                SET fav = ?, fav_team_id = ?, last_odds = ?, sport_key = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE fixture_id = ?
             """, (
                 fav_info['team'],
                 1 if fav_info['is_home'] else 0,
                 fav_info['odds'],
+                sport_key,
                 fixture_id
             ))
 
@@ -1664,7 +1696,8 @@ class FootballManager:
                     # Обновляем live_odds только если прошло >= 55 минут
                     if minutes_diff >= 55:
                         print(f"[Football] Обновляем live_odds для матча {fixture_id} (прошло {minutes_diff:.1f} минут)...")
-                        live_odds_value = self._get_live_odds(fixture_id)
+                        sport_key = match['sport_key'] if 'sport_key' in match.keys() else None
+                        live_odds_value = self._get_live_odds(fixture_id, sport_key)
                         if live_odds_value:
                             print(f"[Football] Получены live odds для {fixture_id}: {live_odds_value}")
                             cursor.execute("""
@@ -1967,44 +2000,64 @@ class FootballManager:
         print(f"[Football SofaScore] Не удалось получить данные события для event_id={sofascore_event_id} после {max_retries} попыток")
         return None
 
-    def _get_live_odds(self, fixture_id: str) -> Optional[float]:
+    def _get_live_odds(self, fixture_id: str, sport_key: Optional[str] = None) -> Optional[float]:
         """
         Получает актуальные live коэффициенты фаворита на победу с The Odds API.
+        
+        Использует эндпойнт /v4/sports/{sport}/events/{eventId}/odds для получения коэффициентов конкретного события.
+        Требует конкретный sport_key (например, 'soccer_uefa_champs_league'), который должен быть сохранен в БД.
 
         Args:
-            fixture_id: ID матча в The Odds API
+            fixture_id: ID матча в The Odds API (eventId)
+            sport_key: Ключ вида спорта (например, 'soccer_epl'). Если не указан, будет получен из БД.
 
         Returns:
             Коэффициент фаворита на победу или None в случае ошибки/отсутствия live odds
         """
         try:
-            # Запрос live odds для конкретного матча
-            # The Odds API не поддерживает прямой запрос по fixture_id для live odds,
-            # поэтому нужно запросить все live odds и найти нужный матч
+            # Если sport_key не передан, пытаемся получить из БД
+            if not sport_key:
+                conn = get_football_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT sport_key FROM matches WHERE fixture_id = ?", (fixture_id,))
+                row = cursor.fetchone()
+                conn.close()
+                
+                if row and row['sport_key']:
+                    sport_key = row['sport_key']
+                else:
+                    # Если sport_key не найден в БД - это ошибка, не делаем запрос
+                    print(f"[Football ERROR] sport_key не найден в БД для fixture {fixture_id}, пропускаем запрос live odds")
+                    print(f"[Football] Запустите синхронизацию матчей (/api/football/sync) для обновления sport_key")
+                    return None
+            
+            # Параметры запроса
             params = {
-                "sport": "soccer",
                 "regions": "eu",
                 "markets": "h2h",
                 "oddsFormat": "decimal"
             }
             
-            # Запрашиваем live odds для всех лиг (или можно указать конкретную лигу)
-            # Попробуем запросить для всех доступных лиг
-            data = self._make_api_request("/odds/live", params)
+            # Используем эндпойнт /sports/{sport}/events/{eventId}/odds
+            # Требуется конкретный sport_key (например, 'soccer_uefa_champs_league')
+            endpoint = f"/sports/{sport_key}/events/{fixture_id}/odds"
+            data = self._make_api_request(endpoint, params)
             
-            if not data or not isinstance(data, list):
-                print(f"[Football] Не удалось получить live odds для fixture {fixture_id}")
+            if not data or not isinstance(data, dict):
+                print(f"[Football] Не удалось получить live odds для fixture {fixture_id} (ответ не является объектом)")
                 return None
             
-            # Ищем нужный матч по fixture_id
-            for match_data in data:
-                if match_data.get('id') == fixture_id:
-                    # Находим фаворита по минимальному коэффициенту
-                    fav_info = self._determine_favorite(match_data)
-                    if fav_info:
-                        return fav_info['odds']
+            # Проверяем, что ID матча совпадает
+            if data.get('id') != fixture_id:
+                print(f"[Football] Несоответствие ID: запрошен {fixture_id}, получен {data.get('id')}")
+                return None
             
-            print(f"[Football] Матч {fixture_id} не найден в live odds или матч еще не начался")
+            # Находим фаворита по минимальному коэффициенту
+            fav_info = self._determine_favorite(data)
+            if fav_info:
+                return fav_info['odds']
+            
+            print(f"[Football] Не удалось определить фаворита для fixture {fixture_id}")
             return None
             
         except Exception as e:
@@ -2068,7 +2121,8 @@ class FootballManager:
 
             # ВСЕГДА запрашиваем live_odds, независимо от условий
             print(f"[Football] Запрашиваем live odds для матча {fixture_id}...")
-            live_odds_value = self._get_live_odds(fixture_id)
+            sport_key = match['sport_key'] if 'sport_key' in match.keys() else None
+            live_odds_value = self._get_live_odds(fixture_id, sport_key)
             if live_odds_value:
                 print(f"[Football] Получены live odds для {fixture_id}: {live_odds_value}")
             else:
@@ -2467,7 +2521,8 @@ class FootballManager:
 
             # ИИ ответил ДА - запрашиваем live odds
             print(f"[Football] ИИ ответил ДА для матча {fixture_id}. Запрашиваем live odds...")
-            live_odds = self._get_live_odds(fixture_id)
+            sport_key = match['sport_key'] if 'sport_key' in match.keys() else None
+            live_odds = self._get_live_odds(fixture_id, sport_key)
 
             if live_odds is None:
                 # Если не удалось получить live odds (лимит исчерпан или матч не найден), сохраняем 1 в bet
