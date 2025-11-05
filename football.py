@@ -13,6 +13,14 @@ from dotenv import load_dotenv
 from config import FOOTBALL_DB_FILE
 from workflow_model_config import get_model_for_operation
 
+# Попытка импортировать telegram_notifier (может отсутствовать)
+try:
+    from telegram_notifier import telegram_notifier
+    TELEGRAM_AVAILABLE = True
+except ImportError:
+    TELEGRAM_AVAILABLE = False
+    print("[Football] Telegram notifier не доступен")
+
 load_dotenv()
 
 FOOTBALL_DATABASE_FILE = str(FOOTBALL_DB_FILE)
@@ -2066,8 +2074,11 @@ class FootballManager:
             else:
                 print(f"[Football] Не удалось получить live odds для {fixture_id}")
 
-            # Проверяем условия и записываем bet
-            bet_value, _ = self._calculate_bet(match, stats, fixture_id)
+                        # Проверяем условия и записываем bet
+            bet_value, _, ai_decision, ai_reason = self._calculate_bet(match, stats, fixture_id)
+
+            # Отправляем уведомление админу (если фаворит не выигрывает)
+            self._send_match_notification(match, stats, live_odds_value, ai_decision, ai_reason)
 
             # Сохраняем в БД (всегда сохраняем live_odds, даже если условия не выполнены)
             conn = get_football_db_connection()
@@ -2430,28 +2441,30 @@ class FootballManager:
             stats: Статистика на 60-й минуте (от SofaScore, с raw_data)
             fixture_id: ID матча в The Odds API
 
-        Returns:
-            Кортеж (bet_value, live_odds):
+                Returns:
+            Кортеж (bet_value, live_odds, ai_decision, ai_reason):
             - bet_value: Коэффициент live odds если ИИ ответил ДА, 0 если НЕТ, 1 если лимит API исчерпан
             - live_odds: Реальное значение live odds из API (может быть None если не удалось получить)
+            - ai_decision: Решение ИИ (True = ДА, False = НЕТ, None = ошибка)
+            - ai_reason: Полный ответ от ИИ или None
         """
         try:
             fav_team = match['fav']
-            
+
             # Получаем решение от ИИ
             print(f"[Football] Запрашиваем решение ИИ для матча {fixture_id}...")
             is_yes, ai_reason = self._get_bet_ai_decision(match, stats)
-            
+
             if is_yes is None:
                 # Не удалось получить ответ от ИИ - не делаем ставку
                 print(f"[Football] Не удалось получить решение ИИ для матча {fixture_id}, устанавливаем bet=0")
-                return (0, None)
-            
+                return (0, None, None, ai_reason)
+
             if not is_yes:
                 # ИИ ответил НЕТ - не делаем ставку
                 print(f"[Football] ИИ ответил НЕТ для матча {fixture_id}: {ai_reason[:200] if ai_reason else 'N/A'}...")
-                return (0, None)
-            
+                return (0, None, False, ai_reason)
+
             # ИИ ответил ДА - запрашиваем live odds
             print(f"[Football] ИИ ответил ДА для матча {fixture_id}. Запрашиваем live odds...")
             live_odds = self._get_live_odds(fixture_id)
@@ -2459,16 +2472,90 @@ class FootballManager:
             if live_odds is None:
                 # Если не удалось получить live odds (лимит исчерпан или матч не найден), сохраняем 1 в bet
                 print(f"[Football] Не удалось получить live odds для {fixture_id}, сохраняем bet=1, live_odds=NULL")
-                return (1, None)
+                return (1, None, True, ai_reason)
 
             print(f"[Football] Получены live odds для фаворита {fav_team}: {live_odds}")
-            return (live_odds, live_odds)
+            return (live_odds, live_odds, True, ai_reason)
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка расчета bet: {e}")
             import traceback
             print(traceback.format_exc())
-            return (0, None)
+            return (0, None, None, None)
+
+    def _send_match_notification(self, match: sqlite3.Row, stats: Dict, live_odds: Optional[float], ai_decision: Optional[bool], ai_reason: Optional[str]) -> bool:
+        """
+        Отправляет уведомление в Telegram админу о матче, если фаворит не выигрывает.
+
+        Args:
+            match: Запись матча из БД
+            stats: Статистика на 60-й минуте
+            live_odds: Коэффициент live odds (K60)
+            ai_decision: Решение ИИ (True = ДА, False = НЕТ, None = ошибка)
+            ai_reason: Полный ответ от ИИ
+
+        Returns:
+            bool: True если уведомление отправлено успешно
+        """
+        if not TELEGRAM_AVAILABLE:
+            return False
+
+        try:
+            # Проверяем условие: фаворит не выигрывает
+            score = stats.get('score', {})
+            home_score = score.get('home', 0)
+            away_score = score.get('away', 0)
+
+            home_team = match['home_team']
+            away_team = match['away_team']
+            fav_team = match['fav']
+            fav_is_home = (fav_team == home_team)
+
+            # Вычисляем разницу в счете с точки зрения фаворита
+            if fav_is_home:
+                fav_score = home_score
+                opp_score = away_score
+            else:
+                fav_score = away_score
+                opp_score = home_score
+
+            score_diff = opp_score - fav_score  # Положительное значение = фаворит проигрывает
+
+            # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
+            if score_diff < 0:
+                print(f"[Football] Фаворит {fav_team} выигрывает ({fav_score}-{opp_score}), пропускаем уведомление")
+                return False
+
+            # Формируем решение ИИ для сообщения
+            ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
+            ai_reason_short = (ai_reason[:200] + "...") if ai_reason and len(ai_reason) > 200 else (ai_reason or "Нет данных")
+
+            # Формируем сообщение
+            message = f"""
+⚽ <b>Футбольная аналитика - уведомление</b>
+
+🏟️ <b>Матч:</b> {home_team} vs {away_team}
+📊 <b>Счет:</b> {home_score} - {away_score}
+⭐ <b>Фаворит:</b> {fav_team}
+💰 <b>K60:</b> {live_odds if live_odds else 'N/A'}
+
+🤖 <b>Решение ИИ:</b> {ai_decision_text}
+📝 <b>Обоснование:</b> {ai_reason_short}
+            """.strip()
+
+            # Отправляем уведомление админу
+            if telegram_notifier.send_message(message):
+                print(f"[Football] Уведомление отправлено админу для матча {match['fixture_id']}")
+                return True
+            else:
+                print(f"[Football] Ошибка отправки уведомления для матча {match['fixture_id']}")
+                return False
+
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка отправки уведомления: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
 
     def _get_ai_prediction(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str]]:
         """

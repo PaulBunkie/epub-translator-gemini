@@ -2351,6 +2351,92 @@ def api_check_football_matches():
         traceback.print_exc()
         return jsonify({'error': f'Ошибка проверки матчей: {str(e)}'}), 500
 
+@app.route('/api/football/test-notification', methods=['POST'])
+def api_test_football_notification():
+    """API эндпойнт для тестирования отправки уведомлений в Telegram."""
+    # Проверяем режим администратора
+    admin = request.args.get('admin', 'false').lower() == 'true'
+    if not admin:
+        return jsonify({'error': 'Доступ запрещен. Используйте ?admin=true'}), 403
+    
+    try:
+        import sqlite3
+        from football import get_football_db_connection
+        
+        manager = football.get_manager()
+        
+        # Создаем тестовые данные
+        # Пытаемся взять реальный матч из БД или создаем тестовый объект
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        # Берем первый матч из БД, если есть
+        cursor.execute("SELECT * FROM matches LIMIT 1")
+        match_row = cursor.fetchone()
+        conn.close()
+        
+        if match_row:
+            # Используем реальный матч
+            match = match_row
+            print(f"[Football Test] Используем реальный матч: {match['home_team']} vs {match['away_team']}")
+        else:
+            # Создаем тестовый объект-заглушку
+            class TestMatch:
+                def __init__(self):
+                    self.home_team = "Тестовая команда 1"
+                    self.away_team = "Тестовая команда 2"
+                    self.fav = "Тестовая команда 1"
+                    self.fixture_id = "test_fixture_123"
+                
+                def __getitem__(self, key):
+                    return getattr(self, key)
+                
+                def keys(self):
+                    return ['home_team', 'away_team', 'fav', 'fixture_id']
+            
+            match = TestMatch()
+            print(f"[Football Test] Используем тестовый матч")
+        
+        # Тестовые данные для статистики
+        test_stats = {
+            'score': {
+                'home': 0,
+                'away': 1  # Фаворит проигрывает (для теста)
+            },
+            'raw_data': {}
+        }
+        
+        # Тестовые параметры для уведомления
+        test_live_odds = 2.5
+        test_ai_decision = True  # ИИ ответил ДА
+        test_ai_reason = "Тестовое обоснование: фаворит контролирует игру, несмотря на проигрыш. Высокая вероятность победы."
+        
+        # Вызываем функцию отправки уведомления
+        result = manager._send_match_notification(
+            match=match,
+            stats=test_stats,
+            live_odds=test_live_odds,
+            ai_decision=test_ai_decision,
+            ai_reason=test_ai_reason
+        )
+        
+        if result:
+            return jsonify({
+                'success': True,
+                'message': 'Тестовое уведомление отправлено в Telegram'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Не удалось отправить уведомление (проверьте настройки Telegram или логи)'
+            }), 500
+            
+    except Exception as e:
+        print(f"[Football API] Ошибка тестирования уведомления: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Ошибка тестирования уведомления: {str(e)}'}), 500
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ ФУТБОЛА ---
 
 @app.route('/books', methods=['GET'])
