@@ -916,6 +916,18 @@
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
                 
+                // Функция для форматирования коэффициентов (округление до сотых)
+                const formatOdds = (odds) => {
+                    if (odds === null || odds === undefined || odds === '') {
+                        return '-';
+                    }
+                    const num = parseFloat(odds);
+                    if (isNaN(num)) {
+                        return '-';
+                    }
+                    return num.toFixed(2);
+                };
+                
                 // Определяем класс для подсветки итогового счета в зависимости от результата фаворита
                 let finalScoreHtml = finalScore;
                 if (match.status === 'finished' && match.final_score_home !== null && match.final_score_away !== null) {
@@ -944,6 +956,7 @@
                  let k60Cell = '';
                  const statsFormatted = formatStats(match.stats_60min);
                  const hasLiveOdds = match.live_odds !== null && match.live_odds !== undefined;
+                 const formattedLiveOdds = formatOdds(match.live_odds);
                  
                  if (statsFormatted) {
                      // Есть статистика - показываем tooltip
@@ -951,7 +964,7 @@
                          // Есть и коэффициент, и статистика
                          k60Cell = `
                              <span class="stats-tooltip" data-tooltip-position="">
-                                 <span class="odds">${match.live_odds}</span>
+                                 <span class="odds">${formattedLiveOdds}</span>
                                  <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
                              </span>
                          `;
@@ -966,7 +979,7 @@
                      }
                  } else {
                      // Нет статистики - просто показываем коэффициент или "-"
-                     k60Cell = `<span class="odds">${match.live_odds || '-'}</span>`;
+                     k60Cell = `<span class="odds">${formattedLiveOdds}</span>`;
                  }
                  
                 row.innerHTML = `
@@ -975,11 +988,11 @@
                     <td>${match.home_team}</td>
                     <td>${match.away_team}</td>
                     <td><span class="fav-team">${match.fav}</span></td>
-                    <td><span class="odds">${match.initial_odds || '-'}</span></td>
-                    <td><span class="odds">${match.last_odds || '-'}</span></td>
+                    <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
+                    <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
                     <td>${k60Cell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
-                    <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${parseFloat(match.bet_ai_odds).toFixed(2)})</small></span>` : match.bet_ai) : '-'}</td>
+                    <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small></span>` : match.bet_ai) : '-'}</td>
                     <td>${finalScoreHtml}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
