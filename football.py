@@ -1245,6 +1245,11 @@ class FootballManager:
                     if has_favorite:
                         # Матч с фаворитом - заполняем все поля
                         if match_exists:
+                            # Проверяем статус перед обновлением - не обновляем завершенные матчи
+                            match_status = self._get_match_status(fixture_id)
+                            if match_status == 'finished':
+                                print(f"[Football] Пропущен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')} - матч завершен")
+                                continue
                             # Обновляем существующий матч
                             success = self._update_match(fixture_id, fav_info, match_data, odds_1_x_2)
                             if success:
@@ -1259,6 +1264,11 @@ class FootballManager:
                     else:
                         # Матч без фаворита или с кэфом > 1.30 - заполняем только базовые поля
                         if match_exists:
+                            # Проверяем статус перед обновлением - не обновляем завершенные матчи
+                            match_status = self._get_match_status(fixture_id)
+                            if match_status == 'finished':
+                                print(f"[Football] Пропущен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')} - матч завершен")
+                                continue
                             # Обновляем существующий матч (без fav)
                             success = self._update_match_without_fav(fixture_id, match_data, odds_1_x_2)
                             if success:
@@ -1592,6 +1602,30 @@ class FootballManager:
         except sqlite3.Error as e:
             print(f"[Football ERROR] Ошибка проверки существования матча: {e}")
             return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _get_match_status(self, fixture_id: str) -> Optional[str]:
+        """
+        Получает статус матча из БД.
+
+        Args:
+            fixture_id: ID матча из API
+
+        Returns:
+            Статус матча ('scheduled', 'in_progress', 'finished') или None если матч не найден
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM matches WHERE fixture_id = ?", (fixture_id,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка получения статуса матча: {e}")
+            return None
         finally:
             if conn:
                 conn.close()
