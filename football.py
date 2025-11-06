@@ -2866,13 +2866,14 @@ class FootballManager:
             stats: Статистика на 60-й минуте (из stats_60min)
         
         Returns:
-            Кортеж (bet_ai, bet_ai_reason):
+            Кортеж (bet_ai, bet_ai_reason, bet_recommendation):
             - bet_ai: Прогноз ('1', '1X', 'X', 'X2', '2') или None
             - bet_ai_reason: Полный ответ от ИИ или None
+            - bet_recommendation: True если СТАВИМ, False если ИГНОРИРУЕМ, None если не распознано
         """
         if not self.openrouter_api_key:
             print("[Football] OpenRouter API ключ не установлен, пропускаем ИИ-прогноз")
-            return None, None
+            return None, None, None
         
         try:
             # Формируем промпт без упоминания фаворита
@@ -2993,10 +2994,13 @@ X2 ИГНОРИРУЕМ
                                 
                                 # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
                                 bet_ai = self._parse_ai_prediction(ai_response)
+                                # Парсим рекомендацию - ищем СТАВИМ/ИГНОРИРУЕМ
+                                bet_recommendation = self._parse_ai_recommendation(ai_response)
                                 
                                 if bet_ai:
-                                    print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
-                                    return bet_ai, ai_response
+                                    recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
+                                    print(f"[Football AI] Успешно распознан прогноз: {bet_ai}, рекомендация: {recommendation_text}")
+                                    return bet_ai, ai_response, bet_recommendation
                                 else:
                                     print(f"[Football AI] Не удалось распознать прогноз в ответе, пробуем следующую модель")
                                     if model_idx < len(models_to_try) - 1:
@@ -3004,7 +3008,7 @@ X2 ИГНОРИРУЕМ
                                     else:
                                         # Последняя модель - возвращаем ответ даже если не распознан
                                         print(f"[Football AI] Все модели испробованы, возвращаем ответ без распознанного прогноза")
-                                        return None, ai_response
+                                        return None, ai_response, None
                         except json.JSONDecodeError as e:
                             print(f"[Football AI ERROR] Ошибка парсинга JSON ответа: {e}")
                             continue
