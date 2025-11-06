@@ -239,6 +239,106 @@
         .ai-logo-a {
             color: #b23c17;
         }
+        
+        /* Стили для markdown контента в модальном окне анализа риска */
+        .analysis-text {
+            font-size: 1rem;
+            line-height: 1.8;
+        }
+        
+        .analysis-text h1,
+        .analysis-text h2,
+        .analysis-text h3,
+        .analysis-text h4,
+        .analysis-text h5,
+        .analysis-text h6 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        
+        .analysis-text h1 { font-size: 1.75rem; }
+        .analysis-text h2 { font-size: 1.5rem; }
+        .analysis-text h3 { font-size: 1.25rem; }
+        .analysis-text h4 { font-size: 1.1rem; }
+        
+        .analysis-text p {
+            margin-bottom: 1em;
+        }
+        
+        .analysis-text ul,
+        .analysis-text ol {
+            margin-bottom: 1em;
+            padding-left: 2em;
+        }
+        
+        .analysis-text li {
+            margin-bottom: 0.5em;
+        }
+        
+        .analysis-text strong {
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        
+        .analysis-text em {
+            font-style: italic;
+        }
+        
+        .analysis-text code {
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .analysis-text pre {
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin-bottom: 1em;
+        }
+        
+        .analysis-text pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        
+        .analysis-text blockquote {
+            border-left: 4px solid #0d6efd;
+            padding-left: 1em;
+            margin-left: 0;
+            margin-bottom: 1em;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .analysis-text hr {
+            border: none;
+            border-top: 1px solid #ddd;
+            margin: 1.5em 0;
+        }
+        
+        .analysis-text table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 1em;
+        }
+        
+        .analysis-text table th,
+        .analysis-text table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        .analysis-text table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -1382,12 +1482,15 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success && data.analysis) {
-                    // Отображаем анализ
+                    // Рендерим markdown в HTML
+                    const markdownHtml = marked.parse(data.analysis);
+                    
+                    // Отображаем анализ с markdown форматированием
                     content.innerHTML = `
                         <div class="risk-analysis-result">
                             <h6>Прогноз ИИ: <strong>${betAI}</strong> (коэффициент: ${betAIOdds.toFixed(2)})</h6>
                             <hr>
-                            <div class="analysis-text" style="white-space: pre-wrap; line-height: 1.6;">${data.analysis}</div>
+                            <div class="analysis-text" style="line-height: 1.6;">${markdownHtml}</div>
                         </div>
                     `;
                 } else {
@@ -1614,6 +1717,7 @@
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </body>
 </html>
 
