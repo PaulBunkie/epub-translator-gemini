@@ -569,6 +569,31 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Модальное окно для виджета SofaScore -->
+        <div class="modal fade" id="sofascoreModal" tabindex="-1" aria-labelledby="sofascoreModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="sofascoreModalLabel">Матч в прямом эфире</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="sofascoreContent">
+                        <div id="sofascoreWidgetContainer">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Загрузка виджета...</span>
+                                </div>
+                                <p class="mt-2">Загрузка виджета...</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1261,6 +1286,17 @@
                     'finished': 'Завершен'
                 }[match.status] || match.status;
                 
+                // Делаем статус "Идет" кликабельным, если есть sofascore_event_id
+                let statusHtml = `<span class="status-badge ${statusBadgeClass}">${statusText}</span>`;
+                if (match.status === 'in_progress' && match.sofascore_event_id) {
+                    statusHtml = `<span class="status-badge ${statusBadgeClass} sofascore-status-clickable" 
+                                        style="cursor: pointer; text-decoration: underline;" 
+                                        data-sofascore-id="${match.sofascore_event_id}"
+                                        data-home-team="${match.home_team}"
+                                        data-away-team="${match.away_team}"
+                                        title="Нажмите для просмотра матча в прямом эфире">${statusText}</span>`;
+                }
+                
                 const finalScore = match.final_score_home !== null && match.final_score_away !== null
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
@@ -1343,7 +1379,7 @@
                     <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small></span>` : match.bet_ai) : '-'}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScoreHtml}</td>
-                    <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
+                    <td>${statusHtml}</td>
                 `;
                 
                                  tbody.appendChild(row);
@@ -1355,6 +1391,8 @@
              // Настраиваем позицию tooltip'ов после добавления строк в DOM
              setTimeout(() => {
                  adjustTooltipPositions();
+                 // Добавляем обработчики клика на статус "Идет" для первой таблицы
+                 setupSofascoreStatusHandlers();
              }, 0);
          }
          
@@ -1420,6 +1458,17 @@
                      'in_progress': 'Идет',
                      'finished': 'Завершен'
                  }[match.status] || match.status;
+                 
+                 // Делаем статус "Идет" кликабельным, если есть sofascore_event_id
+                 let statusHtml = `<span class="status-badge ${statusBadgeClass}">${statusText}</span>`;
+                 if (match.status === 'in_progress' && match.sofascore_event_id) {
+                     statusHtml = `<span class="status-badge ${statusBadgeClass} sofascore-status-clickable" 
+                                         style="cursor: pointer; text-decoration: underline;" 
+                                         data-sofascore-id="${match.sofascore_event_id}"
+                                         data-home-team="${match.home_team}"
+                                         data-away-team="${match.away_team}"
+                                         title="Нажмите для просмотра матча в прямом эфире">${statusText}</span>`;
+                 }
                  
                 const finalScore = match.final_score_home !== null && match.final_score_away !== null
                     ? `${match.final_score_home}-${match.final_score_away}`
@@ -1501,7 +1550,7 @@
                     <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScore}</td>
-                    <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
+                    <td>${statusHtml}</td>
                 `;
                 
                 // Повторно применяем классы после установки innerHTML (на случай если они были сброшены)
@@ -1525,7 +1574,68 @@
                 adjustTooltipPositions();
                 // Добавляем обработчики клика на прогнозы ИИ после отображения таблицы
                 setupBetAIClickHandlers();
+                // Добавляем обработчики клика на статус "Идет" для открытия виджета SofaScore
+                setupSofascoreStatusHandlers();
             }, 0);
+        }
+        
+        // Функция для настройки обработчиков клика на статус "Идет"
+        function setupSofascoreStatusHandlers() {
+            // Используем делегирование событий для динамически созданных элементов
+            document.querySelectorAll('.sofascore-status-clickable').forEach(clickable => {
+                clickable.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const sofascoreId = this.getAttribute('data-sofascore-id');
+                    const homeTeam = this.getAttribute('data-home-team');
+                    const awayTeam = this.getAttribute('data-away-team');
+                    
+                    if (sofascoreId) {
+                        showSofascoreWidget(sofascoreId, homeTeam, awayTeam);
+                    }
+                });
+            });
+        }
+        
+        // Функция для отображения виджета SofaScore
+        function showSofascoreWidget(sofascoreId, homeTeam, awayTeam) {
+            const modalElement = document.getElementById('sofascoreModal');
+            const modal = new bootstrap.Modal(modalElement);
+            const content = document.getElementById('sofascoreWidgetContainer');
+            
+            // Обновляем заголовок модального окна
+            document.getElementById('sofascoreModalLabel').textContent = `${homeTeam} vs ${awayTeam}`;
+            
+            // Формируем HTML с виджетом
+            // Нормализуем названия команд для URL (упрощенная версия)
+            const normalizeForUrl = (str) => {
+                return str.toLowerCase()
+                    .replace(/\s+/g, '-')
+                    .replace(/[^a-z0-9-]/g, '')
+                    .replace(/-+/g, '-')
+                    .replace(/^-|-$/g, '');
+            };
+            
+            const homeTeamUrl = normalizeForUrl(homeTeam);
+            const awayTeamUrl = normalizeForUrl(awayTeam);
+            
+            const widgetHtml = `
+                <iframe width="100%" height="286" 
+                        src="https://widgets.sofascore.com/embed/attackMomentum?id=${sofascoreId}&widgetTheme=light" 
+                        frameborder="0" 
+                        scrolling="no"
+                        style="min-height: 286px;">
+                </iframe>
+                <div style="font-size:12px;font-family:Arial,sans-serif;margin-top:10px;">
+                    <a href="https://www.sofascore.com/football/match/${homeTeamUrl}-${awayTeamUrl}/lOsHOi#id:${sofascoreId}" 
+                       target="_blank" 
+                       rel="noreferrer">
+                        ${homeTeam} - ${awayTeam} Live Score
+                    </a>
+                </div>
+            `;
+            
+            content.innerHTML = widgetHtml;
+            modal.show();
         }
         
         function setupBetAIClickHandlers() {
