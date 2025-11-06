@@ -287,7 +287,7 @@
                             <td id="total-k0" class="odds">-</td>
                             <td id="total-k1" class="odds">-</td>
                             <td id="total-k60" class="odds">-</td>
-                            <td></td>
+                            <td id="total-bet" class="odds">-</td>
                             <td></td>
                             <td></td>
                             <td></td>
@@ -557,6 +557,7 @@
              let sumK0 = 0;
              let sumK1 = 0;
              let sumK60 = 0;
+             let sumBet = 0;
              
              matches.forEach(match => {
                  // Пропускаем незавершенные матчи
@@ -583,18 +584,34 @@
                      sumK1 -= 1;
                      sumK60 -= 1;
                  }
+                 
+                 // Итоги для Bet: только для матчей с bet >= 1, используем K60 (live_odds)
+                 const betValue = match.bet ? parseFloat(match.bet) : 0;
+                 if (betValue >= 1) {
+                     if (match.fav_won === 1) {
+                         // Фаворит выиграл - добавляем чистую прибыль от live_odds
+                         if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
+                             sumBet += parseFloat(match.live_odds) - 1;
+                         }
+                     } else {
+                         // Фаворит проиграл или ничья - вычитаем ставку (1)
+                         sumBet -= 1;
+                     }
+                 }
              });
-            
+             
             // Обновляем строку итогов
             const totalsRow = document.getElementById('totals-row');
             const totalK0El = document.getElementById('total-k0');
             const totalK1El = document.getElementById('total-k1');
             const totalK60El = document.getElementById('total-k60');
+            const totalBetEl = document.getElementById('total-bet');
             
-            if (totalsRow && totalK0El && totalK1El && totalK60El) {
+            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetEl) {
                 totalK0El.textContent = sumK0.toFixed(2);
                 totalK1El.textContent = sumK1.toFixed(2);
                 totalK60El.textContent = sumK60.toFixed(2);
+                totalBetEl.textContent = sumBet.toFixed(2);
                 
                 // Показываем строку итогов только если есть завершенные матчи
                 const finishedMatches = matches.filter(m => m.status === 'finished');
@@ -860,7 +877,7 @@
                     <td><span class="odds">${match.initial_odds || '-'}</span></td>
                     <td><span class="odds">${match.last_odds || '-'}</span></td>
                     <td>${k60Cell}</td>
-                    <td>${(match.bet && parseFloat(match.bet) > 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
+                    <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td><span class="odds">${match.bet_ai || '-'}</span></td>
                     <td>${finalScore}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>

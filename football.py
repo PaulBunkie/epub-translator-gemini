@@ -1654,7 +1654,7 @@ class FootballManager:
                             print(traceback.format_exc())
                             # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
                             cursor.execute(
-                                "UPDATE matches SET bet = -1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                "UPDATE matches SET bet = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                                 (match_id,)
                             )
                             conn.commit()
