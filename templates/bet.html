@@ -477,8 +477,8 @@
                             <th class="sortable-header" data-sort="initial_odds">K0</th>
                             <th class="sortable-header" data-sort="last_odds">K1</th>
                             <th class="sortable-header" data-sort="live_odds">K60</th>
-                            <th class="sortable-header" data-sort="bet">Bet</th>
                             <th class="sortable-header" data-sort="bet_ai">Прогноз ИИ</th>
+                            <th class="sortable-header" data-sort="bet">Bet</th>
                             <th class="sortable-header" data-sort="final_score">Итоговый счёт</th>
                             <th class="sortable-header" data-sort="status">Статус</th>
                         </tr>
@@ -491,8 +491,8 @@
                             <td id="total-k0" class="odds">-</td>
                             <td id="total-k1" class="odds">-</td>
                             <td id="total-k60" class="odds">-</td>
-                            <td id="total-bet" class="odds">-</td>
                             <td id="total-bet-ai" class="odds">-</td>
+                            <td id="total-bet" class="odds">-</td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -520,8 +520,8 @@
                                     <th class="sortable-header-all" data-sort="live_odds_1">1</th>
                                     <th class="sortable-header-all" data-sort="live_odds_x">X</th>
                                     <th class="sortable-header-all" data-sort="live_odds_2">2</th>
-                            <th class="sortable-header-all" data-sort="bet">Bet</th>
                             <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
+                            <th class="sortable-header-all" data-sort="bet">Bet</th>
                             <th class="sortable-header-all" data-sort="final_score">Итоговый счёт</th>
                             <th class="sortable-header-all" data-sort="status">Статус</th>
                                 </tr>
@@ -1340,8 +1340,8 @@
                     <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
                     <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
                     <td>${k60Cell}</td>
-                    <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small></span>` : match.bet_ai) : '-'}</td>
+                    <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScoreHtml}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
@@ -1498,8 +1498,8 @@
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
-                    <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${betAICell}</td>
+                    <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScore}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
