@@ -48,6 +48,11 @@ MODEL_CONFIG = {
         'primary': 'microsoft/mai-ds-r1:free',
         'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+    },
+    'bet_risk_analysis': {
+        'primary': 'microsoft/mai-ds-r1:free',
+        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     }
 }
 

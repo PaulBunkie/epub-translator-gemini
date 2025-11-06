@@ -2450,6 +2450,39 @@ def api_test_football_notification():
         traceback.print_exc()
         return jsonify({'error': f'Ошибка тестирования уведомления: {str(e)}'}), 500
 
+@app.route('/api/football/analyze-risk', methods=['POST'])
+def api_analyze_bet_risk():
+    """API эндпойнт для анализа риска ставки на основе прогноза ИИ."""
+    try:
+        data = request.get_json()
+        fixture_id = data.get('fixture_id')
+        bet_ai = data.get('bet_ai')
+        bet_ai_odds = data.get('bet_ai_odds')
+        stats_json = data.get('stats_json')
+        
+        if not fixture_id or not bet_ai or not bet_ai_odds or not stats_json:
+            return jsonify({'error': 'Недостаточно данных для анализа'}), 400
+        
+        manager = football.get_manager()
+        analysis = manager.analyze_bet_risk(fixture_id, bet_ai, float(bet_ai_odds), stats_json)
+        
+        if analysis:
+            return jsonify({
+                'success': True,
+                'analysis': analysis
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Не удалось получить анализ риска'
+            }), 500
+            
+    except Exception as e:
+        print(f"[Football API] Ошибка анализа риска: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Ошибка анализа риска: {str(e)}'}), 500
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ ФУТБОЛА ---
 
 @app.route('/books', methods=['GET'])

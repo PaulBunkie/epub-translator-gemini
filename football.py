@@ -353,6 +353,11 @@ class FootballManager:
         self.ai_primary_model = get_model_for_operation('football_predict', 'primary')
         self.ai_fallback_model1 = get_model_for_operation('football_predict', 'fallback_level1')
         self.ai_fallback_model2 = get_model_for_operation('football_predict', 'fallback_level2')
+        
+        # Модели для анализа риска ставки
+        self.risk_analysis_primary = get_model_for_operation('bet_risk_analysis', 'primary')
+        self.risk_analysis_fallback1 = get_model_for_operation('bet_risk_analysis', 'fallback_level1')
+        self.risk_analysis_fallback2 = get_model_for_operation('bet_risk_analysis', 'fallback_level2')
 
         # Переменные для отслеживания лимитов API (в памяти)
         self.requests_remaining = None
@@ -2925,6 +2930,147 @@ class FootballManager:
             import traceback
             print(traceback.format_exc())
             return None, None
+
+    def analyze_bet_risk(self, fixture_id: str, bet_ai: str, bet_ai_odds: float, stats_json: str) -> Optional[str]:
+        """
+        Анализирует риск ставки на основе прогноза ИИ, коэффициента и статистики.
+        
+        Args:
+            fixture_id: ID матча
+            bet_ai: Прогноз ИИ ('1', '1X', 'X', 'X2', '2')
+            bet_ai_odds: Коэффициент на прогнозированный исход
+            stats_json: JSON строка со статистикой матча (stats_60min)
+        
+        Returns:
+            Ответ от ИИ с анализом риска или None в случае ошибки
+        """
+        if not self.openrouter_api_key:
+            print("[Football] OpenRouter API ключ не установлен, пропускаем анализ риска")
+            return None
+        
+        try:
+            # Парсим статистику
+            stats = json.loads(stats_json) if isinstance(stats_json, str) else stats_json
+            
+            # Получаем информацию о матче из БД
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM matches WHERE fixture_id = ?", (fixture_id,))
+            match_row = cursor.fetchone()
+            conn.close()
+            
+            if not match_row:
+                print(f"[Football] Матч {fixture_id} не найден в БД")
+                return None
+            
+            match = dict(match_row)
+            home_team = match.get('home_team', '')
+            away_team = match.get('away_team', '')
+            
+            score = stats.get('score', {})
+            home_score = score.get('home', 0)
+            away_score = score.get('away', 0)
+            
+            # Форматируем статистику для промпта
+            stats_formatted = json.dumps(stats, ensure_ascii=False, indent=2)
+            
+            # Определяем название исхода
+            outcome_names = {
+                '1': f'победа домашней команды ({home_team})',
+                '1X': f'ничья или победа домашней команды ({home_team})',
+                'X': 'ничья',
+                'X2': f'ничья или победа гостевой команды ({away_team})',
+                '2': f'победа гостевой команды ({away_team})'
+            }
+            outcome_name = outcome_names.get(bet_ai.upper(), bet_ai)
+            
+            prompt = f"""Ты - эксперт по анализу рисков ставок на футбол. Твоя задача - проанализировать предложенную ставку и дать рекомендацию: стоит ли рисковать или нет.
+
+Информация о матче:
+- Команды: {home_team} vs {away_team}
+- Текущий счет после первого тайма: {home_score} - {away_score}
+
+Прогноз ИИ:
+- Исход: {outcome_name} ({bet_ai})
+- Коэффициент: {bet_ai_odds}
+
+Детальная статистика первого тайма:
+{stats_formatted}
+
+Проанализируй статистику, текущий счет, прогноз ИИ и коэффициент. Дай обоснованную рекомендацию: СТОИТ ЛИ РИСКНУТЬ или НЕ СТОИТ РИСКОВАТЬ, и подробно объясни свое решение."""
+            
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            
+            # Список моделей для попыток (основная + два fallback)
+            models_to_try = [self.risk_analysis_primary, self.risk_analysis_fallback1, self.risk_analysis_fallback2]
+            
+            for model_idx, model in enumerate(models_to_try):
+                if not model:
+                    continue
+                    
+                print(f"[Football Risk Analysis] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
+                
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "max_tokens": 2000,
+                        "temperature": 0.7  # Средняя температура для более развернутого ответа
+                    }
+                    
+                    print(f"[Football Risk Analysis] Отправка запроса к OpenRouter API (модель: {model})")
+                    
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=60
+                    )
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            if 'choices' in data and len(data['choices']) > 0:
+                                ai_response = data['choices'][0]['message']['content']
+                                print(f"[Football Risk Analysis] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                                return ai_response
+                            else:
+                                print(f"[Football Risk Analysis] Неожиданный формат ответа от модели {model}")
+                        except Exception as e:
+                            print(f"[Football Risk Analysis] Ошибка парсинга ответа от модели {model}: {e}")
+                    else:
+                        print(f"[Football Risk Analysis] Ошибка API для модели {model}: статус {response.status_code}")
+                        if response.status_code == 429:
+                            print(f"[Football Risk Analysis] Превышен лимит запросов для модели {model}, пробуем следующую")
+                            continue
+                        elif response.status_code == 401:
+                            print(f"[Football Risk Analysis] Ошибка авторизации для модели {model}")
+                            break
+                
+                except requests.exceptions.Timeout:
+                    print(f"[Football Risk Analysis] Таймаут при запросе к модели {model}")
+                    continue
+                except Exception as e:
+                    print(f"[Football Risk Analysis] Ошибка при запросе к модели {model}: {e}")
+                    continue
+            
+            print(f"[Football Risk Analysis] Не удалось получить ответ ни от одной модели")
+            return None
+            
+        except Exception as e:
+            print(f"[Football Risk Analysis ERROR] Ошибка анализа риска: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
 
     def _collect_final_result(self, match: sqlite3.Row):
         """

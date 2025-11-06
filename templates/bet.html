@@ -381,6 +381,29 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Модальное окно для анализа риска -->
+        <div class="modal fade" id="riskAnalysisModal" tabindex="-1" aria-labelledby="riskAnalysisModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="riskAnalysisModalLabel">Анализ риска ставки</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="riskAnalysisContent">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Загрузка анализа...</span>
+                            </div>
+                            <p class="mt-2">Запрос анализа риска...</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1184,6 +1207,9 @@
              document.getElementById('all-matches-container').style.display = 'block';
              document.getElementById('all-matches-empty-state').style.display = 'none';
              
+             // Сохраняем матчи в глобальную переменную для доступа из обработчиков
+             window.allMatchesForRisk = matches;
+             
              // Функция для форматирования коэффициентов
              const formatOdds = (odds) => {
                  if (odds === null || odds === undefined || odds === '') {
@@ -1196,7 +1222,7 @@
                  return num.toFixed(2);
              };
              
-             matches.forEach(match => {
+             matches.forEach((match, index) => {
                  const row = document.createElement('tr');
                  
                  const statusBadgeClass = `status-${match.status}`;
@@ -1256,17 +1282,20 @@
                 if (hasBetAI) {
                     const betAIContent = betAIClass ? `<span class="${betAIClass}">${match.bet_ai}</span>` : match.bet_ai;
                     
+                    // Делаем прогноз кликабельным для анализа риска
+                    const betAIWithClick = `<span class="bet-ai-clickable" data-match-index="${index}" style="cursor: pointer; text-decoration: underline;" title="Нажмите для анализа риска">${betAIContent}</span>`;
+                    
                     if (statsFormatted) {
                         // Есть статистика - показываем tooltip
                         betAICell = `
                             <span class="stats-tooltip" data-tooltip-position="">
-                                ${betAIContent}
+                                ${betAIWithClick}
                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
                             </span>
                         `;
                     } else {
                         // Нет статистики - просто показываем прогноз
-                        betAICell = betAIContent;
+                        betAICell = betAIWithClick;
                     }
                 } else {
                     betAICell = '-';
@@ -1294,7 +1323,89 @@
             // Настраиваем позицию tooltip'ов после добавления строк в DOM
             setTimeout(() => {
                 adjustTooltipPositions();
+                // Добавляем обработчики клика на прогнозы ИИ после отображения таблицы
+                setupBetAIClickHandlers();
             }, 0);
+        }
+        
+        function setupBetAIClickHandlers() {
+            // Используем делегирование событий для динамически созданных элементов
+            document.querySelectorAll('.bet-ai-clickable').forEach(clickable => {
+                clickable.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    const matchIndex = parseInt(this.getAttribute('data-match-index'));
+                    if (window.allMatchesForRisk && matchIndex >= 0 && matchIndex < window.allMatchesForRisk.length) {
+                        const match = window.allMatchesForRisk[matchIndex];
+                        if (match.fixture_id && match.bet_ai && match.bet_ai_odds && match.stats_60min) {
+                            // Преобразуем stats_60min в JSON строку, если это объект
+                            const statsJson = typeof match.stats_60min === 'string' 
+                                ? match.stats_60min 
+                                : JSON.stringify(match.stats_60min);
+                            showRiskAnalysis(match.fixture_id, match.bet_ai, parseFloat(match.bet_ai_odds), statsJson);
+                        }
+                    }
+                });
+            });
+        }
+        
+        function showRiskAnalysis(fixtureId, betAI, betAIOdds, statsJson) {
+            const modalElement = document.getElementById('riskAnalysisModal');
+            const modal = new bootstrap.Modal(modalElement);
+            const content = document.getElementById('riskAnalysisContent');
+            
+            // Показываем модальное окно с индикатором загрузки
+            content.innerHTML = `
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка анализа...</span>
+                    </div>
+                    <p class="mt-2">Запрос анализа риска...</p>
+                </div>
+            `;
+            modal.show();
+            
+            // Отправляем запрос к API
+            fetch('/api/football/analyze-risk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fixture_id: fixtureId,
+                    bet_ai: betAI,
+                    bet_ai_odds: betAIOdds,
+                    stats_json: statsJson
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.analysis) {
+                    // Отображаем анализ
+                    content.innerHTML = `
+                        <div class="risk-analysis-result">
+                            <h6>Прогноз ИИ: <strong>${betAI}</strong> (коэффициент: ${betAIOdds.toFixed(2)})</h6>
+                            <hr>
+                            <div class="analysis-text" style="white-space: pre-wrap; line-height: 1.6;">${data.analysis}</div>
+                        </div>
+                    `;
+                } else {
+                    content.innerHTML = `
+                        <div class="alert alert-danger">
+                            <strong>Ошибка:</strong> ${data.error || 'Не удалось получить анализ риска'}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка запроса анализа риска:', error);
+                content.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Ошибка:</strong> Не удалось выполнить запрос анализа риска
+                    </div>
+                `;
+            });
         }
         
         function calculateTotalsAllMatches(matches) {
