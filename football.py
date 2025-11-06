@@ -2,6 +2,7 @@ import sqlite3
 import requests
 import json
 import time
+import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 import os
@@ -1945,6 +1946,11 @@ class FootballManager:
                     import traceback
                     print(traceback.format_exc())
                     continue
+                
+                # Задержка между матчами (4-8 секунд) для избежания бана в SofaScore
+                delay_between_matches = random.uniform(4.0, 8.0)
+                print(f"[Football] Задержка {delay_between_matches:.1f} сек перед следующим матчем с фаворитом")
+                time.sleep(delay_between_matches)
 
             # Обрабатываем матчи без фаворита (без live_odds, только прогноз ИИ)
             for match in matches_without_fav:
@@ -2006,6 +2012,11 @@ class FootballManager:
                     import traceback
                     print(traceback.format_exc())
                     continue
+                
+                # Задержка между матчами (4-8 секунд) для избежания бана в SofaScore
+                delay_between_matches = random.uniform(4.0, 8.0)
+                print(f"[Football] Задержка {delay_between_matches:.1f} сек перед следующим матчем без фаворита")
+                time.sleep(delay_between_matches)
 
             # ===== ЧАСТЬ 1.5: Обновление live_odds для уже обработанных матчей без live_odds =====
             cursor.execute("""
@@ -2571,6 +2582,11 @@ class FootballManager:
                         except (ValueError, TypeError):
                             print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
 
+            # Задержка между запросами к SofaScore (2-5 секунд) для избежания бана
+            delay_between_requests = random.uniform(2.0, 5.0)
+            print(f"[Football] Задержка {delay_between_requests:.1f} сек перед запросом статистики для матча {fixture_id}")
+            time.sleep(delay_between_requests)
+
             # Получаем статистику с SofaScore
             stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
 
@@ -2693,6 +2709,11 @@ class FootballManager:
                             print(f"[Football] Актуальный счет для fixture {fixture_id}: {actual_score['home']}-{actual_score['away']}")
                         except (ValueError, TypeError):
                             print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
+
+            # Задержка между запросами к SofaScore (2-5 секунд) для избежания бана
+            delay_between_requests = random.uniform(2.0, 5.0)
+            print(f"[Football] Задержка {delay_between_requests:.1f} сек перед запросом статистики для матча без фаворита {fixture_id}")
+            time.sleep(delay_between_requests)
 
             # Получаем статистику с SofaScore
             stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
