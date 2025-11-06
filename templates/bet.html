@@ -354,9 +354,9 @@
                                     <th class="sortable-header-all" data-sort="match_time">Время</th>
                                     <th class="sortable-header-all" data-sort="home_team">Хозяева</th>
                                     <th class="sortable-header-all" data-sort="away_team">Гости</th>
-                                    <th class="sortable-header-all" data-sort="live_odds_1">Кэф на 1</th>
-                                    <th class="sortable-header-all" data-sort="live_odds_x">Кэф на X</th>
-                                    <th class="sortable-header-all" data-sort="live_odds_2">Кэф на 2</th>
+                                    <th class="sortable-header-all" data-sort="live_odds_1">1</th>
+                                    <th class="sortable-header-all" data-sort="live_odds_x">X</th>
+                                    <th class="sortable-header-all" data-sort="live_odds_2">2</th>
                                     <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
                                     <th class="sortable-header-all" data-sort="final_score">Итоговый счёт</th>
                                     <th class="sortable-header-all" data-sort="status">Статус</th>
@@ -1198,28 +1198,53 @@
                      'finished': 'Завершен'
                  }[match.status] || match.status;
                  
-                 const finalScore = match.final_score_home !== null && match.final_score_away !== null
-                     ? `${match.final_score_home}-${match.final_score_away}`
-                     : '-';
-                 
-                 const betAI = match.bet_ai ? (match.bet_ai_odds ? `${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small>` : match.bet_ai) : '-';
-                 
-                 row.innerHTML = `
-                     <td>${match.match_date}</td>
-                     <td>${match.match_time}</td>
-                     <td>${match.home_team}</td>
-                     <td>${match.away_team}</td>
-                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
-                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
-                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
-                     <td>${betAI}</td>
-                     <td>${finalScore}</td>
-                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
-                 `;
-                 
-                 tbody.appendChild(row);
-             });
-         }
+                const finalScore = match.final_score_home !== null && match.final_score_away !== null
+                    ? `${match.final_score_home}-${match.final_score_away}`
+                    : '-';
+                
+                // Формируем ячейку прогноза ИИ с tooltip
+                let betAICell = '';
+                const statsFormatted = formatStats(match.stats_60min);
+                const hasBetAI = match.bet_ai && match.bet_ai !== null && match.bet_ai !== undefined;
+                
+                if (hasBetAI) {
+                    if (statsFormatted) {
+                        // Есть статистика - показываем tooltip
+                        betAICell = `
+                            <span class="stats-tooltip" data-tooltip-position="">
+                                ${match.bet_ai}
+                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                            </span>
+                        `;
+                    } else {
+                        // Нет статистики - просто показываем прогноз
+                        betAICell = match.bet_ai;
+                    }
+                } else {
+                    betAICell = '-';
+                }
+                
+                row.innerHTML = `
+                    <td>${match.match_date}</td>
+                    <td>${match.match_time}</td>
+                    <td>${match.home_team}</td>
+                    <td>${match.away_team}</td>
+                    <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
+                    <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
+                    <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
+                    <td>${betAICell}</td>
+                    <td>${finalScore}</td>
+                    <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+            
+            // Настраиваем позицию tooltip'ов после добавления строк в DOM
+            setTimeout(() => {
+                adjustTooltipPositions();
+            }, 0);
+        }
          
          function updateTooltipPosition(tooltip) {
              const tooltipContent = tooltip.querySelector('.tooltip-content');
