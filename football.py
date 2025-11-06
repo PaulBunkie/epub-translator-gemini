@@ -2709,7 +2709,25 @@ class FootballManager:
                 stats['score'] = actual_score
                 print(f"[Football] Счет заменен на актуальный из основного события: {actual_score}")
 
-            # Сохраняем статистику в БД (bet остается NULL, live_odds не запрашиваем)
+            # ===== ОТЛАДКА: Запрашиваем live odds для матчей без фаворита =====
+            # TODO: Убрать этот блок после отладки или при достижении лимитов API
+            # Цель: обновить live_odds_1, live_odds_x, live_odds_2 в таблице для отображения
+            # ВАЖНО: Это расходует запросы к The Odds API. При достижении лимитов - закомментировать
+            live_odds_value = None
+            try:
+                print(f"[Football DEBUG] Запрашиваем live odds для матча без фаворита {fixture_id}...")
+                sport_key = match['sport_key'] if 'sport_key' in match.keys() else None
+                live_odds_value = self._get_live_odds(fixture_id, sport_key)
+                if live_odds_value:
+                    print(f"[Football DEBUG] Получены live odds для матча без фаворита {fixture_id}: {live_odds_value}")
+                else:
+                    print(f"[Football DEBUG] Не удалось получить live odds для матча без фаворита {fixture_id}")
+            except Exception as e:
+                print(f"[Football DEBUG ERROR] Ошибка получения live odds для матча без фаворита {fixture_id}: {e}")
+                # Не прерываем выполнение, продолжаем без live odds
+            # ===== КОНЕЦ ОТЛАДКИ =====
+
+            # Сохраняем статистику в БД (bet = 0, live_odds не сохраняем, но коэффициенты 1/X/2 уже обновлены в _get_live_odds)
             conn = get_football_db_connection()
             cursor = conn.cursor()
 

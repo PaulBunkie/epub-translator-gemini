@@ -364,6 +364,14 @@
                             </thead>
                             <tbody id="all-matches-table-body">
                             </tbody>
+                            <tfoot id="totals-row-all" style="display: none;">
+                                <tr style="background-color: #f8f9fa; font-weight: bold;">
+                                    <td colspan="7" style="text-align: right;">Итого:</td>
+                                    <td id="total-bet-ai-all" class="odds">-</td>
+                                    <td></td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                     <div id="all-matches-empty-state" class="text-center my-5" style="display: none;">
@@ -1280,10 +1288,81 @@
                 tbody.appendChild(row);
             });
             
+            // Рассчитываем и отображаем итоги для прогноза ИИ
+            calculateTotalsAllMatches(matches);
+            
             // Настраиваем позицию tooltip'ов после добавления строк в DOM
             setTimeout(() => {
                 adjustTooltipPositions();
             }, 0);
+        }
+        
+        function calculateTotalsAllMatches(matches) {
+            let sumBetAI = 0;
+            
+            matches.forEach(match => {
+                // Пропускаем незавершенные матчи
+                if (match.status !== 'finished') {
+                    return;
+                }
+                
+                // Прогноз ИИ - ставка на прогнозированный исход ИИ (bet_ai_odds)
+                if (match.bet_ai && match.bet_ai_odds && !isNaN(parseFloat(match.bet_ai_odds))) {
+                    // Определяем фактический результат матча
+                    const homeScore = match.final_score_home !== null && match.final_score_home !== undefined ? parseInt(match.final_score_home) : null;
+                    const awayScore = match.final_score_away !== null && match.final_score_away !== undefined ? parseInt(match.final_score_away) : null;
+                    
+                    if (homeScore !== null && awayScore !== null) {
+                        let actualResult = null;
+                        if (homeScore > awayScore) {
+                            actualResult = '1';
+                        } else if (homeScore === awayScore) {
+                            actualResult = 'X';
+                        } else {
+                            actualResult = '2';
+                        }
+                        
+                        // Проверяем, совпал ли прогноз ИИ с фактическим результатом
+                        const betAIUpper = match.bet_ai.toUpperCase();
+                        let isWin = false;
+                        
+                        if (betAIUpper === actualResult) {
+                            // Одиночный исход совпал
+                            isWin = true;
+                        } else if (betAIUpper === '1X' && (actualResult === '1' || actualResult === 'X')) {
+                            // Двойной шанс 1X выиграл
+                            isWin = true;
+                        } else if (betAIUpper === 'X2' && (actualResult === 'X' || actualResult === '2')) {
+                            // Двойной шанс X2 выиграл
+                            isWin = true;
+                        }
+                        
+                        if (isWin) {
+                            // Прогноз ИИ совпал - добавляем чистую прибыль
+                            sumBetAI += parseFloat(match.bet_ai_odds) - 1;
+                        } else {
+                            // Прогноз ИИ не совпал - вычитаем ставку (1)
+                            sumBetAI -= 1;
+                        }
+                    }
+                }
+            });
+            
+            // Обновляем строку итогов
+            const totalsRow = document.getElementById('totals-row-all');
+            const totalBetAIEl = document.getElementById('total-bet-ai-all');
+            
+            if (totalsRow && totalBetAIEl) {
+                totalBetAIEl.textContent = sumBetAI.toFixed(2);
+                
+                // Показываем строку итогов только если есть завершенные матчи
+                const finishedMatches = matches.filter(m => m.status === 'finished');
+                if (finishedMatches.length > 0) {
+                    totalsRow.style.display = '';
+                } else {
+                    totalsRow.style.display = 'none';
+                }
+            }
         }
          
          function updateTooltipPosition(tooltip) {
