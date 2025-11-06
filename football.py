@@ -2787,14 +2787,14 @@ class FootballManager:
                 # Не прерываем выполнение, продолжаем без live odds
             # ===== КОНЕЦ ОТЛАДКИ =====
 
-            # Сохраняем статистику в БД (bet = 0, live_odds не сохраняем, но коэффициенты 1/X/2 уже обновлены в _get_live_odds)
+            # Сохраняем статистику в БД (bet пока не устанавливаем, он будет установлен после получения рекомендации ИИ)
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
             stats_json = json.dumps(stats)
             cursor.execute("""
                 UPDATE matches
-                SET stats_60min = ?, bet = 0, updated_at = CURRENT_TIMESTAMP
+                SET stats_60min = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (stats_json, match['id']))
 
@@ -2805,7 +2805,10 @@ class FootballManager:
             
             # Получаем прогноз от ИИ (без упоминания фаворита)
             print(f"[Football] Запрашиваем ИИ-прогноз для матча без фаворита {fixture_id}...")
-            bet_ai, bet_ai_reason = self._get_ai_prediction_without_fav(match, stats) 
+            bet_ai, bet_ai_reason, bet_recommendation = self._get_ai_prediction_without_fav(match, stats) 
+
+            # Устанавливаем bet на основе рекомендации
+            bet_value = 1 if bet_recommendation else 0
 
             if bet_ai or bet_ai_reason:
                 # Получаем коэффициент на прогнозированный исход из БД
@@ -2824,24 +2827,37 @@ class FootballManager:
 
                 cursor.execute("""
                     UPDATE matches
-                    SET bet_ai = ?, bet_ai_reason = ?, bet_ai_odds = ?, updated_at = CURRENT_TIMESTAMP
+                    SET bet_ai = ?, bet_ai_reason = ?, bet_ai_odds = ?, bet = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (bet_ai, bet_ai_reason, bet_ai_odds, match['id']))
+                """, (bet_ai, bet_ai_reason, bet_ai_odds, bet_value, match['id']))
 
                 conn.commit()
                 conn.close()
 
+                recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
                 if bet_ai:
-                    print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}")
+                    print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}, рекомендация: {recommendation_text}, bet: {bet_value}")
                 else:
-                    print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}")
+                    print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}, bet: {bet_value}")
+            else:
+                # Если прогноз не получен, все равно обновляем bet = 0
+                conn = get_football_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE matches
+                    SET bet = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (bet_value, match['id']))
+                conn.commit()
+                conn.close()
+                print(f"[Football] ИИ-прогноз не получен для матча без фаворита {fixture_id}, установлен bet: {bet_value}")
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора статистики 60min для матча без фаворита: {e}")
             import traceback
             print(traceback.format_exc())
 
-    def _get_ai_prediction_without_fav(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str]]:
+    def _get_ai_prediction_without_fav(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
         """
         Получает прогноз от ИИ для матчей без фаворита (без упоминания фаворита в промпте).
         
@@ -2867,25 +2883,69 @@ class FootballManager:
             home_score = score.get('home', 0)
             away_score = score.get('away', 0)
             
+            # Получаем коэффициенты из БД (они должны быть уже сохранены при запросе live_odds)
+            fixture_id = match['fixture_id']
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT live_odds_1, live_odds_x, live_odds_2
+                FROM matches
+                WHERE fixture_id = ?
+            """, (fixture_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            live_odds_1 = row['live_odds_1'] if row else None
+            live_odds_x = row['live_odds_x'] if row else None
+            live_odds_2 = row['live_odds_2'] if row else None
+            
             # Форматируем статистику как JSON для передачи ИИ
             stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
             
-            prompt = f"""Ты - футбольный аналитик. Изучи предоставленную статистику матча после первого тайма, хорошо подумай и сделай прогноз на итоговый результат матча в основное время.
+            # Формируем строку с коэффициентами
+            odds_info = ""
+            if live_odds_1 is not None or live_odds_x is not None or live_odds_2 is not None:
+                odds_info = f"""
+- Текущие коэффициенты на исходы:
+  * Победа {home_team}: {live_odds_1 if live_odds_1 is not None else 'N/A'}
+  * Ничья: {live_odds_x if live_odds_x is not None else 'N/A'}
+  * Победа {away_team}: {live_odds_2 if live_odds_2 is not None else 'N/A'}
+"""
+            
+            prompt = f"""Ты - футбольный аналитик. Сейчас перерыв после первого тайма. Изучи предоставленную статистику матча после первого тайма, хорошо подумай и сделай прогноз на итоговый результат матча в основное время.
 
 Информация о матче:
 - Команды: {home_team} vs {away_team}
 - Текущий счет после первого тайма: {home_score} - {away_score}
-
 Детальная статистика первого тайма:
 {stats_json}
 
-Ответ верни ТОЛЬКО в виде одного из вариантов: 1 или 1X или X или X2 или 2
+Твой ответ должен состоять в виде строки в формате: "Результат (1, 1X, X, X2, 2) Рекомендация (ИГНОРИРУЕМ или СТАВИМ)".
+
+1. Результат СТРОГО в виде одного из вариантов: 1 или 1X или X или X2 или 2
 Где:
 - 1 = победа домашней команды ({home_team})
 - 1X = ничья или победа домашней команды ({home_team})
 - X = ничья
 - X2 = ничья или победа гостевой команды ({away_team})
-- 2 = победа гостевой команды ({away_team})"""
+- 2 = победа гостевой команды ({away_team})
+
+2. Рекомендация, стоит ли ставить на этот исход (СТАВИМ или ИГНОРИРУЕМ) при текущих коэффициентах букмекеров.
+{odds_info}
+Отвчечай СТАВИМ только если прогноз имеет хорошее соотношение цены и вероятности на основе коэффициентов и статистики.
+
+Примеры ответа:
+1X СТАВИМ
+1 СТАВИМ
+X ИГНОРИРУЕМ
+X2 СТАВИМ
+2 ИГНОРИРУЕМ
+1X ИГНОРИРУЕМ
+1 ИГНОРИРУЕМ
+X СТАВИМ
+X2 ИГНОРИРУЕМ
+2 СТАВИМ
+"""
             
             headers = {
                 "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -2957,13 +3017,13 @@ class FootballManager:
                     continue
             
             print(f"[Football AI] Не удалось получить прогноз от всех моделей")
-            return None, None
+            return None, None, None
             
         except Exception as e:
             print(f"[Football AI ERROR] Ошибка получения ИИ-прогноза: {e}")
             import traceback
             print(traceback.format_exc())
-            return None, None
+            return None, None, None
 
     def analyze_bet_risk(self, fixture_id: str, bet_ai: str, bet_ai_odds: float, stats_json: str) -> Optional[str]:
         """
@@ -3708,6 +3768,21 @@ class FootballManager:
                 return pred.upper()
         
         return None
+
+    def _parse_ai_recommendation(self, ai_response: str) -> bool:
+        """
+        Парсит ответ ИИ и извлекает рекомендацию (СТАВИМ/ИГНОРИРУЕМ).
+        
+        Args:
+            ai_response: Полный ответ от ИИ
+        
+        Returns:
+            True если найдено "СТАВИМ", False если "ИГНОРИРУЕМ" или не найдено
+        """
+        # Ищем слово "СТАВИМ" (регистронезависимо)
+        if re.search(r'\bСТАВИМ\b', ai_response, re.IGNORECASE):
+            return True
+        return False
 
     def _get_bet_ai_decision(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[bool], Optional[str]]:
         """

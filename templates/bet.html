@@ -520,16 +520,18 @@
                                     <th class="sortable-header-all" data-sort="live_odds_1">1</th>
                                     <th class="sortable-header-all" data-sort="live_odds_x">X</th>
                                     <th class="sortable-header-all" data-sort="live_odds_2">2</th>
-                                    <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
-                                    <th class="sortable-header-all" data-sort="final_score">Итоговый счёт</th>
-                                    <th class="sortable-header-all" data-sort="status">Статус</th>
+                            <th class="sortable-header-all" data-sort="bet">Bet</th>
+                            <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
+                            <th class="sortable-header-all" data-sort="final_score">Итоговый счёт</th>
+                            <th class="sortable-header-all" data-sort="status">Статус</th>
                                 </tr>
                             </thead>
                             <tbody id="all-matches-table-body">
                             </tbody>
                             <tfoot id="totals-row-all" style="display: none;">
                                 <tr style="background-color: #f8f9fa; font-weight: bold;">
-                                    <td colspan="7" style="text-align: right;">Итого:</td>
+                                    <td colspan="6" style="text-align: right;">Итого:</td>
+                                    <td></td>
                                     <td id="total-bet-ai-all" class="odds">-</td>
                                     <td></td>
                                     <td></td>
@@ -1496,6 +1498,7 @@
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
+                    <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${betAICell}</td>
                     <td>${finalScore}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
