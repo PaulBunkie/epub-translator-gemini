@@ -805,15 +805,14 @@
                         if (limits.requests_remaining !== null && limits.requests_remaining !== undefined) {
                             remainingEl.textContent = limits.requests_remaining;
                             
-                            // Цвет в зависимости от количества
+                            // Цвет в зависимости от количества (только для критических/предупреждающих значений)
                             remainingEl.className = 'limit-value';
                             if (limits.requests_remaining < 50) {
                                 remainingEl.classList.add('limit-critical');
                             } else if (limits.requests_remaining < 100) {
                                 remainingEl.classList.add('limit-warning');
-                            } else {
-                                remainingEl.classList.add('limit-ok');
                             }
+                            // Для >= 100 оставляем белый цвет (по умолчанию)
                         } else {
                             remainingEl.textContent = 'N/A';
                             remainingEl.className = 'limit-value';
