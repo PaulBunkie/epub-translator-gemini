@@ -381,6 +381,27 @@
         #all-matches-container tbody tr.match-with-favorite td {
             background-color: transparent !important;
         }
+        
+        /* Подсветка матчей, где фаворит "просел" (был фаворит, но коэффициент вырос >= 1.30) */
+        #all-matches-container tbody tr.match-favorite-declined {
+            background-color: #e7d5f5 !important;
+        }
+        
+        #all-matches-container tbody tr.match-favorite-declined:nth-child(even) {
+            background-color: #e7d5f5 !important;
+        }
+        
+        #all-matches-container tbody tr.match-favorite-declined:nth-child(odd) {
+            background-color: #e7d5f5 !important;
+        }
+        
+        #all-matches-container tbody tr.match-favorite-declined:hover {
+            background-color: #d9c0eb !important;
+        }
+        
+        #all-matches-container tbody tr.match-favorite-declined td {
+            background-color: transparent !important;
+        }
     </style>
 </head>
 <body>
@@ -1372,10 +1393,13 @@
                 const isBalancedOdds = !isNaN(odds1) && !isNaN(odds2) && 
                                       Math.abs(odds1 - odds2) <= 0.2;
                 
-                // Проверяем, есть ли фаворит (коэффициент < 1.30)
-                const hasFavorite = (match.fav && match.fav !== 'NONE') || 
-                                   (!isNaN(odds1) && odds1 < 1.30) || 
+                // Проверяем, есть ли фаворит (коэффициент < 1.30) - проверяем ТЕКУЩИЕ коэффициенты
+                const hasFavorite = (!isNaN(odds1) && odds1 < 1.30) || 
                                    (!isNaN(odds2) && odds2 < 1.30);
+                
+                // Проверяем, был ли фаворит изначально, но коэффициент вырос >= 1.30
+                const hadFavoriteButDeclined = (match.fav && match.fav !== 'NONE') && 
+                                             !hasFavorite; // Был фаворит, но сейчас нет
                 
                 if (isBalancedOdds) {
                     row.classList.add('match-balanced-odds');
@@ -1384,6 +1408,8 @@
                 
                 if (hasFavorite) {
                     row.classList.add('match-with-favorite');
+                } else if (hadFavoriteButDeclined) {
+                    row.classList.add('match-favorite-declined');
                 }
                  
                  const statusBadgeClass = `status-${match.status}`;
@@ -1481,6 +1507,8 @@
                 }
                 if (hasFavorite) {
                     row.classList.add('match-with-favorite');
+                } else if (hadFavoriteButDeclined) {
+                    row.classList.add('match-favorite-declined');
                 }
                 
                 tbody.appendChild(row);
