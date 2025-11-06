@@ -263,6 +263,17 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'bet_ai_reason' already exists.")
         
+        # --- Проверка и добавление поля bet_ai_odds ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_ai_odds' not in columns:
+            print("[FootballDB] Adding 'bet_ai_odds' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_ai_odds REAL")
+            conn.commit()
+            print("[FootballDB] Column 'bet_ai_odds' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_ai_odds' already exists.")
+        
         # --- Проверка и добавление поля live_odds ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -273,6 +284,18 @@ def init_football_db():
             print("[FootballDB] Column 'live_odds' added successfully.")
         else:
             print("[FootballDB] Column 'live_odds' already exists.")
+        
+        # --- Проверка и добавление полей для коэффициентов исходов (для расчета bet_ai_odds) ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        for odds_field in ['live_odds_1', 'live_odds_x', 'live_odds_2']:
+            if odds_field not in columns:
+                print(f"[FootballDB] Adding '{odds_field}' column to 'matches' table...")
+                cursor.execute(f"ALTER TABLE matches ADD COLUMN {odds_field} REAL")
+                conn.commit()
+                print(f"[FootballDB] Column '{odds_field}' added successfully.")
+            else:
+                print(f"[FootballDB] Column '{odds_field}' already exists.")
         
         # --- Проверка и добавление поля sport_key ---
         cursor.execute("PRAGMA table_info(matches)")
@@ -2052,7 +2075,70 @@ class FootballManager:
                 print(f"[Football] Несоответствие ID: запрошен {fixture_id}, получен {data.get('id')}")
                 return None
             
-            # Находим фаворита по минимальному коэффициенту
+            # Извлекаем медианные коэффициенты для 1, X, 2 для сохранения в БД
+            home_team = data.get('home_team')
+            away_team = data.get('away_team')
+            bookmakers = data.get('bookmakers', [])
+            
+            live_odds_1 = None
+            live_odds_x = None
+            live_odds_2 = None
+            
+            if home_team and away_team and bookmakers:
+                # Собираем коэффициенты для каждой команды и ничьей
+                home_odds = []
+                away_odds = []
+                draw_odds = []
+                
+                for bookmaker in bookmakers:
+                    markets = bookmaker.get('markets', [])
+                    for market in markets:
+                        if market.get('key') != 'h2h':
+                            continue
+                        
+                        outcomes = market.get('outcomes', [])
+                        for outcome in outcomes:
+                            name = outcome.get('name')
+                            price = outcome.get('price')
+                            
+                            if not price or not name:
+                                continue
+                            
+                            if name == home_team:
+                                home_odds.append(float(price))
+                            elif name == away_team:
+                                away_odds.append(float(price))
+                            elif name.lower() == 'draw':
+                                draw_odds.append(float(price))
+                
+                # Вычисляем медианные коэффициенты
+                def get_median(odds_list):
+                    n = len(odds_list)
+                    if n == 0:
+                        return None
+                    sorted_odds = sorted(odds_list)
+                    if n % 2 == 0:
+                        return (sorted_odds[n//2 - 1] + sorted_odds[n//2]) / 2.0
+                    else:
+                        return sorted_odds[n//2]
+                
+                live_odds_1 = get_median(home_odds)
+                live_odds_x = get_median(draw_odds)
+                live_odds_2 = get_median(away_odds)
+            
+            # Сохраняем коэффициенты в БД
+            if live_odds_1 is not None or live_odds_x is not None or live_odds_2 is not None:
+                conn = get_football_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE matches
+                    SET live_odds_1 = ?, live_odds_x = ?, live_odds_2 = ?
+                    WHERE fixture_id = ?
+                """, (live_odds_1, live_odds_x, live_odds_2, fixture_id))
+                conn.commit()
+                conn.close()
+            
+            # Находим фаворита по медианному коэффициенту
             fav_info = self._determine_favorite(data)
             if fav_info:
                 return fav_info['odds']
@@ -2062,6 +2148,75 @@ class FootballManager:
             
         except Exception as e:
             print(f"[Football ERROR] Ошибка получения live odds для fixture {fixture_id}: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
+
+    def _get_ai_prediction_odds(self, fixture_id: str, bet_ai: str) -> Optional[float]:
+        """
+        Получает коэффициент на прогнозированный исход ИИ (1, 1X, X, X2, 2) из БД.
+        
+        Для одиночных исходов (1, X, 2) берет коэффициент из БД (live_odds_1, live_odds_x, live_odds_2).
+        Для двойных шансов (1X, X2) вычисляет по формуле: 1 / (1/odd1 + 1/oddX)
+        
+        Коэффициенты должны быть сохранены в БД при запросе live_odds (_get_live_odds).
+        
+        Args:
+            fixture_id: ID матча в The Odds API
+            bet_ai: Прогноз ИИ ('1', '1X', 'X', 'X2', '2')
+
+        Returns:
+            Коэффициент на прогнозированный исход или None в случае ошибки
+        """
+        try:
+            if not bet_ai:
+                return None
+            
+            # Получаем коэффициенты из БД
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT live_odds_1, live_odds_x, live_odds_2
+                FROM matches
+                WHERE fixture_id = ?
+            """, (fixture_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if not row:
+                print(f"[Football ERROR] Матч не найден в БД для fixture {fixture_id}")
+                return None
+            
+            odd1 = row['live_odds_1']
+            oddX = row['live_odds_x']
+            odd2 = row['live_odds_2']
+            
+            if odd1 is None or oddX is None or odd2 is None:
+                print(f"[Football] Коэффициенты для расчета bet_ai_odds не найдены в БД для fixture {fixture_id}")
+                print(f"[Football] Возможно, live_odds еще не были запрошены. Коэффициенты: 1={odd1}, X={oddX}, 2={odd2}")
+                return None
+            
+            # Возвращаем коэффициент в зависимости от прогноза ИИ
+            bet_ai_upper = bet_ai.upper()
+            
+            if bet_ai_upper == '1':
+                return float(odd1)
+            elif bet_ai_upper == 'X':
+                return float(oddX)
+            elif bet_ai_upper == '2':
+                return float(odd2)
+            elif bet_ai_upper == '1X':
+                # Двойной шанс: победа хозяев или ничья
+                return 1.0 / (1.0/float(odd1) + 1.0/float(oddX))
+            elif bet_ai_upper == 'X2':
+                # Двойной шанс: ничья или победа гостей
+                return 1.0 / (1.0/float(oddX) + 1.0/float(odd2))
+            else:
+                print(f"[Football] Неизвестный прогноз ИИ: {bet_ai}")
+                return None
+            
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка получения коэффициента для прогноза ИИ (bet_ai={bet_ai}): {e}")
             import traceback
             print(traceback.format_exc())
             return None
@@ -2152,24 +2307,34 @@ class FootballManager:
             
             # Получаем прогноз от ИИ
             print(f"[Football] Запрашиваем ИИ-прогноз для fixture {fixture_id}...")
-            bet_ai, bet_ai_reason = self._get_ai_prediction(match, stats)
-            
+            bet_ai, bet_ai_reason = self._get_ai_prediction(match, stats) 
+
             if bet_ai or bet_ai_reason:
+                # Получаем коэффициент на прогнозированный исход из БД
+                bet_ai_odds = None
+                if bet_ai:
+                    print(f"[Football] Получаем коэффициент для прогноза ИИ '{bet_ai}' для fixture {fixture_id}...")
+                    bet_ai_odds = self._get_ai_prediction_odds(fixture_id, bet_ai)
+                    if bet_ai_odds:
+                        print(f"[Football] Получен коэффициент {bet_ai_odds} для прогноза ИИ '{bet_ai}'")
+                    else:
+                        print(f"[Football] Не удалось получить коэффициент для прогноза ИИ '{bet_ai}' (возможно, live_odds еще не были запрошены)")
+                
                 # Сохраняем результат ИИ в БД
                 conn = get_football_db_connection()
                 cursor = conn.cursor()
-                
+
                 cursor.execute("""
                     UPDATE matches
-                    SET bet_ai = ?, bet_ai_reason = ?, updated_at = CURRENT_TIMESTAMP
+                    SET bet_ai = ?, bet_ai_reason = ?, bet_ai_odds = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (bet_ai, bet_ai_reason, match['id']))
-                
+                """, (bet_ai, bet_ai_reason, bet_ai_odds, match['id']))
+
                 conn.commit()
                 conn.close()
-                
+
                 if bet_ai:
-                    print(f"[Football] ИИ-прогноз сохранен для fixture {fixture_id}: {bet_ai}")
+                    print(f"[Football] ИИ-прогноз сохранен для fixture {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}")
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
 

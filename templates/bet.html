@@ -51,6 +51,30 @@
             color: white;
         }
         
+        .final-score-win {
+            background-color: #28a745;
+            color: white;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .final-score-loss {
+            background-color: #dc3545;
+            color: white;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .final-score-draw {
+            background-color: #ffc107;
+            color: #000;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
         .fav-team {
             font-weight: bold;
             color: #0d6efd;
@@ -288,7 +312,7 @@
                             <td id="total-k1" class="odds">-</td>
                             <td id="total-k60" class="odds">-</td>
                             <td id="total-bet" class="odds">-</td>
-                            <td></td>
+                            <td id="total-bet-ai" class="odds">-</td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -558,6 +582,7 @@
              let sumK1 = 0;
              let sumK60 = 0;
              let sumBet = 0;
+             let sumBetAI = 0;
              
              matches.forEach(match => {
                  // Пропускаем незавершенные матчи
@@ -567,35 +592,85 @@
                  
                  // Если фаворит выиграл (fav_won === 1): прибыль = коэффициент - 1 (получаем коэффициент, но вложили 1)
                  // Если проиграл или ничья (fav_won !== 1): прибыль = -1 (теряем ставку)
-                 if (match.fav_won === 1) {
-                     // Фаворит выиграл - добавляем чистую прибыль (коэффициент - ставка)
-                     if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
+                 // Считаем только если есть коэффициент (ставка была сделана)
+                 
+                 // K0 - ставка на фаворита после открытия линии (initial_odds)
+                 if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
+                     if (match.fav_won === 1) {
                          sumK0 += parseFloat(match.initial_odds) - 1;
+                     } else {
+                         sumK0 -= 1;
                      }
-                     if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
-                         sumK1 += parseFloat(match.last_odds) - 1;
-                     }
-                     if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
-                         sumK60 += parseFloat(match.live_odds) - 1;
-                     }
-                 } else {
-                     // Фаворит проиграл или ничья - вычитаем ставку (1)
-                     sumK0 -= 1;
-                     sumK1 -= 1;
-                     sumK60 -= 1;
                  }
                  
-                 // Итоги для Bet: только для матчей с bet >= 1, используем K60 (live_odds)
+                 // K1 - ставка на фаворита в день матча (last_odds)
+                 if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
+                     if (match.fav_won === 1) {
+                         sumK1 += parseFloat(match.last_odds) - 1;
+                     } else {
+                         sumK1 -= 1;
+                     }
+                 }
+                 
+                 // K60 - ставка на фаворита в перерыве (live_odds)
+                 if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
+                     if (match.fav_won === 1) {
+                         sumK60 += parseFloat(match.live_odds) - 1;
+                     } else {
+                         sumK60 -= 1;
+                     }
+                 }
+                 
+                 // Bet - ставка на фаворита в перерыве только если рекомендовано ИИ (bet >= 1), используем K60 (live_odds)
                  const betValue = match.bet ? parseFloat(match.bet) : 0;
-                 if (betValue >= 1) {
+                 if (betValue >= 1 && match.live_odds && !isNaN(parseFloat(match.live_odds))) {
                      if (match.fav_won === 1) {
                          // Фаворит выиграл - добавляем чистую прибыль от live_odds
-                         if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
-                             sumBet += parseFloat(match.live_odds) - 1;
-                         }
+                         sumBet += parseFloat(match.live_odds) - 1;
                      } else {
                          // Фаворит проиграл или ничья - вычитаем ставку (1)
                          sumBet -= 1;
+                     }
+                 }
+                 
+                 // Прогноз ИИ - ставка на прогнозированный исход ИИ (bet_ai_odds)
+                 if (match.bet_ai && match.bet_ai_odds && !isNaN(parseFloat(match.bet_ai_odds))) {
+                     // Определяем фактический результат матча
+                     const homeScore = match.final_score_home !== null && match.final_score_home !== undefined ? parseInt(match.final_score_home) : null;
+                     const awayScore = match.final_score_away !== null && match.final_score_away !== undefined ? parseInt(match.final_score_away) : null;
+                     
+                     if (homeScore !== null && awayScore !== null) {
+                         let actualResult = null;
+                         if (homeScore > awayScore) {
+                             actualResult = '1';
+                         } else if (homeScore === awayScore) {
+                             actualResult = 'X';
+                         } else {
+                             actualResult = '2';
+                         }
+                         
+                         // Проверяем, совпал ли прогноз ИИ с фактическим результатом
+                         const betAIUpper = match.bet_ai.toUpperCase();
+                         let isWin = false;
+                         
+                         if (betAIUpper === actualResult) {
+                             // Одиночный исход совпал
+                             isWin = true;
+                         } else if (betAIUpper === '1X' && (actualResult === '1' || actualResult === 'X')) {
+                             // Двойной шанс 1X выиграл
+                             isWin = true;
+                         } else if (betAIUpper === 'X2' && (actualResult === 'X' || actualResult === '2')) {
+                             // Двойной шанс X2 выиграл
+                             isWin = true;
+                         }
+                         
+                         if (isWin) {
+                             // Прогноз ИИ совпал - добавляем чистую прибыль
+                             sumBetAI += parseFloat(match.bet_ai_odds) - 1;
+                         } else {
+                             // Прогноз ИИ не совпал - вычитаем ставку (1)
+                             sumBetAI -= 1;
+                         }
                      }
                  }
              });
@@ -606,12 +681,14 @@
             const totalK1El = document.getElementById('total-k1');
             const totalK60El = document.getElementById('total-k60');
             const totalBetEl = document.getElementById('total-bet');
+            const totalBetAIEl = document.getElementById('total-bet-ai');
             
-            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetEl) {
+            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetEl && totalBetAIEl) {
                 totalK0El.textContent = sumK0.toFixed(2);
                 totalK1El.textContent = sumK1.toFixed(2);
                 totalK60El.textContent = sumK60.toFixed(2);
                 totalBetEl.textContent = sumBet.toFixed(2);
+                totalBetAIEl.textContent = sumBetAI.toFixed(2);
                 
                 // Показываем строку итогов только если есть завершенные матчи
                 const finishedMatches = matches.filter(m => m.status === 'finished');
@@ -839,6 +916,30 @@
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
                 
+                // Определяем класс для подсветки итогового счета в зависимости от результата фаворита
+                let finalScoreHtml = finalScore;
+                if (match.status === 'finished' && match.final_score_home !== null && match.final_score_away !== null) {
+                    const homeScore = parseInt(match.final_score_home);
+                    const awayScore = parseInt(match.final_score_away);
+                    const isDraw = homeScore === awayScore;
+                    
+                    let finalScoreClass = '';
+                    if (isDraw) {
+                        // Ничья - желтый
+                        finalScoreClass = 'final-score-draw';
+                    } else if (match.fav_won === 1) {
+                        // Фаворит выиграл - зеленый
+                        finalScoreClass = 'final-score-win';
+                    } else {
+                        // Фаворит проиграл - красный
+                        finalScoreClass = 'final-score-loss';
+                    }
+                    
+                    if (finalScoreClass) {
+                        finalScoreHtml = `<span class="${finalScoreClass}">${finalScore}</span>`;
+                    }
+                }
+                
                                  // Формируем ячейку K60 с tooltip
                  let k60Cell = '';
                  const statsFormatted = formatStats(match.stats_60min);
@@ -867,7 +968,7 @@
                      // Нет статистики - просто показываем коэффициент или "-"
                      k60Cell = `<span class="odds">${match.live_odds || '-'}</span>`;
                  }
-                
+                 
                 row.innerHTML = `
                     <td>${match.match_date}</td>
                     <td>${match.match_time}</td>
@@ -878,8 +979,8 @@
                     <td><span class="odds">${match.last_odds || '-'}</span></td>
                     <td>${k60Cell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
-                    <td><span class="odds">${match.bet_ai || '-'}</span></td>
-                    <td>${finalScore}</td>
+                    <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${parseFloat(match.bet_ai_odds).toFixed(2)})</small></span>` : match.bet_ai) : '-'}</td>
+                    <td>${finalScoreHtml}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
                 
