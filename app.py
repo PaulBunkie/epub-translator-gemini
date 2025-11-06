@@ -2294,9 +2294,9 @@ def bet_page():
 
 @app.route('/api/football/matches', methods=['GET'])
 def api_get_football_matches():
-    """API эндпойнт для получения списка матчей."""
+    """API эндпойнт для получения списка матчей с фаворитом."""
     try:
-        matches = football.get_all_matches()
+        matches = football.get_all_matches(filter_fav=True)
         return jsonify({
             'success': True,
             'matches': matches
@@ -2304,6 +2304,19 @@ def api_get_football_matches():
     except Exception as e:
         print(f"[Football API] Ошибка получения матчей: {e}")
         return jsonify({'error': f'Ошибка получения матчей: {str(e)}'}), 500
+
+@app.route('/api/football/matches/all', methods=['GET'])
+def api_get_all_football_matches():
+    """API эндпойнт для получения всех матчей (включая без фаворита)."""
+    try:
+        matches = football.get_all_matches(filter_fav=False)
+        return jsonify({
+            'success': True,
+            'matches': matches
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка получения всех матчей: {e}")
+        return jsonify({'error': f'Ошибка получения всех матчей: {str(e)}'}), 500
 
 @app.route('/api/football/limits', methods=['GET'])
 def api_get_football_limits():

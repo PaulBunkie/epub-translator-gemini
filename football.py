@@ -117,8 +117,8 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
 # ВАЖНО: Для отладки используем только 3 лиги, чтобы не выйти за лимит запросов API
 # Чтобы включить все лиги, раскомментируйте нужные строки ниже
 DEFAULT_FOOTBALL_LEAGUES = [
-    "soccer_epl",                    # Английская Премьер-лига
-    "soccer_uefa_champs_league",     # Лига Чемпионов
+    #"soccer_epl",                    # Английская Премьер-лига
+    #"soccer_uefa_champs_league",     # Лига Чемпионов
     "soccer_uefa_europa_league",     # Лига Европы
     # --- Раскомментируйте для включения остальных лиг ---
     # "soccer_spain_la_liga",          # Ла Лига (Испания)
@@ -1224,46 +1224,46 @@ class FootballManager:
                         stats['skipped_past'] += 1
                         continue
 
+                    # Извлекаем коэффициенты 1, X, 2 для всех матчей
+                    odds_1_x_2 = self._extract_odds_1_x_2(match_data)
+                    
                     # Определяем фаворита
                     fav_info = self._determine_favorite(match_data)
-                    if not fav_info:
-                        stats['skipped_no_fav'] += 1
-                        print(f"[Football] Не удалось определить фаворита для матча {fixture_id} ({match_data.get('home_team')} vs {match_data.get('away_team')})")
-                        continue
-
+                    
                     # Проверяем, существует ли матч в БД
                     match_exists = self._match_exists(fixture_id)
-
-                    # Если коэффициент <= 1.30 - добавляем/обновляем
-                    if fav_info['odds'] <= 1.30:
+                    
+                    # Определяем, есть ли фаворит с кэфом <= 1.30
+                    has_favorite = fav_info is not None and fav_info['odds'] <= 1.30
+                    
+                    if has_favorite:
+                        # Матч с фаворитом - заполняем все поля
                         if match_exists:
                             # Обновляем существующий матч
-                            success = self._update_match(fixture_id, fav_info, match_data)
+                            success = self._update_match(fixture_id, fav_info, match_data, odds_1_x_2)
                             if success:
                                 stats['updated'] += 1
-                                print(f"[Football] Обновлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, новый кэф: {fav_info['odds']}")
+                                print(f"[Football] Обновлен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
                         else:
                             # Добавляем новый матч
-                            success = self._save_match(match_data, fav_info)
+                            success = self._save_match(match_data, fav_info, odds_1_x_2)
                             if success:
                                 stats['added'] += 1
-                                print(f"[Football] Добавлен матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
+                                print(f"[Football] Добавлен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
                     else:
-                        # Коэффициент > 1.30 - удаляем из БД, если существует
-                        # НО: не удаляем, если bet уже установлен (ставка сделана)
+                        # Матч без фаворита или с кэфом > 1.30 - заполняем только базовые поля
                         if match_exists:
-                            # Проверяем, есть ли у матча значение bet
-                            bet_value = self._get_match_bet_value(fixture_id)
-                            if bet_value is not None:
-                                # У матча уже есть ставка (bet не null), не удаляем
-                                print(f"[Football] Матч {match_data.get('home_team')} vs {match_data.get('away_team')} имеет bet={bet_value}, не удаляем даже при кэф {fav_info['odds']} > 1.30")
-                                continue
-                            
-                            # bet не установлен, можно удалить
-                            success = self._delete_match(fixture_id)
+                            # Обновляем существующий матч (без fav)
+                            success = self._update_match_without_fav(fixture_id, match_data, odds_1_x_2)
                             if success:
-                                stats['deleted'] += 1
-                                print(f"[Football] Удален матч {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф {fav_info['odds']} > 1.30")
+                                stats['updated'] += 1
+                                print(f"[Football] Обновлен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')}")
+                        else:
+                            # Добавляем новый матч (без fav)
+                            success = self._save_match_without_fav(match_data, odds_1_x_2)
+                            if success:
+                                stats['added'] += 1
+                                print(f"[Football] Добавлен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')}")
                 
             except Exception as e:
                 print(f"[Football ERROR] Ошибка при обработке лиги {league_key}: {e}")
@@ -1273,7 +1273,7 @@ class FootballManager:
         # Удаляем матчи из БД, которых больше нет в API (опционально, если нужно)
         # Пока не реализовано, так как API может не возвращать все матчи
 
-        print(f"[Football] Синхронизация завершена: лиг обработано={stats['leagues_processed']}, лиг с ошибками={stats['leagues_failed']}, добавлено={stats['added']}, обновлено={stats['updated']}, удалено={stats['deleted']}, пропущено (нет фаворита)={stats['skipped_no_fav']}, пропущено (прошлое)={stats['skipped_past']}")
+        print(f"[Football] Синхронизация завершена: лиг обработано={stats['leagues_processed']}, лиг с ошибками={stats['leagues_failed']}, добавлено={stats['added']}, обновлено={stats['updated']}, удалено={stats['deleted']}, пропущено (прошлое)={stats['skipped_past']}")
         
         # Обновляем sofascore_event_id для матчей без него
         print("[Football] Начинаем обновление sofascore_event_id...")
@@ -1294,6 +1294,81 @@ class FootballManager:
         """
         stats = self.sync_matches()
         return stats['added']
+
+    def _extract_odds_1_x_2(self, match_data: Dict) -> Optional[Dict[str, float]]:
+        """
+        Извлекает медианные коэффициенты для исходов 1, X, 2 из данных матча.
+        
+        Args:
+            match_data: Данные матча от API (уже содержат bookmakers)
+            
+        Returns:
+            Словарь с коэффициентами: {'odds_1': float, 'odds_x': float, 'odds_2': float} или None
+        """
+        try:
+            home_team = match_data.get('home_team')
+            away_team = match_data.get('away_team')
+            bookmakers = match_data.get('bookmakers', [])
+            
+            if not home_team or not away_team or not bookmakers:
+                return None
+            
+            # Собираем коэффициенты для каждой команды и ничьей
+            home_odds = []
+            away_odds = []
+            draw_odds = []
+            
+            for bookmaker in bookmakers:
+                markets = bookmaker.get('markets', [])
+                for market in markets:
+                    if market.get('key') != 'h2h':
+                        continue
+                    
+                    outcomes = market.get('outcomes', [])
+                    for outcome in outcomes:
+                        name = outcome.get('name')
+                        price = outcome.get('price')
+                        
+                        if not price or not name:
+                            continue
+                        
+                        if name == home_team:
+                            home_odds.append(float(price))
+                        elif name == away_team:
+                            away_odds.append(float(price))
+                        elif name.lower() == 'draw':
+                            draw_odds.append(float(price))
+            
+            if not home_odds or not away_odds or not draw_odds:
+                return None
+            
+            # Вычисляем медианные коэффициенты
+            def get_median(odds_list):
+                n = len(odds_list)
+                if n == 0:
+                    return None
+                sorted_odds = sorted(odds_list)
+                if n % 2 == 0:
+                    return (sorted_odds[n//2 - 1] + sorted_odds[n//2]) / 2.0
+                else:
+                    return sorted_odds[n//2]
+            
+            odds_1 = get_median(home_odds)
+            odds_x = get_median(draw_odds)
+            odds_2 = get_median(away_odds)
+            
+            if odds_1 is None or odds_x is None or odds_2 is None:
+                return None
+            
+            return {
+                'odds_1': odds_1,
+                'odds_x': odds_x,
+                'odds_2': odds_2
+            }
+            
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка извлечения коэффициентов 1, X, 2: {e}")
+            return None
 
     def _determine_favorite(self, match_data: Dict) -> Optional[Dict]:
         """
@@ -1396,13 +1471,14 @@ class FootballManager:
             print(traceback.format_exc())
             return None
 
-    def _save_match(self, match_data: Dict, fav_info: Dict) -> bool:
+    def _save_match(self, match_data: Dict, fav_info: Dict, odds_1_x_2: Optional[Dict[str, float]] = None) -> bool:
         """
-        Сохраняет матч в БД.
+        Сохраняет матч в БД с фаворитом.
         
         Args:
             match_data: Данные матча от The Odds API
             fav_info: Информация о фаворите
+            odds_1_x_2: Словарь с коэффициентами {'odds_1': float, 'odds_x': float, 'odds_2': float}
             
         Returns:
             True если успешно, False если ошибка
@@ -1444,14 +1520,21 @@ class FootballManager:
                 print(f"[Football] Нет даты для матча {event_id}")        
                 return False
 
-                        # Сохраняем
+            # Сохраняем
             # При первом сохранении initial_odds и last_odds одинаковые   
             fav_odds = fav_info['odds']
+            
+            # Извлекаем коэффициенты 1, X, 2
+            live_odds_1 = odds_1_x_2.get('odds_1') if odds_1_x_2 else None
+            live_odds_x = odds_1_x_2.get('odds_x') if odds_1_x_2 else None
+            live_odds_2 = odds_1_x_2.get('odds_2') if odds_1_x_2 else None
+            
             cursor.execute("""
                 INSERT INTO matches
                 (fixture_id, home_team, away_team, fav, fav_team_id,      
-                 match_date, match_time, initial_odds, last_odds, status, sport_key) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 match_date, match_time, initial_odds, last_odds, status, sport_key,
+                 live_odds_1, live_odds_x, live_odds_2) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 event_id,  # fixture_id = event_id из The Odds API        
                 home_team,
@@ -1463,7 +1546,10 @@ class FootballManager:
                 fav_odds,  # initial_odds - первая котировка
                 fav_odds,  # last_odds - при первом сохранении такая же   
                 'scheduled',
-                sport_key  # sport_key для использования в запросах live odds
+                sport_key,  # sport_key для использования в запросах live odds
+                live_odds_1,
+                live_odds_x,
+                live_odds_2
             ))
 
             conn.commit()
@@ -1530,14 +1616,15 @@ class FootballManager:
             if conn:
                 conn.close()
 
-    def _update_match(self, fixture_id: str, fav_info: Dict, match_data: Dict) -> bool:
+    def _update_match(self, fixture_id: str, fav_info: Dict, match_data: Dict, odds_1_x_2: Optional[Dict[str, float]] = None) -> bool:
         """
-        Обновляет коэффициент существующего матча.
+        Обновляет коэффициент существующего матча с фаворитом.
 
         Args:
             fixture_id: ID матча из API
             fav_info: Информация о фаворите
             match_data: Данные матча от API
+            odds_1_x_2: Словарь с коэффициентами {'odds_1': float, 'odds_x': float, 'odds_2': float}
 
         Returns:
             True если успешно, False если ошибка
@@ -1547,18 +1634,29 @@ class FootballManager:
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
-                        # Обновляем только коэффициент (last_odds), фаворита, sport_key и время обновления
+            # Обновляем только коэффициент (last_odds), фаворита, sport_key, коэффициенты 1/X/2 и время обновления
             # initial_odds не трогаем - там хранится первая котировка
             sport_key = match_data.get('sport_key')
+            
+            # Извлекаем коэффициенты 1, X, 2
+            live_odds_1 = odds_1_x_2.get('odds_1') if odds_1_x_2 else None
+            live_odds_x = odds_1_x_2.get('odds_x') if odds_1_x_2 else None
+            live_odds_2 = odds_1_x_2.get('odds_2') if odds_1_x_2 else None
+            
             cursor.execute("""
                 UPDATE matches
-                SET fav = ?, fav_team_id = ?, last_odds = ?, sport_key = ?, updated_at = CURRENT_TIMESTAMP
+                SET fav = ?, fav_team_id = ?, last_odds = ?, sport_key = ?,
+                    live_odds_1 = ?, live_odds_x = ?, live_odds_2 = ?,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE fixture_id = ?
             """, (
                 fav_info['team'],
                 1 if fav_info['is_home'] else 0,
                 fav_info['odds'],
                 sport_key,
+                live_odds_1,
+                live_odds_x,
+                live_odds_2,
                 fixture_id
             ))
 
@@ -1567,6 +1665,146 @@ class FootballManager:
 
         except sqlite3.Error as e:
             print(f"[Football ERROR] Ошибка обновления матча: {e}")
+            return False
+        except Exception as e:
+            print(f"[Football ERROR] Неожиданная ошибка при обновлении: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _save_match_without_fav(self, match_data: Dict, odds_1_x_2: Optional[Dict[str, float]] = None) -> bool:
+        """
+        Сохраняет матч в БД без фаворита (только базовые поля и коэффициенты 1, X, 2).
+        
+        Args:
+            match_data: Данные матча от The Odds API
+            odds_1_x_2: Словарь с коэффициентами {'odds_1': float, 'odds_x': float, 'odds_2': float}
+            
+        Returns:
+            True если успешно, False если ошибка
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            
+            # The Odds API использует "id" вместо "fixture_id"
+            event_id = match_data.get('id')
+            
+            # Проверяем, не существует ли уже матч
+            cursor.execute("SELECT id FROM matches WHERE fixture_id = ?", (event_id,))
+            if cursor.fetchone():
+                print(f"[Football] Матч {event_id} уже существует, пропускаем")
+                return False
+            
+            # Извлекаем данные
+            home_team = match_data.get('home_team')
+            away_team = match_data.get('away_team')
+            sport_key = match_data.get('sport_key')
+
+            if not home_team or not away_team:
+                print(f"[Football] Нет названий команд для матча {event_id}")
+                return False
+
+            # Дата и время матча (в UTC от The Odds API)
+            commence_time = match_data.get('commence_time')
+            if commence_time:
+                # Парсим UTC время от The Odds API
+                dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
+                dt = dt.replace(tzinfo=None)
+                match_date = dt.strftime('%Y-%m-%d')
+                match_time = dt.strftime('%H:%M')
+            else:
+                print(f"[Football] Нет даты для матча {event_id}")        
+                return False
+
+            # Извлекаем коэффициенты 1, X, 2
+            live_odds_1 = odds_1_x_2.get('odds_1') if odds_1_x_2 else None
+            live_odds_x = odds_1_x_2.get('odds_x') if odds_1_x_2 else None
+            live_odds_2 = odds_1_x_2.get('odds_2') if odds_1_x_2 else None
+            
+            # Сохраняем только базовые поля (fav = 'NONE', fav_team_id = -1, initial_odds, last_odds остаются NULL)
+            cursor.execute("""
+                INSERT INTO matches
+                (fixture_id, home_team, away_team, fav, fav_team_id, match_date, match_time, status, sport_key,
+                 live_odds_1, live_odds_x, live_odds_2) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                event_id,
+                home_team,
+                away_team,
+                'NONE',  # Специальное значение вместо NULL
+                -1,  # Специальное значение вместо NULL
+                match_date,
+                match_time,
+                'scheduled',
+                sport_key,
+                live_odds_1,
+                live_odds_x,
+                live_odds_2
+            ))
+
+            conn.commit()
+            return True
+
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка сохранения матча без фаворита: {e}")
+            return False
+        except Exception as e:
+            print(f"[Football ERROR] Неожиданная ошибка: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _update_match_without_fav(self, fixture_id: str, match_data: Dict, odds_1_x_2: Optional[Dict[str, float]] = None) -> bool:
+        """
+        Обновляет матч без фаворита (только базовые поля и коэффициенты 1, X, 2).
+
+        Args:
+            fixture_id: ID матча из API
+            match_data: Данные матча от API
+            odds_1_x_2: Словарь с коэффициентами {'odds_1': float, 'odds_x': float, 'odds_2': float}
+
+        Returns:
+            True если успешно, False если ошибка
+        """
+        conn = None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            sport_key = match_data.get('sport_key')
+            
+            # Извлекаем коэффициенты 1, X, 2
+            live_odds_1 = odds_1_x_2.get('odds_1') if odds_1_x_2 else None
+            live_odds_x = odds_1_x_2.get('odds_x') if odds_1_x_2 else None
+            live_odds_2 = odds_1_x_2.get('odds_2') if odds_1_x_2 else None
+            
+            # Обновляем только базовые поля и коэффициенты (fav, initial_odds, last_odds не трогаем)
+            cursor.execute("""
+                UPDATE matches
+                SET sport_key = ?, live_odds_1 = ?, live_odds_x = ?, live_odds_2 = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE fixture_id = ?
+            """, (
+                sport_key,
+                live_odds_1,
+                live_odds_x,
+                live_odds_2,
+                fixture_id
+            ))
+
+            conn.commit()
+            return True
+
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка обновления матча без фаворита: {e}")
             return False
         except Exception as e:
             print(f"[Football ERROR] Неожиданная ошибка при обновлении: {e}")
@@ -1620,18 +1858,31 @@ class FootballManager:
             cursor = conn.cursor()
 
             # ===== ЧАСТЬ 1: Обработка матчей на 60-й минуте (только bet IS NULL) =====
+            # Разделяем матчи с фаворитом и без
             cursor.execute("""
                 SELECT * FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                 AND bet IS NULL
+                AND fav != 'NONE'
                 ORDER BY match_date, match_time
             """)
 
-            matches_for_60min = cursor.fetchall()
-            print(f"[Football] Найдено {len(matches_for_60min)} необработанных матчей (bet IS NULL) для проверки на 60-й минуте")
+            matches_with_fav = cursor.fetchall()
+            print(f"[Football] Найдено {len(matches_with_fav)} необработанных матчей с фаворитом (bet IS NULL, fav != 'NONE') для проверки на 60-й минуте")
 
-            # Проверяем каждый матч на 60-ю минуту
-            for match in matches_for_60min:
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE status IN ('scheduled', 'in_progress')
+                AND bet IS NULL
+                AND fav = 'NONE'
+                ORDER BY match_date, match_time
+            """)
+
+            matches_without_fav = cursor.fetchall()
+            print(f"[Football] Найдено {len(matches_without_fav)} необработанных матчей без фаворита (bet IS NULL, fav = 'NONE') для проверки на 60-й минуте")
+
+            # Обрабатываем матчи с фаворитом (как раньше - с live_odds)
+            for match in matches_with_fav:
                 match_id = match['id']
                 fixture_id = match['fixture_id']
                 match_datetime_str = f"{match['match_date']} {match['match_time']}"
@@ -1691,6 +1942,67 @@ class FootballManager:
 
                 except Exception as e:
                     print(f"[Football ERROR] Ошибка проверки матча на 60-ю минуту {fixture_id}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+
+            # Обрабатываем матчи без фаворита (без live_odds, только прогноз ИИ)
+            for match in matches_without_fav:
+                match_id = match['id']
+                fixture_id = match['fixture_id']
+                match_datetime_str = f"{match['match_date']} {match['match_time']}"
+                
+                try:
+                    # Парсим дату и время из БД (они в UTC, но без tzinfo)
+                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
+                    # Добавляем UTC часовой пояс, так как время в БД сохранено в UTC
+                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
+                    
+                    # Используем UTC время для сравнения (независимо от часового пояса сервера)
+                    now = datetime.now(timezone.utc)
+                    
+                    # Вычисляем разницу во времени
+                    time_diff = now - match_datetime
+                    minutes_diff = time_diff.total_seconds() / 60
+
+                    print(f"[Football] Матч без фаворита {fixture_id}: прошло {minutes_diff:.1f} минут, статус: {match['status']}")
+
+                    # Проверяем что матч уже начался
+                    if minutes_diff < 0:
+                        print(f"[Football] Матч {fixture_id} еще не начался (прошло {minutes_diff:.1f} минут). Пропускаем.")
+                        continue  # Матч еще не начался
+
+                    # Обновляем статус на in_progress если нужно
+                    if match['status'] == 'scheduled':
+                        print(f"[Football] Обновляем статус матча {fixture_id} на 'in_progress'")
+                        cursor.execute(
+                            "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (match_id,)
+                        )
+                        conn.commit()
+
+                    # Проверяем 60-я минута (минимум 55 минут)
+                    if minutes_diff >= 55:
+                        print(f"[Football] Матч без фаворита {fixture_id} прошло {minutes_diff:.1f} минут (>= 55). Собираем статистику и обрабатываем...")
+                        try:
+                            self._collect_60min_stats_without_fav(match)
+                        except Exception as e:
+                            print(f"[Football ERROR] Ошибка сбора статистики 60min для матча без фаворита {fixture_id}: {e}")
+                            import traceback
+                            print(traceback.format_exc())
+                            # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
+                            cursor.execute(
+                                "UPDATE matches SET bet = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (match_id,)
+                            )
+                            conn.commit()
+                    else:
+                        # Матч еще не достиг 55 минут - оставляем bet = NULL для следующей проверки
+                        print(f"[Football] Матч без фаворита {fixture_id} еще не достиг 55 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
+                        # Не трогаем bet - оставляем NULL
+
+                except Exception as e:
+                    print(f"[Football ERROR] Ошибка проверки матча без фаворита на 60-ю минуту {fixture_id}: {e}")
                     import traceback
                     print(traceback.format_exc())
                     continue
@@ -1815,7 +2127,7 @@ class FootballManager:
                     continue
 
             conn.close()
-            print(f"[Football] Обработка матчей завершена. Проверено на 60-ю минуту: {len(matches_for_60min)}, на финальный результат: {len(matches_for_final)}")
+            print(f"[Football] Обработка матчей завершена. Проверено с фаворитом: {len(matches_with_fav)}, без фаворита: {len(matches_without_fav)}, на финальный результат: {len(matches_for_final)}")
             
         except Exception as e:
             print(f"[Football ERROR] Ошибка проверки матчей: {e}")
@@ -2342,6 +2654,238 @@ class FootballManager:
             print(f"[Football ERROR] Ошибка сбора статистики 60min: {e}")
             import traceback
             print(traceback.format_exc())
+
+    def _collect_60min_stats_without_fav(self, match: sqlite3.Row):
+        """
+        Собирает статистику на 60-й минуте для матчей без фаворита.
+        Не запрашивает live_odds, только статистику и прогноз ИИ.
+        
+        Args:
+            match: Запись матча из БД
+        """
+        try:
+            fixture_id = match['fixture_id']
+            sofascore_event_id = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() else None
+
+            if not sofascore_event_id:
+                print(f"[Football] Нет sofascore_event_id для матча {fixture_id}, пропускаем")
+                return
+
+            # Сначала получаем основное событие для актуального счета
+            event_data = self._fetch_sofascore_event(sofascore_event_id)
+            actual_score = None
+            if event_data and 'event' in event_data:
+                event = event_data['event']
+                home_score_obj = event.get('homeScore', {})
+                away_score_obj = event.get('awayScore', {})
+                
+                if isinstance(home_score_obj, dict) and isinstance(away_score_obj, dict):
+                    # Приоритет: current (текущий счет) > normaltime > display
+                    score_home = home_score_obj.get('current') or home_score_obj.get('normaltime') or home_score_obj.get('display')
+                    score_away = away_score_obj.get('current') or away_score_obj.get('normaltime') or away_score_obj.get('display')
+                    
+                    if score_home is not None and score_away is not None:
+                        try:
+                            actual_score = {
+                                'home': int(score_home),
+                                'away': int(score_away)
+                            }
+                            print(f"[Football] Актуальный счет для fixture {fixture_id}: {actual_score['home']}-{actual_score['away']}")
+                        except (ValueError, TypeError):
+                            print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
+
+            # Получаем статистику с SofaScore
+            stats_data = self._fetch_sofascore_statistics(sofascore_event_id)
+
+            if not stats_data:
+                print(f"[Football] Не удалось получить статистику с SofaScore для event_id={sofascore_event_id}")
+                return
+
+            # Парсим статистику из SofaScore
+            stats = self._parse_sofascore_statistics(stats_data, match)
+            
+            # Перезаписываем счет актуальным из основного события, если он был получен
+            if actual_score:
+                stats['score'] = actual_score
+                print(f"[Football] Счет заменен на актуальный из основного события: {actual_score}")
+
+            # Сохраняем статистику в БД (bet остается NULL, live_odds не запрашиваем)
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            stats_json = json.dumps(stats)
+            cursor.execute("""
+                UPDATE matches
+                SET stats_60min = ?, bet = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (stats_json, match['id']))
+
+            conn.commit()
+            conn.close()
+
+            print(f"[Football] Статистика на 60-й минуте сохранена для матча без фаворита {fixture_id}")
+            
+            # Получаем прогноз от ИИ (без упоминания фаворита)
+            print(f"[Football] Запрашиваем ИИ-прогноз для матча без фаворита {fixture_id}...")
+            bet_ai, bet_ai_reason = self._get_ai_prediction_without_fav(match, stats) 
+
+            if bet_ai or bet_ai_reason:
+                # Получаем коэффициент на прогнозированный исход из БД
+                bet_ai_odds = None
+                if bet_ai:
+                    print(f"[Football] Получаем коэффициент для прогноза ИИ '{bet_ai}' для fixture {fixture_id}...")
+                    bet_ai_odds = self._get_ai_prediction_odds(fixture_id, bet_ai)
+                    if bet_ai_odds:
+                        print(f"[Football] Получен коэффициент {bet_ai_odds} для прогноза ИИ '{bet_ai}'")
+                    else:
+                        print(f"[Football] Не удалось получить коэффициент для прогноза ИИ '{bet_ai}'")
+                
+                # Сохраняем результат ИИ в БД
+                conn = get_football_db_connection()
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    UPDATE matches
+                    SET bet_ai = ?, bet_ai_reason = ?, bet_ai_odds = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (bet_ai, bet_ai_reason, bet_ai_odds, match['id']))
+
+                conn.commit()
+                conn.close()
+
+                if bet_ai:
+                    print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}")
+                else:
+                    print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}")
+
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка сбора статистики 60min для матча без фаворита: {e}")
+            import traceback
+            print(traceback.format_exc())
+
+    def _get_ai_prediction_without_fav(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Получает прогноз от ИИ для матчей без фаворита (без упоминания фаворита в промпте).
+        
+        Args:
+            match: Запись матча из БД
+            stats: Статистика на 60-й минуте (из stats_60min)
+        
+        Returns:
+            Кортеж (bet_ai, bet_ai_reason):
+            - bet_ai: Прогноз ('1', '1X', 'X', 'X2', '2') или None
+            - bet_ai_reason: Полный ответ от ИИ или None
+        """
+        if not self.openrouter_api_key:
+            print("[Football] OpenRouter API ключ не установлен, пропускаем ИИ-прогноз")
+            return None, None
+        
+        try:
+            # Формируем промпт без упоминания фаворита
+            home_team = match['home_team']
+            away_team = match['away_team']
+            
+            score = stats.get('score', {})
+            home_score = score.get('home', 0)
+            away_score = score.get('away', 0)
+            
+            # Форматируем статистику как JSON для передачи ИИ
+            stats_json = json.dumps(stats, ensure_ascii=False, indent=2)
+            
+            prompt = f"""Ты - футбольный аналитик. Изучи предоставленную подробную статистику матча после первого тайма, хорошо подумай и сделай прогноз на итоговый результат матча в основное время.
+
+Информация о матче:
+- Команды: {home_team} vs {away_team}
+- Текущий счет после первого тайма: {home_score} - {away_score}
+
+Детальная статистика первого тайма:
+{stats_json}
+
+Ответ верни ТОЛЬКО в виде одного из вариантов: 1 или 1X или X или X2 или 2
+Где:
+- 1 = победа домашней команды ({home_team})
+- 1X = ничья или победа домашней команды ({home_team})
+- X = ничья
+- X2 = ничья или победа гостевой команды ({away_team})
+- 2 = победа гостевой команды ({away_team})"""
+            
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            
+            # Список моделей для попыток (основная + два fallback)
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2]
+            
+            for model_idx, model in enumerate(models_to_try):
+                if not model:
+                    continue
+                    
+                print(f"[Football AI] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
+                
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        "max_tokens": 2000,
+                        "temperature": 0.3  # Низкая температура для более детерминированного ответа
+                    }
+                    
+                    print(f"[Football AI] Отправка запроса к OpenRouter API (модель: {model})")
+                    
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=60
+                    )
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            if 'choices' in data and len(data['choices']) > 0:
+                                ai_response = data['choices'][0]['message']['content']
+                                print(f"[Football AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                                
+                                # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
+                                bet_ai = self._parse_ai_prediction(ai_response)
+                                
+                                if bet_ai:
+                                    print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
+                                    return bet_ai, ai_response
+                                else:
+                                    print(f"[Football AI] Не удалось распознать прогноз в ответе, пробуем следующую модель")
+                                    if model_idx < len(models_to_try) - 1:
+                                        continue
+                                    else:
+                                        # Последняя модель - возвращаем ответ даже если не распознан
+                                        print(f"[Football AI] Все модели испробованы, возвращаем ответ без распознанного прогноза")
+                                        return None, ai_response
+                        except json.JSONDecodeError as e:
+                            print(f"[Football AI ERROR] Ошибка парсинга JSON ответа: {e}")
+                            continue
+                    else:
+                        print(f"[Football AI ERROR] Ошибка API: {response.status_code} - {response.text}")
+                        continue
+                        
+                except requests.exceptions.RequestException as e:
+                    print(f"[Football AI ERROR] Ошибка запроса к OpenRouter: {e}")
+                    continue
+            
+            print(f"[Football AI] Не удалось получить прогноз от всех моделей")
+            return None, None
+            
+        except Exception as e:
+            print(f"[Football AI ERROR] Ошибка получения ИИ-прогноза: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None, None
 
     def _collect_final_result(self, match: sqlite3.Row):
         """
@@ -3141,9 +3685,13 @@ def check_matches_and_collect_task():
         print(traceback.format_exc())
 
 
-def get_all_matches() -> List[Dict[str, Any]]:
+def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
     """
-    Получает все матчи для UI.
+    Получает матчи для UI.
+    
+    Args:
+        filter_fav: Если True, возвращает только матчи с фаворитом (fav != 'NONE').
+                    Если False, возвращает все матчи.
 
     Returns:
         Список матчей
@@ -3153,10 +3701,17 @@ def get_all_matches() -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT * FROM matches
-            ORDER BY match_date DESC, match_time DESC
-        """)
+        if filter_fav:
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE fav != 'NONE'
+                ORDER BY match_date DESC, match_time DESC
+            """)
+        else:
+            cursor.execute("""
+                SELECT * FROM matches
+                ORDER BY match_date DESC, match_time DESC
+            """)
 
         rows = cursor.fetchall()
         return [dict(row) for row in rows]

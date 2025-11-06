@@ -147,18 +147,18 @@
             color: #28a745;
         }
         
-        .sortable-header {
+        .sortable-header, .sortable-header-all {
             cursor: pointer;
             user-select: none;
             position: relative;
             padding-right: 20px !important;
         }
         
-        .sortable-header:hover {
+        .sortable-header:hover, .sortable-header-all:hover {
             background-color: rgba(0, 0, 0, 0.05);
         }
         
-        .sortable-header::after {
+        .sortable-header::after, .sortable-header-all::after {
             content: '↕';
             position: absolute;
             right: 5px;
@@ -166,13 +166,13 @@
             font-size: 0.8em;
         }
         
-        .sortable-header.sort-asc::after {
+        .sortable-header.sort-asc::after, .sortable-header-all.sort-asc::after {
             content: '↑';
             opacity: 1;
             color: #0d6efd;
         }
         
-        .sortable-header.sort-desc::after {
+        .sortable-header.sort-desc::after, .sortable-header-all.sort-desc::after {
             content: '↓';
             opacity: 1;
             color: #0d6efd;
@@ -278,13 +278,30 @@
         </div>
         {% endif %}
         
+        <!-- Вкладки -->
+        <ul class="nav nav-tabs mb-4" id="matches-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="fav-tab" type="button" role="tab" aria-controls="fav-matches" aria-selected="true">
+                    <i class="fas fa-star"></i> С фаворитом
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="all-tab" type="button" role="tab" aria-controls="all-matches" aria-selected="false">
+                    <i class="fas fa-list"></i> Все матчи
+                </button>
+            </li>
+        </ul>
+        
         <div id="loading" class="text-center my-5">
             <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">Загрузка...</span>
             </div>
         </div>
         
-        <div id="matches-container" style="display: none;">
+        <div class="tab-content" id="matches-tab-content">
+            <!-- Вкладка с матчами с фаворитом -->
+            <div class="tab-pane fade show active" id="fav-matches" role="tabpanel" aria-labelledby="fav-tab">
+                <div id="matches-container" style="display: none;">
             <div class="table-responsive">
                 <table class="table table-striped table-hover">
                     <thead>
@@ -323,6 +340,38 @@
                 <i class="fas fa-futbol fa-3x text-muted mb-3"></i>
                 <p class="text-muted">Нет матчей для отображения</p>
             </div>
+                </div>
+            </div>
+            
+            <!-- Вкладка со всеми матчами -->
+            <div class="tab-pane fade" id="all-matches" role="tabpanel" aria-labelledby="all-tab">
+                <div id="all-matches-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th class="sortable-header-all" data-sort="match_date">Дата</th>
+                                    <th class="sortable-header-all" data-sort="match_time">Время</th>
+                                    <th class="sortable-header-all" data-sort="home_team">Хозяева</th>
+                                    <th class="sortable-header-all" data-sort="away_team">Гости</th>
+                                    <th class="sortable-header-all" data-sort="live_odds_1">Кэф на 1</th>
+                                    <th class="sortable-header-all" data-sort="live_odds_x">Кэф на X</th>
+                                    <th class="sortable-header-all" data-sort="live_odds_2">Кэф на 2</th>
+                                    <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
+                                    <th class="sortable-header-all" data-sort="final_score">Итоговый счёт</th>
+                                    <th class="sortable-header-all" data-sort="status">Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody id="all-matches-table-body">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="all-matches-empty-state" class="text-center my-5" style="display: none;">
+                        <i class="fas fa-futbol fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">Нет матчей для отображения</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -332,13 +381,27 @@
         let currentSortField = null;
         let currentSortDirection = 'asc';
 
+        // Переменные для сортировки второй таблицы
+        let currentSortFieldAll = null;
+        let currentSortDirectionAll = 'asc';
+        
         // Инициализация обработчиков сортировки
         document.addEventListener('DOMContentLoaded', function() {
+            // Обработчики для первой таблицы (с фаворитом)
             const headers = document.querySelectorAll('.sortable-header');
             headers.forEach(header => {
                 header.addEventListener('click', function() {
                     const sortField = this.getAttribute('data-sort');
                     sortTable(sortField);
+                });
+            });
+            
+            // Обработчики для второй таблицы (все матчи)
+            const headersAll = document.querySelectorAll('.sortable-header-all');
+            headersAll.forEach(header => {
+                header.addEventListener('click', function() {
+                    const sortField = this.getAttribute('data-sort');
+                    sortTableAll(sortField);
                 });
             });
         });
@@ -411,6 +474,76 @@
 
             // Обновляем отображение
             displayMatches(sortedMatches);
+        }
+        
+        function sortTableAll(field) {
+            if (!allMatchesData || allMatchesData.length === 0) {
+                return;
+            }
+
+            // Если кликнули по тому же полю - меняем направление, иначе сортируем по возрастанию
+            if (currentSortFieldAll === field) {
+                currentSortDirectionAll = currentSortDirectionAll === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSortFieldAll = field;
+                currentSortDirectionAll = 'asc';
+            }
+
+            // Сбрасываем классы сортировки со всех заголовков
+            document.querySelectorAll('.sortable-header-all').forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+
+            // Добавляем класс к текущему заголовку
+            const currentHeader = document.querySelector(`.sortable-header-all[data-sort="${field}"]`);
+            if (currentHeader) {
+                currentHeader.classList.add(currentSortDirectionAll === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+
+            // Сортируем массив
+            const sortedMatches = [...allMatchesData].sort((a, b) => {
+                let valueA = a[field];
+                let valueB = b[field];
+
+                // Специальная обработка для разных типов полей
+                if (field === 'final_score') {
+                    // Для итогового счета - сравниваем сумму голов
+                    const scoreA = (a.final_score_home || 0) + (a.final_score_away || 0);
+                    const scoreB = (b.final_score_home || 0) + (b.final_score_away || 0);
+                    valueA = scoreA;
+                    valueB = scoreB;
+                } else if (field === 'match_date' || field === 'match_time') {
+                    // Для даты и времени - создаем полную дату для сравнения
+                    const dateTimeA = new Date(`${a.match_date}T${a.match_time || '00:00'}`);
+                    const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
+                    valueA = dateTimeA.getTime();
+                    valueB = dateTimeB.getTime();
+                } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2') {
+                    // Для коэффициентов - преобразуем в числа
+                    valueA = parseFloat(valueA) || 0;
+                    valueB = parseFloat(valueB) || 0;
+                } else if (field === 'status') {
+                    // Для статуса - используем порядок: scheduled < in_progress < finished
+                    const statusOrder = {'scheduled': 1, 'in_progress': 2, 'finished': 3};
+                    valueA = statusOrder[valueA] || 999;
+                    valueB = statusOrder[valueB] || 999;
+                }
+
+                // Обработка null/undefined
+                if (valueA == null) valueA = '';
+                if (valueB == null) valueB = '';
+
+                // Сравнение
+                if (valueA < valueB) {
+                    return currentSortDirectionAll === 'asc' ? -1 : 1;
+                } else if (valueA > valueB) {
+                    return currentSortDirectionAll === 'asc' ? 1 : -1;
+                }
+                return 0;
+            });
+
+            // Обновляем отображение
+            displayAllMatches(sortedMatches);
         }
 
         function syncAndLoad() {
@@ -542,23 +675,27 @@
                 });
         }
         
+        // Глобальная переменная для всех матчей
+        let allMatchesData = [];
+        
         function loadMatches() {
             document.getElementById('loading').style.display = 'block';
             document.getElementById('matches-container').style.display = 'none';
             
-            fetch('/api/football/matches')
-                .then(response => response.json())
-                .then(data => {
+            // Загружаем обе таблицы параллельно
+            Promise.all([
+                fetch('/api/football/matches').then(r => r.json()),
+                fetch('/api/football/matches/all').then(r => r.json())
+            ])
+                .then(([favData, allData]) => {
                     document.getElementById('loading').style.display = 'none';
                     
-                    if (data.success && data.matches && data.matches.length > 0) {
-                        // Сохраняем данные в глобальную переменную
-                        allMatches = data.matches;
-                        
+                    // Обрабатываем матчи с фаворитом
+                    if (favData.success && favData.matches && favData.matches.length > 0) {
+                        allMatches = favData.matches;
                         document.getElementById('matches-container').style.display = 'block';
                         document.getElementById('empty-state').style.display = 'none';
                         
-                        // Сортировка по умолчанию: дата и время (по убыванию - новые матчи сверху)
                         if (!currentSortField) {
                             currentSortField = 'match_date';
                             currentSortDirection = 'desc';
@@ -568,12 +705,29 @@
                         allMatches = [];
                         document.getElementById('empty-state').style.display = 'block';
                     }
+                    
+                    // Обрабатываем все матчи
+                    if (allData.success && allData.matches && allData.matches.length > 0) {
+                        allMatchesData = allData.matches;
+                        // Сортировка по умолчанию: дата и время (по убыванию)
+                        if (!currentSortFieldAll) {
+                            currentSortFieldAll = 'match_date';
+                            currentSortDirectionAll = 'desc';
+                        }
+                        sortTableAll(currentSortFieldAll);
+                    } else {
+                        allMatchesData = [];
+                        document.getElementById('all-matches-empty-state').style.display = 'block';
+                        document.getElementById('all-matches-container').style.display = 'none';
+                    }
                 })
                 .catch(error => {
                     console.error('Error loading matches:', error);
                     document.getElementById('loading').style.display = 'none';
                     allMatches = [];
+                    allMatchesData = [];
                     document.getElementById('empty-state').style.display = 'block';
+                    document.getElementById('all-matches-empty-state').style.display = 'block';
                 });
         }
 
@@ -1009,6 +1163,64 @@
              }, 0);
          }
          
+         function displayAllMatches(matches) {
+             const tbody = document.getElementById('all-matches-table-body');
+             tbody.innerHTML = '';
+             
+             if (!matches || matches.length === 0) {
+                 document.getElementById('all-matches-empty-state').style.display = 'block';
+                 document.getElementById('all-matches-container').style.display = 'none';
+                 return;
+             }
+             
+             document.getElementById('all-matches-container').style.display = 'block';
+             document.getElementById('all-matches-empty-state').style.display = 'none';
+             
+             // Функция для форматирования коэффициентов
+             const formatOdds = (odds) => {
+                 if (odds === null || odds === undefined || odds === '') {
+                     return '-';
+                 }
+                 const num = parseFloat(odds);
+                 if (isNaN(num)) {
+                     return '-';
+                 }
+                 return num.toFixed(2);
+             };
+             
+             matches.forEach(match => {
+                 const row = document.createElement('tr');
+                 
+                 const statusBadgeClass = `status-${match.status}`;
+                 const statusText = {
+                     'scheduled': 'Запланирован',
+                     'in_progress': 'Идет',
+                     'finished': 'Завершен'
+                 }[match.status] || match.status;
+                 
+                 const finalScore = match.final_score_home !== null && match.final_score_away !== null
+                     ? `${match.final_score_home}-${match.final_score_away}`
+                     : '-';
+                 
+                 const betAI = match.bet_ai ? (match.bet_ai_odds ? `${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small>` : match.bet_ai) : '-';
+                 
+                 row.innerHTML = `
+                     <td>${match.match_date}</td>
+                     <td>${match.match_time}</td>
+                     <td>${match.home_team}</td>
+                     <td>${match.away_team}</td>
+                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
+                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
+                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
+                     <td>${betAI}</td>
+                     <td>${finalScore}</td>
+                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
+                 `;
+                 
+                 tbody.appendChild(row);
+             });
+         }
+         
          function updateTooltipPosition(tooltip) {
              const tooltipContent = tooltip.querySelector('.tooltip-content');
              if (!tooltipContent) return;
@@ -1081,6 +1293,63 @@
         const urlParams = new URLSearchParams(window.location.search);
         const isAdmin = urlParams.get('admin') === 'true';
         
+        // Функция для переключения вкладок
+        function switchTab(tabName) {
+            console.log('switchTab вызвана с параметром:', tabName);
+            // Скрываем все вкладки
+            document.querySelectorAll('.tab-pane').forEach(pane => {
+                pane.classList.remove('show', 'active');
+            });
+            
+            // Убираем активность со всех кнопок
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+                link.setAttribute('aria-selected', 'false');
+            });
+            
+            // Показываем нужную вкладку
+            const targetPane = document.getElementById(tabName === 'fav' ? 'fav-matches' : 'all-matches');
+            const targetTab = document.getElementById(tabName === 'fav' ? 'fav-tab' : 'all-tab');
+            
+            console.log('targetPane:', targetPane, 'targetTab:', targetTab);
+            
+            if (targetPane && targetTab) {
+                targetPane.classList.add('show', 'active');
+                targetTab.classList.add('active');
+                targetTab.setAttribute('aria-selected', 'true');
+                console.log('Вкладка переключена успешно');
+            } else {
+                console.error('Не найдены элементы для переключения вкладки');
+            }
+        }
+        
+        // Инициализация обработчиков переключения вкладок
+        (function initTabs() {
+            const favTab = document.getElementById('fav-tab');
+            const allTab = document.getElementById('all-tab');
+            
+            if (favTab && allTab) {
+                console.log('Найдены элементы вкладок, добавляем обработчики');
+                favTab.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Клик на вкладку "С фаворитом"');
+                    switchTab('fav');
+                }, true);  // Используем capture для перехвата до Bootstrap
+                
+                allTab.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Клик на вкладку "Все матчи"');
+                    switchTab('all');
+                }, true);  // Используем capture для перехвата до Bootstrap
+            } else {
+                console.log('Элементы вкладок не найдены, повторяем через 100ms');
+                // Если элементы еще не загружены, пробуем через небольшую задержку
+                setTimeout(initTabs, 100);
+            }
+        })();
+        
         // Загружаем матчи при загрузке страницы
         loadMatches();
         
@@ -1089,6 +1358,7 @@
             loadLimits();
         }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 
