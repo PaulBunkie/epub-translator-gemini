@@ -1202,23 +1202,63 @@
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
                 
-                // Формируем ячейку прогноза ИИ с tooltip
+                // Формируем ячейку прогноза ИИ с tooltip и подсветкой
                 let betAICell = '';
                 const statsFormatted = formatStats(match.stats_60min);
                 const hasBetAI = match.bet_ai && match.bet_ai !== null && match.bet_ai !== undefined;
                 
+                // Определяем фактический результат для подсветки
+                let betAIClass = '';
+                if (hasBetAI && match.status === 'finished' && match.final_score_home !== null && match.final_score_away !== null) {
+                    const homeScore = parseInt(match.final_score_home);
+                    const awayScore = parseInt(match.final_score_away);
+                    const isDraw = homeScore === awayScore;
+                    const homeWon = homeScore > awayScore;
+                    const awayWon = awayScore > homeScore;
+                    
+                    const betAIUpper = match.bet_ai.toUpperCase();
+                    let isCorrect = false;
+                    
+                    if (isDraw) {
+                        // Ничья - правильные прогнозы: X, 1X, X2
+                        if (betAIUpper === 'X' || betAIUpper === '1X' || betAIUpper === 'X2') {
+                            isCorrect = true;
+                            betAIClass = 'final-score-draw'; // Желтый для ничьей
+                        }
+                    } else if (homeWon) {
+                        // Домашняя команда выиграла - правильные прогнозы: 1, 1X
+                        if (betAIUpper === '1' || betAIUpper === '1X') {
+                            isCorrect = true;
+                            betAIClass = 'final-score-win'; // Зеленый для победы
+                        }
+                    } else if (awayWon) {
+                        // Гостевая команда выиграла - правильные прогнозы: 2, X2
+                        if (betAIUpper === '2' || betAIUpper === 'X2') {
+                            isCorrect = true;
+                            betAIClass = 'final-score-win'; // Зеленый для победы
+                        }
+                    }
+                    
+                    // Если прогноз неверный - красный
+                    if (!isCorrect) {
+                        betAIClass = 'final-score-loss';
+                    }
+                }
+                
                 if (hasBetAI) {
+                    const betAIContent = betAIClass ? `<span class="${betAIClass}">${match.bet_ai}</span>` : match.bet_ai;
+                    
                     if (statsFormatted) {
                         // Есть статистика - показываем tooltip
                         betAICell = `
                             <span class="stats-tooltip" data-tooltip-position="">
-                                ${match.bet_ai}
+                                ${betAIContent}
                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
                             </span>
                         `;
                     } else {
                         // Нет статистики - просто показываем прогноз
-                        betAICell = match.bet_ai;
+                        betAICell = betAIContent;
                     }
                 } else {
                     betAICell = '-';
