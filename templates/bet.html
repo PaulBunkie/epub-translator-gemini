@@ -339,6 +339,48 @@
             background-color: #f8f9fa;
             font-weight: 600;
         }
+        
+        /* Подсветка строк с коэффициентами, где разница между победами не более 0.2 */
+        #all-matches-container tbody tr.match-balanced-odds {
+            background-color: #d4edda !important;
+        }
+        
+        #all-matches-container tbody tr.match-balanced-odds:nth-child(even) {
+            background-color: #d4edda !important;
+        }
+        
+        #all-matches-container tbody tr.match-balanced-odds:nth-child(odd) {
+            background-color: #d4edda !important;
+        }
+        
+        #all-matches-container tbody tr.match-balanced-odds:hover {
+            background-color: #c3e6cb !important;
+        }
+        
+        #all-matches-container tbody tr.match-balanced-odds td {
+            background-color: transparent !important;
+        }
+        
+        /* Подсветка матчей с фаворитами (коэффициент < 1.30) */
+        #all-matches-container tbody tr.match-with-favorite {
+            background-color: #f8d7da !important;
+        }
+        
+        #all-matches-container tbody tr.match-with-favorite:nth-child(even) {
+            background-color: #f8d7da !important;
+        }
+        
+        #all-matches-container tbody tr.match-with-favorite:nth-child(odd) {
+            background-color: #f8d7da !important;
+        }
+        
+        #all-matches-container tbody tr.match-with-favorite:hover {
+            background-color: #f5c2c7 !important;
+        }
+        
+        #all-matches-container tbody tr.match-with-favorite td {
+            background-color: transparent !important;
+        }
     </style>
 </head>
 <body>
@@ -1325,6 +1367,26 @@
              matches.forEach((match, index) => {
                  const row = document.createElement('tr');
                  
+                // Проверяем, что разница между коэффициентами на победу обеих команд не более 0.2
+                const odds1 = match.live_odds_1 !== null && match.live_odds_1 !== undefined ? parseFloat(match.live_odds_1) : NaN;
+                const odds2 = match.live_odds_2 !== null && match.live_odds_2 !== undefined ? parseFloat(match.live_odds_2) : NaN;
+                const isBalancedOdds = !isNaN(odds1) && !isNaN(odds2) && 
+                                      Math.abs(odds1 - odds2) <= 0.2;
+                
+                // Проверяем, есть ли фаворит (коэффициент < 1.30)
+                const hasFavorite = (match.fav && match.fav !== 'NONE') || 
+                                   (!isNaN(odds1) && odds1 < 1.30) || 
+                                   (!isNaN(odds2) && odds2 < 1.30);
+                
+                if (isBalancedOdds) {
+                    row.classList.add('match-balanced-odds');
+                    console.log(`Подсвечен матч: ${match.home_team} vs ${match.away_team}, кэфы: ${odds1}, ${odds2}, разница: ${Math.abs(odds1 - odds2).toFixed(2)}`);
+                }
+                
+                if (hasFavorite) {
+                    row.classList.add('match-with-favorite');
+                }
+                 
                  const statusBadgeClass = `status-${match.status}`;
                  const statusText = {
                      'scheduled': 'Запланирован',
@@ -1413,6 +1475,14 @@
                     <td>${finalScore}</td>
                     <td><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
                 `;
+                
+                // Повторно применяем классы после установки innerHTML (на случай если они были сброшены)
+                if (isBalancedOdds) {
+                    row.classList.add('match-balanced-odds');
+                }
+                if (hasFavorite) {
+                    row.classList.add('match-with-favorite');
+                }
                 
                 tbody.appendChild(row);
             });
