@@ -275,6 +275,28 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'bet_ai_odds' already exists.")
         
+        # --- Проверка и добавление поля bet_approve ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_approve' not in columns:
+            print("[FootballDB] Adding 'bet_approve' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_approve INTEGER")
+            conn.commit()
+            print("[FootballDB] Column 'bet_approve' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_approve' already exists.")
+
+        # --- Проверка и добавление поля bet_approve_reason ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_approve_reason' not in columns:
+            print("[FootballDB] Adding 'bet_approve_reason' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_approve_reason TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'bet_approve_reason' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_approve_reason' already exists.")
+        
         # --- Проверка и добавление поля live_odds ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -1968,7 +1990,7 @@ class FootballManager:
                             print(traceback.format_exc())
                             # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
                             cursor.execute(
-                                "UPDATE matches SET bet = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                                 (match_id,)
                             )
                             conn.commit()
@@ -2037,7 +2059,7 @@ class FootballManager:
                             print(traceback.format_exc())
                             # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
                             cursor.execute(
-                                "UPDATE matches SET bet = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                                 (match_id,)
                             )
                             conn.commit()
@@ -2098,6 +2120,14 @@ class FootballManager:
                     import traceback
                     print(traceback.format_exc())
                     continue
+
+            # ===== ЧАСТЬ 1.7: Второй проход риск-менеджмента =====
+            try:
+                self._perform_bet_approval_checks(cursor, conn)
+            except Exception as e:
+                print(f"[Football ERROR] Ошибка выполнения второго прохода риск-менеджмента: {e}")
+                import traceback
+                print(traceback.format_exc())
 
             # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
             cursor.execute("""
@@ -2186,6 +2216,80 @@ class FootballManager:
         finally:
             if conn:
                 conn.close()
+
+    def _perform_bet_approval_checks(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+        """
+        Выполняет второй проход риск-менеджмента (подтверждение ставок).
+
+        Анализирует все матчи, у которых есть рекомендация bet >= 1, но ещё не выставлен bet_approve.
+
+        Args:
+            cursor: Активный курсор БД
+            conn: Активное соединение с БД
+        """
+        cursor.execute(
+            """
+            SELECT * FROM matches
+            WHERE bet IS NOT NULL
+              AND bet >= 1
+              AND bet_ai IS NOT NULL
+              AND bet_ai_odds IS NOT NULL
+              AND stats_60min IS NOT NULL
+              AND bet_approve IS NULL
+            ORDER BY match_date, match_time
+            """
+        )
+
+        matches_to_check = cursor.fetchall()
+        if not matches_to_check:
+            print("[Football Risk Approve] Нет матчей для подтверждения ставок")
+            return
+
+        print(f"[Football Risk Approve] Запускаем подтверждение ставок для {len(matches_to_check)} матчей")
+
+        for match in matches_to_check:
+            fixture_id = match['fixture_id']
+            bet_ai = match['bet_ai']
+            bet_ai_odds = match['bet_ai_odds']
+            stats_json = match['stats_60min']
+
+            if not bet_ai or bet_ai_odds is None or not stats_json:
+                print(f"[Football Risk Approve] Недостаточно данных для матча {fixture_id}, устанавливаем bet_approve = 0")
+                cursor.execute(
+                    """
+                    UPDATE matches
+                    SET bet_approve = 0,
+                        bet_approve_reason = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    ("Недостаточно данных для подтверждения", match['id'])
+                )
+                conn.commit()
+                continue
+
+            print(f"[Football Risk Approve] Анализируем матч {fixture_id} (прогноз {bet_ai}, кэф {bet_ai_odds})")
+            analysis_response = self.analyze_bet_risk(fixture_id, bet_ai, float(bet_ai_odds), stats_json)
+
+            bet_approve_value = self._parse_bet_approve_decision(analysis_response)
+            if bet_approve_value is None:
+                print(f"[Football Risk Approve] Не удалось распознать резюме для матча {fixture_id}, устанавливаем 0")
+                bet_approve_value = 0
+
+            cursor.execute(
+                """
+                UPDATE matches
+                SET bet_approve = ?,
+                    bet_approve_reason = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (bet_approve_value, analysis_response, match['id'])
+            )
+            conn.commit()
+
+            status_text = "ОДОБРЕНО" if bet_approve_value == 1 else "ОТКЛОНЕНО"
+            print(f"[Football Risk Approve] Матч {fixture_id}: результат {status_text}")
 
     def _fetch_sofascore_statistics(self, sofascore_event_id: int) -> Optional[Dict]:
         """
@@ -2663,7 +2767,12 @@ class FootballManager:
             stats_json = json.dumps(stats)
             cursor.execute("""
                 UPDATE matches
-                SET stats_60min = ?, bet = ?, live_odds = ?, updated_at = CURRENT_TIMESTAMP
+                SET stats_60min = ?,
+                    bet = ?,
+                    live_odds = ?,
+                    bet_approve = NULL,
+                    bet_approve_reason = NULL,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (stats_json, bet_value, live_odds_value, match['id']))
 
@@ -2827,7 +2936,13 @@ class FootballManager:
 
                 cursor.execute("""
                     UPDATE matches
-                    SET bet_ai = ?, bet_ai_reason = ?, bet_ai_odds = ?, bet = ?, updated_at = CURRENT_TIMESTAMP
+                    SET bet_ai = ?,
+                        bet_ai_reason = ?,
+                        bet_ai_odds = ?,
+                        bet = ?,
+                        bet_approve = NULL,
+                        bet_approve_reason = NULL,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (bet_ai, bet_ai_reason, bet_ai_odds, bet_value, match['id']))
 
@@ -2845,7 +2960,10 @@ class FootballManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE matches
-                    SET bet = ?, updated_at = CURRENT_TIMESTAMP
+                    SET bet = ?,
+                        bet_approve = NULL,
+                        bet_approve_reason = NULL,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (bet_value, match['id']))
                 conn.commit()
@@ -3095,7 +3213,9 @@ X2 ИГНОРИРУЕМ
 Детальная статистика первого тайма:
 {stats_formatted}
 
-Проанализируй статистику, текущий счет, прогноз ИИ и коэффициент. Дай обоснованную рекомендацию: СТОИТ ЛИ РИСКНУТЬ или НЕ СТОИТ РИСКОВАТЬ, и подробно объясни свое решение."""
+Проанализируй статистику, текущий счет, прогноз ИИ и коэффициент. Дай обоснованную рекомендацию: СТОИТ ЛИ РИСКНУТЬ или НЕ СТОИТ РИСКОВАТЬ, и подробно объясни свое решение.
+
+В конце анализа добавь отдельную строку строго в формате "Резюме: ОДОБРИТЬ" если считаешь, что стоит рискнуть, или "Резюме: ОТКЛОНИТЬ" если рисковать не стоит."""
             
             headers = {
                 "Authorization": f"Bearer {self.openrouter_api_key}",
@@ -3787,6 +3907,30 @@ X2 ИГНОРИРУЕМ
         if re.search(r'\bСТАВИМ\b', ai_response, re.IGNORECASE):
             return True
         return False
+
+    def _parse_bet_approve_decision(self, ai_response: Optional[str]) -> Optional[int]:
+        """
+        Парсит итоговую строку "Резюме: ОДОБРИТЬ/ОТКЛОНИТЬ" из ответа ИИ.
+
+        Args:
+            ai_response: Полный ответ от ИИ (может содержать Markdown)
+
+        Returns:
+            1 если найдено "Резюме: ОДОБРИТЬ", 0 если "Резюме: ОТКЛОНИТЬ", None если не удалось распознать
+        """
+        if not ai_response:
+            return None
+
+        match_result = re.search(r'Резюме\s*:\s*(ОДОБРИТЬ|ОТКЛОНИТЬ)', ai_response, re.IGNORECASE)
+        if not match_result:
+            return None
+
+        decision = match_result.group(1).upper()
+        if decision == 'ОДОБРИТЬ':
+            return 1
+        if decision == 'ОТКЛОНИТЬ':
+            return 0
+        return None
 
     def _get_bet_ai_decision(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[bool], Optional[str]]:
         """

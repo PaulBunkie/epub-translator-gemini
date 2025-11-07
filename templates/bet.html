@@ -506,6 +506,7 @@
                             <th class="sortable-header" data-sort="live_odds">K60</th>
                             <th class="sortable-header" data-sort="bet_ai">Прогноз ИИ</th>
                             <th class="sortable-header" data-sort="bet">Bet</th>
+                            <th class="sortable-header" data-sort="bet_approve">Approved</th>
                             <th class="sortable-header" data-sort="final_score">Итоговый счёт</th>
                             <th class="sortable-header" data-sort="status">Статус</th>
                         </tr>
@@ -520,6 +521,7 @@
                             <td id="total-k60" class="odds">-</td>
                             <td id="total-bet-ai" class="odds">-</td>
                             <td id="total-bet" class="odds">-</td>
+                            <td id="total-bet-approve" class="odds">-</td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -565,6 +567,7 @@
                                     <th class="sortable-header-all" data-sort="live_odds_2">2</th>
                             <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
                             <th class="sortable-header-all" data-sort="bet">Bet</th>
+                            <th class="sortable-header-all" data-sort="bet_approve">Approved</th>
                             <th class="sortable-header-all" data-sort="final_score">Итоговый счёт</th>
                             <th class="sortable-header-all" data-sort="status">Статус</th>
                                 </tr>
@@ -576,6 +579,7 @@
                                     <td colspan="7" style="text-align: right;">Итого:</td>
                                     <td id="total-bet-ai-all" class="odds">-</td>
                                     <td id="total-bet-all" class="odds">-</td>
+                                    <td id="total-bet-approve-all" class="odds">-</td>
                                     <td></td>
                                     <td></td>
                                 </tr>
@@ -875,7 +879,7 @@
                         const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                         valueA = dateTimeA.getTime();
                         valueB = dateTimeB.getTime();
-                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet') {
+                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_approve') {
                         valueA = parseFloat(valueA) || 0;
                         valueB = parseFloat(valueB) || 0;
                     } else if (field === 'status') {
@@ -932,7 +936,7 @@
                         const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                         valueA = dateTimeA.getTime();
                         valueB = dateTimeB.getTime();
-                    } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2') {
+                    } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2' || field === 'bet' || field === 'bet_approve') {
                         valueA = parseFloat(valueA) || 0;
                         valueB = parseFloat(valueB) || 0;
                     } else if (field === 'status') {
@@ -1008,7 +1012,7 @@
                     const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                     valueA = dateTimeA.getTime();
                     valueB = dateTimeB.getTime();
-                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet') {
+                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_approve') {
                     // Для коэффициентов - преобразуем в числа
                     valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
@@ -1086,7 +1090,7 @@
                     const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                     valueA = dateTimeA.getTime();
                     valueB = dateTimeB.getTime();
-                } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2') {
+                } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2' || field === 'bet' || field === 'bet_approve') {
                     // Для коэффициентов - преобразуем в числа
                     valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
@@ -1299,156 +1303,121 @@
                 });
         }
 
-                 function calculateTotals(matches) {
-             let sumK0 = 0;
-             let sumK1 = 0;
-             let sumK60 = 0;
-             let sumBet = 0;
-             let sumBetAI = 0;
-             
-             matches.forEach(match => {
-                 // Пропускаем незавершенные матчи
-                 if (match.status !== 'finished') {
-                     return;
-                 }
-                 
-                 // Если фаворит выиграл (fav_won === 1): прибыль = коэффициент - 1 (получаем коэффициент, но вложили 1)
-                 // Если проиграл или ничья (fav_won !== 1): прибыль = -1 (теряем ставку)
-                 // Считаем только если есть коэффициент (ставка была сделана)
-                 
-                 // K0 - ставка на фаворита после открытия линии (initial_odds)
-                 if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
-                     if (match.fav_won === 1) {
-                         sumK0 += parseFloat(match.initial_odds) - 1;
-                     } else {
-                         sumK0 -= 1;
-                     }
-                 }
-                 
-                 // K1 - ставка на фаворита в день матча (last_odds)
-                 if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
-                     if (match.fav_won === 1) {
-                         sumK1 += parseFloat(match.last_odds) - 1;
-                     } else {
-                         sumK1 -= 1;
-                     }
-                 }
-                 
-                 // K60 - ставка на фаворита в перерыве (live_odds)
-                 if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
-                     if (match.fav_won === 1) {
-                         sumK60 += parseFloat(match.live_odds) - 1;
-                     } else {
-                         sumK60 -= 1;
-                     }
-                 }
-                 
-                // Bet - ставка на прогноз ИИ только если рекомендовано (bet >= 1), используем bet_ai_odds
-                const betValue = match.bet ? parseFloat(match.bet) : 0;
-                if (betValue >= 1 && match.bet_ai && match.bet_ai_odds && !isNaN(parseFloat(match.bet_ai_odds))) {
-                    // Определяем фактический результат матча
-                    const homeScore = match.final_score_home !== null && match.final_score_home !== undefined ? parseInt(match.final_score_home) : null;
-                    const awayScore = match.final_score_away !== null && match.final_score_away !== undefined ? parseInt(match.final_score_away) : null;
-                    
-                    if (homeScore !== null && awayScore !== null) {
-                        let actualResult = null;
-                        if (homeScore > awayScore) {
-                            actualResult = '1';
-                        } else if (homeScore === awayScore) {
-                            actualResult = 'X';
-                        } else {
-                            actualResult = '2';
-                        }
-                        
-                        // Проверяем, совпал ли прогноз ИИ с фактическим результатом
-                        const betAIUpper = match.bet_ai.toUpperCase();
-                        let isWin = false;
-                        
-                        if (betAIUpper === actualResult) {
-                            // Одиночный исход совпал
-                            isWin = true;
-                        } else if (betAIUpper === '1X' && (actualResult === '1' || actualResult === 'X')) {
-                            // Двойной шанс 1X выиграл
-                            isWin = true;
-                        } else if (betAIUpper === 'X2' && (actualResult === 'X' || actualResult === '2')) {
-                            // Двойной шанс X2 выиграл
-                            isWin = true;
-                        }
-                        
-                        if (isWin) {
-                            // Прогноз ИИ совпал - добавляем чистую прибыль от bet_ai_odds
-                            sumBet += parseFloat(match.bet_ai_odds) - 1;
-                        } else {
-                            // Прогноз ИИ не совпал - вычитаем ставку (1)
-                            sumBet -= 1;
-                        }
+        function calculateTotals(matches) {
+            let sumK0 = 0;
+            let sumK1 = 0;
+            let sumK60 = 0;
+            let sumBet = 0;
+            let sumBetApprove = 0;
+            let sumBetAI = 0;
+
+            const isPredictionWin = (prediction, actualResult) => {
+                if (!prediction || !actualResult) {
+                    return false;
+                }
+                switch (prediction) {
+                    case '1':
+                        return actualResult === '1';
+                    case 'X':
+                        return actualResult === 'X';
+                    case '2':
+                        return actualResult === '2';
+                    case '1X':
+                        return actualResult === '1' || actualResult === 'X';
+                    case 'X2':
+                        return actualResult === 'X' || actualResult === '2';
+                    default:
+                        return false;
+                }
+            };
+
+            matches.forEach(match => {
+                if (match.status !== 'finished') {
+                    return;
+                }
+
+                const favWon = match.fav_won === 1;
+
+                if (match.initial_odds && !isNaN(parseFloat(match.initial_odds))) {
+                    sumK0 += favWon ? (parseFloat(match.initial_odds) - 1) : -1;
+                }
+
+                if (match.last_odds && !isNaN(parseFloat(match.last_odds))) {
+                    sumK1 += favWon ? (parseFloat(match.last_odds) - 1) : -1;
+                }
+
+                if (match.live_odds && !isNaN(parseFloat(match.live_odds))) {
+                    sumK60 += favWon ? (parseFloat(match.live_odds) - 1) : -1;
+                }
+
+                const betAiOdds = match.bet_ai_odds !== null && match.bet_ai_odds !== undefined
+                    ? parseFloat(match.bet_ai_odds)
+                    : NaN;
+                const betAiUpper = match.bet_ai ? match.bet_ai.toUpperCase() : null;
+
+                const homeScore = match.final_score_home !== null && match.final_score_home !== undefined
+                    ? parseInt(match.final_score_home)
+                    : null;
+                const awayScore = match.final_score_away !== null && match.final_score_away !== undefined
+                    ? parseInt(match.final_score_away)
+                    : null;
+
+                let actualResult = null;
+                if (homeScore !== null && awayScore !== null) {
+                    if (homeScore > awayScore) {
+                        actualResult = '1';
+                    } else if (homeScore === awayScore) {
+                        actualResult = 'X';
+                    } else {
+                        actualResult = '2';
                     }
                 }
-                 
-                 // Прогноз ИИ - ставка на прогнозированный исход ИИ (bet_ai_odds)
-                 if (match.bet_ai && match.bet_ai_odds && !isNaN(parseFloat(match.bet_ai_odds))) {
-                     // Определяем фактический результат матча
-                     const homeScore = match.final_score_home !== null && match.final_score_home !== undefined ? parseInt(match.final_score_home) : null;
-                     const awayScore = match.final_score_away !== null && match.final_score_away !== undefined ? parseInt(match.final_score_away) : null;
-                     
-                     if (homeScore !== null && awayScore !== null) {
-                         let actualResult = null;
-                         if (homeScore > awayScore) {
-                             actualResult = '1';
-                         } else if (homeScore === awayScore) {
-                             actualResult = 'X';
-                         } else {
-                             actualResult = '2';
-                         }
-                         
-                         // Проверяем, совпал ли прогноз ИИ с фактическим результатом
-                         const betAIUpper = match.bet_ai.toUpperCase();
-                         let isWin = false;
-                         
-                         if (betAIUpper === actualResult) {
-                             // Одиночный исход совпал
-                             isWin = true;
-                         } else if (betAIUpper === '1X' && (actualResult === '1' || actualResult === 'X')) {
-                             // Двойной шанс 1X выиграл
-                             isWin = true;
-                         } else if (betAIUpper === 'X2' && (actualResult === 'X' || actualResult === '2')) {
-                             // Двойной шанс X2 выиграл
-                             isWin = true;
-                         }
-                         
-                         if (isWin) {
-                             // Прогноз ИИ совпал - добавляем чистую прибыль
-                             sumBetAI += parseFloat(match.bet_ai_odds) - 1;
-                         } else {
-                             // Прогноз ИИ не совпал - вычитаем ставку (1)
-                             sumBetAI -= 1;
-                         }
-                     }
-                 }
-             });
-             
-            // Обновляем строку итогов
+
+                const betValue = match.bet ? parseFloat(match.bet) : 0;
+                if (betValue >= 1 && !isNaN(betAiOdds) && betAiUpper && actualResult) {
+                    if (isPredictionWin(betAiUpper, actualResult)) {
+                        sumBet += betAiOdds - 1;
+                    } else {
+                        sumBet -= 1;
+                    }
+                }
+
+                const betApproveValue = match.bet_approve ? parseFloat(match.bet_approve) : 0;
+                if (betApproveValue >= 1 && !isNaN(betAiOdds) && betAiUpper && actualResult) {
+                    if (isPredictionWin(betAiUpper, actualResult)) {
+                        sumBetApprove += betAiOdds - 1;
+                    } else {
+                        sumBetApprove -= 1;
+                    }
+                }
+
+                if (betAiUpper && !isNaN(betAiOdds) && actualResult) {
+                    if (isPredictionWin(betAiUpper, actualResult)) {
+                        sumBetAI += betAiOdds - 1;
+                    } else {
+                        sumBetAI -= 1;
+                    }
+                }
+            });
+
             const totalsRow = document.getElementById('totals-row');
             const totalK0El = document.getElementById('total-k0');
             const totalK1El = document.getElementById('total-k1');
             const totalK60El = document.getElementById('total-k60');
-            const totalBetEl = document.getElementById('total-bet');
             const totalBetAIEl = document.getElementById('total-bet-ai');
-            
-            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetEl && totalBetAIEl) {
+            const totalBetEl = document.getElementById('total-bet');
+            const totalBetApproveEl = document.getElementById('total-bet-approve');
+
+            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetAIEl && totalBetEl && totalBetApproveEl) {
                 totalK0El.textContent = sumK0.toFixed(2);
                 totalK1El.textContent = sumK1.toFixed(2);
                 totalK60El.textContent = sumK60.toFixed(2);
-                totalBetEl.textContent = sumBet.toFixed(2);
                 totalBetAIEl.textContent = sumBetAI.toFixed(2);
-                
-                // Показываем строку итогов только если есть завершенные матчи
+                totalBetEl.textContent = sumBet.toFixed(2);
+                totalBetApproveEl.textContent = sumBetApprove.toFixed(2);
+
                 const finishedMatches = matches.filter(m => m.status === 'finished');
-                if (finishedMatches.length > 0) {
-                    totalsRow.style.display = '';
-                } else {
-                    totalsRow.style.display = 'none';
-                }
+                totalsRow.style.display = finishedMatches.length > 0 ? '' : 'none';
             }
         }
 
@@ -1771,6 +1740,7 @@
                     <td>${k60Cell}</td>
                     <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small></span>` : match.bet_ai) : '-'}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
+                    <td>${(match.bet_approve && parseFloat(match.bet_approve) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScoreHtml}</td>
                     <td>${statusHtml}</td>
                 `;
@@ -1942,6 +1912,7 @@
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
                     <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
+                    <td>${(match.bet_approve && parseFloat(match.bet_approve) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScore}</td>
                     <td>${statusHtml}</td>
                 `;
@@ -2141,115 +2112,97 @@
         }
         
         function calculateTotalsAllMatches(matches) {
-            let sumBetAI = 0;
             let sumBet = 0;
-            
+            let sumBetApprove = 0;
+            let sumBetAI = 0;
+
+            const isPredictionWin = (prediction, actualResult) => {
+                if (!prediction || !actualResult) {
+                    return false;
+                }
+                switch (prediction) {
+                    case '1':
+                        return actualResult === '1';
+                    case 'X':
+                        return actualResult === 'X';
+                    case '2':
+                        return actualResult === '2';
+                    case '1X':
+                        return actualResult === '1' || actualResult === 'X';
+                    case 'X2':
+                        return actualResult === 'X' || actualResult === '2';
+                    default:
+                        return false;
+                }
+            };
+
             matches.forEach(match => {
-                // Пропускаем незавершенные матчи
                 if (match.status !== 'finished') {
                     return;
                 }
-                
-                // Bet - ставка на прогноз ИИ только если рекомендовано (bet >= 1), используем bet_ai_odds
-                const betValue = match.bet ? parseFloat(match.bet) : 0;
-                if (betValue >= 1 && match.bet_ai && match.bet_ai_odds && !isNaN(parseFloat(match.bet_ai_odds))) {
-                    // Определяем фактический результат матча
-                    const homeScore = match.final_score_home !== null && match.final_score_home !== undefined ? parseInt(match.final_score_home) : null;
-                    const awayScore = match.final_score_away !== null && match.final_score_away !== undefined ? parseInt(match.final_score_away) : null;
-                    
-                    if (homeScore !== null && awayScore !== null) {
-                        let actualResult = null;
-                        if (homeScore > awayScore) {
-                            actualResult = '1';
-                        } else if (homeScore === awayScore) {
-                            actualResult = 'X';
-                        } else {
-                            actualResult = '2';
-                        }
-                        
-                        // Проверяем, совпал ли прогноз ИИ с фактическим результатом
-                        const betAIUpper = match.bet_ai.toUpperCase();
-                        let isWin = false;
-                        
-                        if (betAIUpper === actualResult) {
-                            // Одиночный исход совпал
-                            isWin = true;
-                        } else if (betAIUpper === '1X' && (actualResult === '1' || actualResult === 'X')) {
-                            // Двойной шанс 1X выиграл
-                            isWin = true;
-                        } else if (betAIUpper === 'X2' && (actualResult === 'X' || actualResult === '2')) {
-                            // Двойной шанс X2 выиграл
-                            isWin = true;
-                        }
-                        
-                        if (isWin) {
-                            // Прогноз ИИ совпал - добавляем чистую прибыль
-                            sumBet += parseFloat(match.bet_ai_odds) - 1;
-                        } else {
-                            // Прогноз ИИ не совпал - вычитаем ставку (1)
-                            sumBet -= 1;
-                        }
+
+                const betAiOdds = match.bet_ai_odds !== null && match.bet_ai_odds !== undefined
+                    ? parseFloat(match.bet_ai_odds)
+                    : NaN;
+                const betAiUpper = match.bet_ai ? match.bet_ai.toUpperCase() : null;
+
+                const homeScore = match.final_score_home !== null && match.final_score_home !== undefined
+                    ? parseInt(match.final_score_home)
+                    : null;
+                const awayScore = match.final_score_away !== null && match.final_score_away !== undefined
+                    ? parseInt(match.final_score_away)
+                    : null;
+
+                let actualResult = null;
+                if (homeScore !== null && awayScore !== null) {
+                    if (homeScore > awayScore) {
+                        actualResult = '1';
+                    } else if (homeScore === awayScore) {
+                        actualResult = 'X';
+                    } else {
+                        actualResult = '2';
                     }
                 }
-                
-                // Прогноз ИИ - ставка на прогнозированный исход ИИ (bet_ai_odds) - считаем для всех
-                if (match.bet_ai && match.bet_ai_odds && !isNaN(parseFloat(match.bet_ai_odds))) {
-                    // Определяем фактический результат матча
-                    const homeScore = match.final_score_home !== null && match.final_score_home !== undefined ? parseInt(match.final_score_home) : null;
-                    const awayScore = match.final_score_away !== null && match.final_score_away !== undefined ? parseInt(match.final_score_away) : null;
-                    
-                    if (homeScore !== null && awayScore !== null) {
-                        let actualResult = null;
-                        if (homeScore > awayScore) {
-                            actualResult = '1';
-                        } else if (homeScore === awayScore) {
-                            actualResult = 'X';
-                        } else {
-                            actualResult = '2';
-                        }
-                        
-                        // Проверяем, совпал ли прогноз ИИ с фактическим результатом
-                        const betAIUpper = match.bet_ai.toUpperCase();
-                        let isWin = false;
-                        
-                        if (betAIUpper === actualResult) {
-                            // Одиночный исход совпал
-                            isWin = true;
-                        } else if (betAIUpper === '1X' && (actualResult === '1' || actualResult === 'X')) {
-                            // Двойной шанс 1X выиграл
-                            isWin = true;
-                        } else if (betAIUpper === 'X2' && (actualResult === 'X' || actualResult === '2')) {
-                            // Двойной шанс X2 выиграл
-                            isWin = true;
-                        }
-                        
-                        if (isWin) {
-                            // Прогноз ИИ совпал - добавляем чистую прибыль
-                            sumBetAI += parseFloat(match.bet_ai_odds) - 1;
-                        } else {
-                            // Прогноз ИИ не совпал - вычитаем ставку (1)
-                            sumBetAI -= 1;
-                        }
+
+                const betValue = match.bet ? parseFloat(match.bet) : 0;
+                if (betValue >= 1 && !isNaN(betAiOdds) && betAiUpper && actualResult) {
+                    if (isPredictionWin(betAiUpper, actualResult)) {
+                        sumBet += betAiOdds - 1;
+                    } else {
+                        sumBet -= 1;
+                    }
+                }
+
+                const betApproveValue = match.bet_approve ? parseFloat(match.bet_approve) : 0;
+                if (betApproveValue >= 1 && !isNaN(betAiOdds) && betAiUpper && actualResult) {
+                    if (isPredictionWin(betAiUpper, actualResult)) {
+                        sumBetApprove += betAiOdds - 1;
+                    } else {
+                        sumBetApprove -= 1;
+                    }
+                }
+
+                if (betAiUpper && !isNaN(betAiOdds) && actualResult) {
+                    if (isPredictionWin(betAiUpper, actualResult)) {
+                        sumBetAI += betAiOdds - 1;
+                    } else {
+                        sumBetAI -= 1;
                     }
                 }
             });
-            
-            // Обновляем строку итогов
+
             const totalsRow = document.getElementById('totals-row-all');
             const totalBetAIEl = document.getElementById('total-bet-ai-all');
             const totalBetEl = document.getElementById('total-bet-all');
-            
-            if (totalsRow && totalBetAIEl && totalBetEl) {
+            const totalBetApproveEl = document.getElementById('total-bet-approve-all');
+
+            if (totalsRow && totalBetAIEl && totalBetEl && totalBetApproveEl) {
                 totalBetAIEl.textContent = sumBetAI.toFixed(2);
                 totalBetEl.textContent = sumBet.toFixed(2);
-                
-                // Показываем строку итогов только если есть завершенные матчи
+                totalBetApproveEl.textContent = sumBetApprove.toFixed(2);
+
                 const finishedMatches = matches.filter(m => m.status === 'finished');
-                if (finishedMatches.length > 0) {
-                    totalsRow.style.display = '';
-                } else {
-                    totalsRow.style.display = 'none';
-                }
+                totalsRow.style.display = finishedMatches.length > 0 ? '' : 'none';
             }
         }
          
