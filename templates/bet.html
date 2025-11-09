@@ -1717,6 +1717,8 @@
                     }
                 }
                 
+                const statsFormatted = formatStats(match.stats_60min);
+                
                 // Формируем содержимое для колонки Прогноза ИИ (с подсветкой результата)
                 let betAICell = '-';
                 if (match.bet_ai) {
@@ -1769,35 +1771,34 @@
                     }
                 }
                 
-                                 // Формируем ячейку K60 с tooltip
-                 let k60Cell = '';
-                 const statsFormatted = formatStats(match.stats_60min);
-                 const hasLiveOdds = match.live_odds !== null && match.live_odds !== undefined;
-                 const formattedLiveOdds = formatOdds(match.live_odds);
-                 
-                 if (statsFormatted) {
-                     // Есть статистика - показываем tooltip
-                     if (hasLiveOdds) {
-                         // Есть и коэффициент, и статистика
-                         k60Cell = `
-                             <span class="stats-tooltip" data-tooltip-position="">
-                                 <span class="odds">${formattedLiveOdds}</span>
-                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
-                             </span>
-                         `;
-                     } else {
-                         // Нет коэффициента, но есть статистика - показываем иконку информации
-                         k60Cell = `
-                             <span class="stats-tooltip" data-tooltip-position="">
-                                 <i class="fas fa-info-circle info-icon"></i>
-                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
-                             </span>
-                         `;
-                     }
-                 } else {
-                     // Нет статистики - просто показываем коэффициент или "-"
-                     k60Cell = `<span class="odds">${formattedLiveOdds}</span>`;
-                 }
+                // Формируем ячейку K60 с tooltip
+                let k60Cell = '';
+                const hasLiveOdds = match.live_odds !== null && match.live_odds !== undefined;
+                const formattedLiveOdds = formatOdds(match.live_odds);
+                
+                if (statsFormatted) {
+                    // Есть статистика - показываем tooltip
+                    if (hasLiveOdds) {
+                        // Есть и коэффициент, и статистика
+                        k60Cell = `
+                            <span class="stats-tooltip" data-tooltip-position="">
+                                <span class="odds">${formattedLiveOdds}</span>
+                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                            </span>
+                        `;
+                    } else {
+                        // Нет коэффициента, но есть статистика - показываем иконку информации
+                        k60Cell = `
+                            <span class="stats-tooltip" data-tooltip-position="">
+                                <i class="fas fa-info-circle info-icon"></i>
+                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                            </span>
+                        `;
+                    }
+                } else {
+                    // Нет статистики - просто показываем коэффициент или "-"
+                    k60Cell = `<span class="odds">${formattedLiveOdds}</span>`;
+                }
                  
                 row.innerHTML = `
                     <td>${match.match_date}</td>
