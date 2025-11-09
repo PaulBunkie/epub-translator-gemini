@@ -1622,6 +1622,7 @@
         function displayMatches(matches) {
             const tbody = document.getElementById('matches-table-body');
             tbody.innerHTML = '';
+            window.favMatchesForRisk = matches;
             
             if (!matches || matches.length === 0) {
                 // Если нет матчей, показываем пустую таблицу (состояние пустоты обрабатывается отдельно)
@@ -1638,7 +1639,7 @@
             document.getElementById('matches-container').style.display = 'block';
             document.getElementById('empty-state').style.display = 'none';
             
-            matches.forEach(match => {
+            matches.forEach((match, index) => {
                 const row = document.createElement('tr');
                 
                 const statusBadgeClass = `status-${match.status}`;
@@ -1749,10 +1750,22 @@
                         : match.bet_ai;
                     
                     const formattedBetAiOdds = formatOdds(match.bet_ai_odds);
+                    let betAIInner = betAIContent;
                     if (formattedBetAiOdds !== '-') {
-                        betAICell = `${betAIContent} <small class="odds">(${formattedBetAiOdds})</small>`;
+                        betAIInner = `${betAIContent} <small class="odds">(${formattedBetAiOdds})</small>`;
+                    }
+                    
+                    const clickableContent = `<span class="bet-ai-clickable" data-match-type="fav" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIInner}</span>`;
+                    
+                    if (statsFormatted) {
+                        betAICell = `
+                            <span class="stats-tooltip" data-tooltip-position="">
+                                ${clickableContent}
+                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                            </span>
+                        `;
                     } else {
-                        betAICell = betAIContent;
+                        betAICell = clickableContent;
                     }
                 }
                 
@@ -1941,7 +1954,7 @@
                     const betAIContent = betAIClass ? `<span class="${betAIClass}">${match.bet_ai}</span>` : match.bet_ai;
                     
                     // Делаем прогноз кликабельным для анализа риска
-                    const betAIWithClick = `<span class="bet-ai-clickable" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIContent}</span>`;
+                    const betAIWithClick = `<span class="bet-ai-clickable" data-match-type="all" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIContent}</span>`;
                     
                     if (statsFormatted) {
                         // Есть статистика - показываем tooltip
@@ -2093,9 +2106,12 @@
                     e.stopPropagation();
                     
                     const matchIndex = parseInt(this.getAttribute('data-match-index'));
-                    if (window.allMatchesForRisk && matchIndex >= 0 && matchIndex < window.allMatchesForRisk.length) {
-                        const match = window.allMatchesForRisk[matchIndex];
-                        if (match.fixture_id && match.bet_ai && match.bet_ai_odds && match.stats_60min) {
+                    const matchType = this.getAttribute('data-match-type') || 'all';
+                    const matchesArray = matchType === 'fav' ? window.favMatchesForRisk : window.allMatchesForRisk;
+                    
+                    if (matchesArray && matchIndex >= 0 && matchIndex < matchesArray.length) {
+                        const match = matchesArray[matchIndex];
+                        if (match && match.fixture_id && match.bet_ai && match.bet_ai_odds && match.stats_60min) {
                             // Преобразуем stats_60min в JSON строку, если это объект
                             const statsJson = typeof match.stats_60min === 'string' 
                                 ? match.stats_60min 
