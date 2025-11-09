@@ -1199,7 +1199,8 @@ class FootballManager:
             'skipped_no_fav': 0,
             'skipped_past': 0,
             'leagues_processed': 0,
-            'leagues_failed': 0
+            'leagues_failed': 0,
+            'stale_closed': 0
         }
         
         now = datetime.now()
@@ -1319,6 +1320,14 @@ class FootballManager:
         stats['sofascore_updated'] = sofascore_stats['updated']
         stats['sofascore_failed'] = sofascore_stats['failed']
         stats['sofascore_dates_processed'] = sofascore_stats['dates_processed']
+
+        # Принудительно закрываем старые матчи, которые так и не завершились
+        stale_closed = self._close_stale_matches()
+        stats['stale_closed'] = stale_closed
+        if stale_closed:
+            print(f"[Football] Принудительно закрыто {stale_closed} матчей со статусом 'finished' (старше 20 часов)")
+        else:
+            print("[Football] Просроченных матчей для принудительного закрытия не найдено")
         
         return stats
 
@@ -1624,6 +1633,67 @@ class FootballManager:
         except sqlite3.Error as e:
             print(f"[Football ERROR] Ошибка проверки существования матча: {e}")
             return False
+        finally:
+            if conn:
+                conn.close()
+
+    def _close_stale_matches(self, older_than_hours: int = 20) -> int:
+        """
+        Принудительно закрывает матчи, которые должны были начаться давно, но до сих пор не имеют статуса finished.
+
+        Args:
+            older_than_hours: Количество часов, прошедших с предполагаемого начала матча
+
+        Returns:
+            Количество матчей, статус которых был обновлён
+        """
+        conn = None
+        closed = 0
+
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, fixture_id, match_date, match_time
+                FROM matches
+                WHERE status != 'finished'
+                  AND match_date IS NOT NULL
+                  AND match_time IS NOT NULL
+            """)
+
+            rows = cursor.fetchall()
+            if not rows:
+                return 0
+
+            for row in rows:
+                try:
+                    match_datetime_str = f"{row['match_date']} {row['match_time']}"
+                    match_datetime = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError):
+                    continue
+
+                if match_datetime <= cutoff:
+                    cursor.execute(
+                        """
+                        UPDATE matches
+                        SET status = 'finished',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (row['id'],)
+                    )
+                    closed += 1
+
+            if closed:
+                conn.commit()
+
+            return closed
+
+        except sqlite3.Error as e:
+            print(f"[Football ERROR] Ошибка принудительного закрытия матчей: {e}")
+            return 0
         finally:
             if conn:
                 conn.close()
