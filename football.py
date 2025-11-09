@@ -118,16 +118,16 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
 # ВАЖНО: Для отладки используем только 3 лиги, чтобы не выйти за лимит запросов API
 # Чтобы включить все лиги, раскомментируйте нужные строки ниже
 DEFAULT_FOOTBALL_LEAGUES = [
-    #"soccer_epl",                    # Английская Премьер-лига
-    #"soccer_uefa_champs_league",     # Лига Чемпионов
+    "soccer_epl",                    # Английская Премьер-лига
+    "soccer_uefa_champs_league",     # Лига Чемпионов
     "soccer_uefa_europa_league",     # Лига Европы
     # --- Раскомментируйте для включения остальных лиг ---
-    # "soccer_spain_la_liga",          # Ла Лига (Испания)
-    # "soccer_italy_serie_a",          # Серия A (Италия)
-    # "soccer_germany_bundesliga",     # Бундеслига (Германия)
-    # "soccer_france_ligue_one",       # Лига 1 (Франция)
-    # "soccer_netherlands_eredivisie", # Эредивизи (Нидерланды)
-    # "soccer_portugal_primeira_liga", # Примейра Лига (Португалия)
+     "soccer_spain_la_liga",          # Ла Лига (Испания)
+     "soccer_italy_serie_a",          # Серия A (Италия)
+     "soccer_germany_bundesliga",     # Бундеслига (Германия)
+     "soccer_france_ligue_one",       # Лига 1 (Франция)
+     "soccer_netherlands_eredivisie", # Эредивизи (Нидерланды)
+     "soccer_portugal_primeira_liga", # Примейра Лига (Португалия)
     # "soccer_spl",                    # Премьершип (Шотландия)
     # "soccer_efl_champ",              # Чемпионшип (Англия)
     # "soccer_spain_segunda_division", # Ла Лига 2 (Испания)
@@ -137,11 +137,11 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_france_ligue_two",       # Лига 2 (Франция)
     # "soccer_england_league1",        # Лига 1 (Англия)
     # "soccer_england_league2",        # Лига 2 (Англия)
-    # "soccer_belgium_first_div",      # Первый дивизион (Бельгия)
-    # "soccer_austria_bundesliga",     # Бундеслига (Австрия)
-    # "soccer_switzerland_superleague", # Суперлига (Швейцария)
+     "soccer_belgium_first_div",      # Первый дивизион (Бельгия)
+     "soccer_austria_bundesliga",     # Бундеслига (Австрия)
+     "soccer_switzerland_superleague", # Суперлига (Швейцария)
     # "soccer_greece_super_league",    # Суперлига (Греция)
-    # "soccer_turkey_super_league",    # Суперлига (Турция)
+     "soccer_turkey_super_league",    # Суперлига (Турция)
     # "soccer_poland_ekstraklasa",     # Экстракласса (Польша)
     # "soccer_denmark_superliga",      # Суперлига (Дания)
     # "soccer_norway_eliteserien",     # Элитсериен (Норвегия)
@@ -149,14 +149,14 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_sweden_superettan",      # Суперэттан (Швеция)
     # "soccer_finland_veikkausliiga",  # Вейккауслига (Финляндия)
     "soccer_uefa_europa_conference_league", # Лига Конференций
-    # "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
-    # "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
-    # "soccer_brazil_campeonato",      # Серия A (Бразилия)
+     "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
+     "soccer_argentina_primera_division", # Примера Дивизион (Аргентина)
+     "soccer_brazil_campeonato",      # Серия A (Бразилия)
     # "soccer_brazil_serie_b",         # Серия B (Бразилия)
-    # "soccer_chile_campeonato",       # Примера Дивизион (Чили)
-    # "soccer_conmebol_copa_libertadores", # Копа Либертадорес
-    # "soccer_conmebol_copa_sudamericana", # Копа Судамерикана
-    # "soccer_usa_mls",                # MLS (США/Канада)
+     "soccer_chile_campeonato",       # Примера Дивизион (Чили)
+     "soccer_conmebol_copa_libertadores", # Копа Либертадорес
+     "soccer_conmebol_copa_sudamericana", # Копа Судамерикана
+     "soccer_usa_mls",                # MLS (США/Канада)
     # "soccer_mexico_ligamx",          # Лига MX (Мексика)
     # "soccer_japan_j_league",         # J League (Япония)
     # "soccer_korea_kleague1",         # K League 1 (Корея)

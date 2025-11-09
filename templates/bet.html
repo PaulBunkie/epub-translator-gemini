@@ -1663,6 +1663,10 @@
                     ? `${match.final_score_home}-${match.final_score_away}`
                     : '-';
                 
+                let homeScore = null;
+                let awayScore = null;
+                let actualResult = null;
+                
                 // Функция для форматирования коэффициентов (округление до сотых)
                 const formatOdds = (odds) => {
                     if (odds === null || odds === undefined || odds === '') {
@@ -1677,25 +1681,78 @@
                 
                 // Определяем класс для подсветки итогового счета в зависимости от результата фаворита
                 let finalScoreHtml = finalScore;
-                if (match.status === 'finished' && match.final_score_home !== null && match.final_score_away !== null) {
-                    const homeScore = parseInt(match.final_score_home);
-                    const awayScore = parseInt(match.final_score_away);
-                    const isDraw = homeScore === awayScore;
+                if (match.final_score_home !== null && match.final_score_away !== null) {
+                    homeScore = parseInt(match.final_score_home);
+                    awayScore = parseInt(match.final_score_away);
                     
-                    let finalScoreClass = '';
-                    if (isDraw) {
-                        // Ничья - желтый
-                        finalScoreClass = 'final-score-draw';
-                    } else if (match.fav_won === 1) {
-                        // Фаворит выиграл - зеленый
-                        finalScoreClass = 'final-score-win';
-                    } else {
-                        // Фаворит проиграл - красный
-                        finalScoreClass = 'final-score-loss';
+                    if (!isNaN(homeScore) && !isNaN(awayScore)) {
+                        if (homeScore > awayScore) {
+                            actualResult = '1';
+                        } else if (homeScore === awayScore) {
+                            actualResult = 'X';
+                        } else {
+                            actualResult = '2';
+                        }
                     }
                     
-                    if (finalScoreClass) {
-                        finalScoreHtml = `<span class="${finalScoreClass}">${finalScore}</span>`;
+                    if (match.status === 'finished') {
+                        const isDraw = homeScore === awayScore;
+                        
+                        let finalScoreClass = '';
+                        if (isDraw) {
+                            // Ничья - желтый
+                            finalScoreClass = 'final-score-draw';
+                        } else if (match.fav_won === 1) {
+                            // Фаворит выиграл - зеленый
+                            finalScoreClass = 'final-score-win';
+                        } else {
+                            // Фаворит проиграл - красный
+                            finalScoreClass = 'final-score-loss';
+                        }
+                        
+                        if (finalScoreClass) {
+                            finalScoreHtml = `<span class="${finalScoreClass}">${finalScore}</span>`;
+                        }
+                    }
+                }
+                
+                // Формируем содержимое для колонки Прогноза ИИ (с подсветкой результата)
+                let betAICell = '-';
+                if (match.bet_ai) {
+                    const betAiUpper = match.bet_ai.toUpperCase();
+                    let betAIClass = '';
+                    
+                    if (match.status === 'finished' && actualResult) {
+                        if (actualResult === 'X') {
+                            if (betAiUpper === 'X' || betAiUpper === '1X' || betAiUpper === 'X2') {
+                                betAIClass = 'final-score-draw';
+                            } else {
+                                betAIClass = 'final-score-loss';
+                            }
+                        } else if (actualResult === '1') {
+                            if (betAiUpper === '1' || betAiUpper === '1X') {
+                                betAIClass = 'final-score-win';
+                            } else {
+                                betAIClass = 'final-score-loss';
+                            }
+                        } else if (actualResult === '2') {
+                            if (betAiUpper === '2' || betAiUpper === 'X2') {
+                                betAIClass = 'final-score-win';
+                            } else {
+                                betAIClass = 'final-score-loss';
+                            }
+                        }
+                    }
+                    
+                    const betAIContent = betAIClass
+                        ? `<span class="${betAIClass}">${match.bet_ai}</span>`
+                        : match.bet_ai;
+                    
+                    const formattedBetAiOdds = formatOdds(match.bet_ai_odds);
+                    if (formattedBetAiOdds !== '-') {
+                        betAICell = `${betAIContent} <small class="odds">(${formattedBetAiOdds})</small>`;
+                    } else {
+                        betAICell = betAIContent;
                     }
                 }
                 
@@ -1738,7 +1795,7 @@
                     <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
                     <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
                     <td>${k60Cell}</td>
-                    <td>${match.bet_ai ? (match.bet_ai_odds ? `<span class="odds">${match.bet_ai} <small>(${formatOdds(match.bet_ai_odds)})</small></span>` : match.bet_ai) : '-'}</td>
+                    <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${(match.bet_approve && parseFloat(match.bet_approve) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScoreHtml}</td>
