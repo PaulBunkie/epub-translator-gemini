@@ -2068,25 +2068,46 @@
             }
             
             // Обновляем заголовок модального окна
-            document.getElementById('sofascoreModalLabel').textContent = `${homeTeam} vs ${awayTeam}`;
+            const sanitizedHomeTeam = typeof homeTeam === 'string' ? homeTeam : '';
+            const sanitizedAwayTeam = typeof awayTeam === 'string' ? awayTeam : '';
+            document.getElementById('sofascoreModalLabel').textContent = `${sanitizedHomeTeam} vs ${sanitizedAwayTeam}`;
             
-            // Формируем HTML с виджетами: тикер и составы
-            const widgetHtml = `
-                <iframe width="100%" height="286" 
-                        src="https://widgets.sofascore.com/embed/attackMomentum?id=${sofascoreId}&widgetTheme=light" 
-                        frameborder="0" 
-                        scrolling="no"
-                        style="min-height: 286px;">
-                </iframe>
-                <iframe width="100%" height="400" 
-                        src="https://widgets.sofascore.com/embed/lineups?id=${sofascoreId}&widgetTheme=light" 
-                        frameborder="0" 
-                        scrolling="no"
-                        style="min-height: 400px; margin-top: 20px;">
-                </iframe>
-            `;
+            const rawId = sofascoreId != null ? String(sofascoreId) : '';
+            const trimmedId = rawId.trim();
+            const encodedId = encodeURIComponent(trimmedId);
             
-            content.innerHTML = widgetHtml;
+            // Если ID пустой после обработки - выводим сообщение и прекращаем
+            if (!encodedId) {
+                content.innerHTML = `
+                    <div class="alert alert-warning" role="alert">
+                        Не удалось загрузить данные SofaScore: неверный идентификатор события.
+                    </div>
+                `;
+            } else {
+                // Очищаем контейнер и создаем iframe через DOM API, чтобы избежать XSS
+                content.innerHTML = '';
+                
+                const createIframe = (src) => {
+                    const iframe = document.createElement('iframe');
+                    iframe.setAttribute('width', '100%');
+                    iframe.setAttribute('frameborder', '0');
+                    iframe.setAttribute('scrolling', 'no');
+                    iframe.src = src;
+                    return iframe;
+                };
+                
+                const attackIframe = createIframe(`https://widgets.sofascore.com/embed/attackMomentum?id=${encodedId}&widgetTheme=light`);
+                attackIframe.style.minHeight = '286px';
+                attackIframe.style.height = '286px';
+                
+                const lineupIframe = createIframe(`https://widgets.sofascore.com/embed/lineups?id=${encodedId}&widgetTheme=light`);
+                lineupIframe.style.minHeight = '400px';
+                lineupIframe.style.height = '400px';
+                lineupIframe.style.marginTop = '20px';
+                
+                content.appendChild(attackIframe);
+                content.appendChild(lineupIframe);
+            }
             
             // Если модальное окно уже открыто, сначала закрываем его
             if (modalElement.classList.contains('show')) {
