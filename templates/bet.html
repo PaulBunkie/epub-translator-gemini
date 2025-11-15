@@ -482,9 +482,9 @@
                 <!-- Фильтр по датам для первой таблицы -->
                 <div class="date-filter mb-3">
                     <div class="btn-group" role="group" aria-label="Фильтр по датам">
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn active" data-filter="all">Все время</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="all">Все время</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="yesterday">Вчера</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="today">Сегодня</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn active" data-filter="today">Сегодня</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="tomorrow">Завтра</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="range">Период</button>
                     </div>
@@ -544,9 +544,9 @@
                 <!-- Фильтр по датам для второй таблицы -->
                 <div class="date-filter mb-3">
                     <div class="btn-group" role="group" aria-label="Фильтр по датам">
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all active" data-filter="all">Все время</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="all">Все время</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="yesterday">Вчера</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="today">Сегодня</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all active" data-filter="today">Сегодня</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="tomorrow">Завтра</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="range">Период</button>
                     </div>
@@ -659,8 +659,8 @@
         let currentSortDirectionAll = 'asc';
         
         // Переменные для фильтрации по датам
-        let currentDateFilterFav = 'all';
-        let currentDateFilterAll = 'all';
+        let currentDateFilterFav = 'today';
+        let currentDateFilterAll = 'today';
         let dateRangeFav = { from: null, to: null };
         let dateRangeAll = { from: null, to: null };
         
@@ -2794,6 +2794,20 @@
                 setTimeout(initTabs, 100);
             }
         })();
+        
+        // Устанавливаем активную кнопку "Сегодня" для обеих таблиц при загрузке
+        document.querySelectorAll('.date-filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.getAttribute('data-filter') === 'today') {
+                btn.classList.add('active');
+            }
+        });
+        document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.getAttribute('data-filter') === 'today') {
+                btn.classList.add('active');
+            }
+        });
         
         // Загружаем матчи при загрузке страницы
         loadMatches();
