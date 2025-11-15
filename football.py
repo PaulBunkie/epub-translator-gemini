@@ -337,6 +337,23 @@ def init_football_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(match_date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_fixture_id ON matches(fixture_id)")
         conn.commit()
+        
+        # --- Создание таблицы подписок Telegram ---
+        print("[FootballDB] Checking/Creating 'football_telegram_subscriptions' table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS football_telegram_subscriptions (
+                token TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1,
+                PRIMARY KEY (token, user_id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_football_subs_token ON football_telegram_subscriptions(token)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_football_subs_user ON football_telegram_subscriptions(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_football_subs_active ON football_telegram_subscriptions(is_active)")
+        conn.commit()
+        print("[FootballDB] Table 'football_telegram_subscriptions' created/verified.")
 
         print("[FootballDB] Database initialization complete.")
 
@@ -3070,6 +3087,15 @@ class FootballManager:
                     print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}, рекомендация: {recommendation_text}, bet: {bet_value}")
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}, bet: {bet_value}")
+                
+                # Отправляем уведомление если ИИ рекомендует СТАВИМ (bet_recommendation = True)
+                if bet_recommendation:
+                    try:
+                        # Для матчей без фаворита используем bet_ai как ai_decision (None, так как нет ДА/НЕТ)
+                        # bet_ai содержит прогноз (1/X/2/1X/X2)
+                        self._send_match_notification(match, stats, live_odds_value, None, bet_ai_reason, bet_ai)
+                    except Exception as notify_error:
+                        print(f"[Football ERROR] Ошибка отправки уведомления для матча без фаворита: {notify_error}")
             else:
                 # Если прогноз не получен, все равно обновляем bet = 0
                 conn = get_football_db_connection()
@@ -3786,7 +3812,6 @@ X2 ИГНОРИРУЕМ
             return False
 
         try:
-            # Проверяем условие: фаворит не выигрывает
             score = stats.get('score', {})
             home_score = score.get('home', 0)
             away_score = score.get('away', 0)
@@ -3794,22 +3819,26 @@ X2 ИГНОРИРУЕМ
             home_team = match['home_team']
             away_team = match['away_team']
             fav_team = match['fav']
-            fav_is_home = (fav_team == home_team)
+            is_match_without_fav = (fav_team == 'NONE' or not fav_team)
 
-            # Вычисляем разницу в счете с точки зрения фаворита
-            if fav_is_home:
-                fav_score = home_score
-                opp_score = away_score
-            else:
-                fav_score = away_score
-                opp_score = home_score
+            # Для матчей с фаворитом проверяем условие: фаворит не выигрывает
+            if not is_match_without_fav:
+                fav_is_home = (fav_team == home_team)
 
-            score_diff = opp_score - fav_score  # Положительное значение = фаворит проигрывает
+                # Вычисляем разницу в счете с точки зрения фаворита
+                if fav_is_home:
+                    fav_score = home_score
+                    opp_score = away_score
+                else:
+                    fav_score = away_score
+                    opp_score = home_score
 
-            # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
-            if score_diff < 0:
-                print(f"[Football] Фаворит {fav_team} выигрывает ({fav_score}-{opp_score}), пропускаем уведомление")
-                return False
+                score_diff = opp_score - fav_score  # Положительное значение = фаворит проигрывает
+
+                # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
+                if score_diff < 0:
+                    print(f"[Football] Фаворит {fav_team} выигрывает ({fav_score}-{opp_score}), пропускаем уведомление")
+                    return False
 
             # Формируем решение ИИ для сообщения
             # Если ai_decision None, но есть bet_ai, показываем прогноз вместо "ОШИБКА"
@@ -3821,8 +3850,20 @@ X2 ИГНОРИРУЕМ
             # Используем полное обоснование без обрезки
             ai_reason_full = ai_reason or "Нет данных"
 
-            # Формируем сообщение
-            message = f"""
+            # Формируем сообщение (разное для матчей с фаворитом и без)
+            if is_match_without_fav:
+                message = f"""
+⚽ <b>Футбольная аналитика - уведомление</b>
+
+🏟️ <b>Матч:</b> {home_team} vs {away_team}
+📊 <b>Счет:</b> {home_score} - {away_score}
+💰 <b>K60:</b> {live_odds if live_odds else 'N/A'}
+
+🤖 <b>Решение ИИ:</b> {ai_decision_text}
+📝 <b>Обоснование:</b> {ai_reason_full}
+                """.strip()
+            else:
+                message = f"""
 ⚽ <b>Футбольная аналитика - уведомление</b>
 
 🏟️ <b>Матч:</b> {home_team} vs {away_team}
@@ -3832,14 +3873,32 @@ X2 ИГНОРИРУЕМ
 
 🤖 <b>Решение ИИ:</b> {ai_decision_text}
 📝 <b>Обоснование:</b> {ai_reason_full}
-            """.strip()
+                """.strip()
 
-            # Отправляем уведомление админу
-            if telegram_notifier.send_message(message):
-                print(f"[Football] Уведомление отправлено админу для матча {match['fixture_id']}")
+            # Получаем список подписчиков
+            subscribers = get_football_subscribers()
+            
+            # Получаем chat_id админа
+            admin_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+            
+            # Собираем всех получателей (подписчики + админ)
+            recipients = set(subscribers)
+            if admin_chat_id:
+                recipients.add(admin_chat_id)
+            
+            # Отправляем уведомление всем получателям
+            success_count = 0
+            for recipient_id in recipients:
+                if telegram_notifier.send_message_to_user(recipient_id, message):
+                    success_count += 1
+                else:
+                    print(f"[Football] Ошибка отправки уведомления пользователю {recipient_id} для матча {match['fixture_id']}")
+            
+            if success_count > 0:
+                print(f"[Football] Уведомление отправлено {success_count} получателям для матча {match['fixture_id']}")
                 return True
             else:
-                print(f"[Football] Ошибка отправки уведомления для матча {match['fixture_id']}")
+                print(f"[Football] Не удалось отправить уведомление ни одному получателю для матча {match['fixture_id']}")
                 return False
 
         except Exception as e:
@@ -4223,6 +4282,180 @@ X2 ИГНОРИРУЕМ
             return False
         
         return None
+
+# === Функции для работы с подписками Telegram ===
+
+def add_football_subscription(token: str, user_id: str) -> bool:
+    """
+    Добавляет подписку пользователя на уведомления о футболе.
+    
+    Args:
+        token: Временный токен, сгенерированный на странице
+        user_id: ID пользователя Telegram (chat_id)
+    
+    Returns:
+        True если подписка добавлена успешно, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем, не подписан ли уже пользователь
+        cursor.execute("""
+            SELECT is_active FROM football_telegram_subscriptions
+            WHERE user_id = ? AND is_active = 1
+        """, (user_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Пользователь уже подписан, обновляем токен
+            cursor.execute("""
+                UPDATE football_telegram_subscriptions
+                SET token = ?, created_at = CURRENT_TIMESTAMP, is_active = 1
+                WHERE user_id = ?
+            """, (token, user_id))
+        else:
+            # Добавляем новую подписку
+            cursor.execute("""
+                INSERT OR REPLACE INTO football_telegram_subscriptions (token, user_id, created_at, is_active)
+                VALUES (?, ?, CURRENT_TIMESTAMP, 1)
+            """, (token, user_id))
+        
+        conn.commit()
+        print(f"[Football] Подписка добавлена: user_id={user_id}, token={token}")
+        return True
+        
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка добавления подписки: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def remove_football_subscription(user_id: str) -> bool:
+    """
+    Удаляет подписку пользователя на уведомления о футболе.
+    
+    Args:
+        user_id: ID пользователя Telegram (chat_id)
+    
+    Returns:
+        True если подписка удалена успешно, False в случае ошибки
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE football_telegram_subscriptions
+            SET is_active = 0
+            WHERE user_id = ?
+        """, (user_id,))
+        
+        conn.commit()
+        affected = cursor.rowcount
+        print(f"[Football] Подписка удалена: user_id={user_id}, affected={affected}")
+        return affected > 0
+        
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка удаления подписки: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_football_subscribers() -> List[str]:
+    """
+    Получает список всех активных подписчиков на уведомления о футболе.
+    
+    Returns:
+        Список user_id активных подписчиков
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT DISTINCT user_id FROM football_telegram_subscriptions
+            WHERE is_active = 1
+        """)
+        
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
+        
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка получения подписчиков: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def is_football_subscribed_by_token(token: str) -> bool:
+    """
+    Проверяет, есть ли активная подписка по токену.
+    
+    Args:
+        token: Временный токен
+    
+    Returns:
+        True если есть активная подписка с таким токеном, False иначе
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM football_telegram_subscriptions
+            WHERE token = ? AND is_active = 1
+        """, (token,))
+        
+        count = cursor.fetchone()[0]
+        return count > 0
+        
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка проверки подписки: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def is_football_subscribed(user_id: str) -> bool:
+    """
+    Проверяет, подписан ли пользователь на уведомления о футболе.
+    
+    Args:
+        user_id: ID пользователя Telegram (chat_id)
+    
+    Returns:
+        True если пользователь подписан, False иначе
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM football_telegram_subscriptions
+            WHERE user_id = ? AND is_active = 1
+        """, (user_id,))
+        
+        count = cursor.fetchone()[0]
+        return count > 0
+        
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка проверки подписки: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 # === Функции для APScheduler ===
 

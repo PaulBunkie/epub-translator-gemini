@@ -2632,6 +2632,36 @@ def check_telegram_subscription():
     except Exception as e:
         return jsonify({'subscribed': False, 'error': str(e)}), 500
 
+@app.route('/api/football/generate-token', methods=['GET'])
+def api_generate_football_token():
+    """API эндпойнт для генерации временного токена для подписки на футбол."""
+    import uuid
+    try:
+        # Генерируем уникальный токен
+        token = str(uuid.uuid4())
+        return jsonify({
+            'success': True,
+            'token': token
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка генерации токена: {e}")
+        return jsonify({'error': f'Ошибка генерации токена: {str(e)}'}), 500
+
+@app.route('/api/football/check-subscription', methods=['GET'])
+def api_check_football_subscription():
+    """API эндпойнт для проверки подписки по токену."""
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'subscribed': False, 'error': 'Нет токена'}), 400
+    try:
+        subscribed = football.is_football_subscribed_by_token(token)
+        return jsonify({
+            'subscribed': subscribed
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка проверки подписки: {e}")
+        return jsonify({'subscribed': False, 'error': str(e)}), 500
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     # Проверяем среду запуска
