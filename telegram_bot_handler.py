@@ -151,12 +151,18 @@ class TelegramBotHandler:
     
     def cmd_start_with_token(self, chat_id: str, token: str) -> str:
         """Команда /start с токеном для подписки на уведомления"""
+        print(f"[TelegramBot] cmd_start_with_token вызвана: chat_id={chat_id}, token='{token}'")
+        
         if not token:
             return self.cmd_start()
         
         try:
             # Проверяем, это подписка на футбол?
-            if token == "football":
+            # Убираем лишние пробелы и приводим к нижнему регистру для надежности
+            token_clean = token.strip().lower()
+            print(f"[TelegramBot] Очищенный токен: '{token_clean}'")
+            
+            if token_clean == "football":
                 # Простая подписка через команду /start football (без токена)
                 # Используем chat_id как user_id напрямую
                 try:
@@ -187,10 +193,10 @@ class TelegramBotHandler:
                     print(f"[TelegramBot] Ошибка при подписке на футбол пользователя {chat_id}: {e}")
                     return "❌ Ошибка при активации подписки. Попробуйте позже."
             
-            elif token.startswith("football_"):
+            elif token_clean.startswith("football_"):
                 # Подписка через ссылку с веб-страницы (с токеном)
-                # Извлекаем токен после "football_"
-                football_token = token[9:]  # "football_".length = 9
+                # Извлекаем токен после "football_" (используем оригинальный token для сохранения регистра UUID)
+                football_token = token[9:] if len(token) > 9 else ""  # "football_".length = 9
                 
                 # Импортируем функции футбола
                 try:
