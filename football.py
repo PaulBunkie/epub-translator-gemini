@@ -375,11 +375,13 @@ class FootballManager:
         self.ai_primary_model = get_model_for_operation('football_predict', 'primary')
         self.ai_fallback_model1 = get_model_for_operation('football_predict', 'fallback_level1')
         self.ai_fallback_model2 = get_model_for_operation('football_predict', 'fallback_level2')
+        self.ai_fallback_model3 = get_model_for_operation('football_predict', 'fallback_level3')
         
         # Модели для анализа риска ставки
         self.risk_analysis_primary = get_model_for_operation('bet_risk_analysis', 'primary')
         self.risk_analysis_fallback1 = get_model_for_operation('bet_risk_analysis', 'fallback_level1')
         self.risk_analysis_fallback2 = get_model_for_operation('bet_risk_analysis', 'fallback_level2')
+        self.risk_analysis_fallback3 = get_model_for_operation('bet_risk_analysis', 'fallback_level3')
 
         # Переменные для отслеживания лимитов API (в памяти)
         self.requests_remaining = None
@@ -3190,8 +3192,8 @@ X2 ИГНОРИРУЕМ
                 "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
             }
             
-            # Список моделей для попыток (основная + два fallback)
-            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2]
+            # Список моделей для попыток (основная + три fallback)
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2, self.ai_fallback_model3]
             
             for model_idx, model in enumerate(models_to_try):
                 if not model:
@@ -3342,8 +3344,8 @@ X2 ИГНОРИРУЕМ
                 "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
             }
             
-            # Список моделей для попыток (основная + два fallback)
-            models_to_try = [self.risk_analysis_primary, self.risk_analysis_fallback1, self.risk_analysis_fallback2]
+            # Список моделей для попыток (основная + три fallback)
+            models_to_try = [self.risk_analysis_primary, self.risk_analysis_fallback1, self.risk_analysis_fallback2, self.risk_analysis_fallback3]
             
             for model_idx, model in enumerate(models_to_try):
                 if not model:
@@ -3905,8 +3907,8 @@ X2 ИГНОРИРУЕМ
                 "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
             }
             
-            # Список моделей для попыток (основная + два fallback)
-            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2]
+            # Список моделей для попыток (основная + три fallback)
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2, self.ai_fallback_model3]
             
             for model_idx, model in enumerate(models_to_try):
                 if not model:
@@ -4112,7 +4114,7 @@ X2 ИГНОРИРУЕМ
             }
 
             # Пробуем все доступные модели
-            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2]
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2, self.ai_fallback_model3]
 
             for model_idx, model in enumerate(models_to_try):
                 if not model:

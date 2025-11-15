@@ -47,12 +47,14 @@ MODEL_CONFIG = {
     'football_predict': {
         'primary': 'microsoft/mai-ds-r1:free',
         'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level3': 'x-ai/grok-4-fast'
     },
     'bet_risk_analysis': {
         'primary': 'microsoft/mai-ds-r1:free',
         'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level3': 'x-ai/grok-4-fast'
     }
 }
 
