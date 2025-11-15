@@ -99,6 +99,7 @@ except ValueError as e:
 executor = ThreadPoolExecutor(max_workers=int(os.getenv("MAX_TRANSLATION_WORKERS", 3)))
 active_tasks = {} # Хранилище статусов активных задач {task_id: {"status": ..., "book_id": ..., "section_id": ...}}
 analyzing_risk_fixtures = set()  # Множество fixture_id, для которых идет анализ риска
+analyzing_risk_lock = threading.Lock()  # Блокировка для предотвращения race condition
 
 # --- ИЗМЕНЕНИЕ: Передаем executor в alice_handler ---
 alice_handler.initialize_alice_handler(executor)
@@ -2464,37 +2465,42 @@ def api_analyze_bet_risk():
         if not fixture_id or not bet_ai or not bet_ai_odds or not stats_json:
             return jsonify({'error': 'Недостаточно данных для анализа'}), 400
         
-        # Проверяем, не идет ли уже анализ для этого матча
-        if fixture_id in analyzing_risk_fixtures:
-            return jsonify({
-                'success': False,
-                'error': 'Анализ риска уже выполняется для этого матча'
-            }), 409
-        
-        # Добавляем fixture_id в множество обрабатываемых
-        analyzing_risk_fixtures.add(fixture_id)
+        # Атомарно проверяем и добавляем fixture_id (с блокировкой)
+        with analyzing_risk_lock:
+            if fixture_id in analyzing_risk_fixtures:
+                return jsonify({
+                    'success': False,
+                    'error': 'Анализ риска уже выполняется для этого матча'
+                }), 409
+            
+            # Добавляем fixture_id в множество обрабатываемых
+            analyzing_risk_fixtures.add(fixture_id)
         
         try:
             manager = football.get_manager()
             analysis = manager.analyze_bet_risk(fixture_id, bet_ai, float(bet_ai_odds), stats_json)
             
             if analysis:
-                return jsonify({
+                result = jsonify({
                     'success': True,
                     'analysis': analysis
                 }), 200
             else:
-                return jsonify({
+                result = jsonify({
                     'success': False,
                     'error': 'Не удалось получить анализ риска'
                 }), 500
+            
+            return result
         finally:
-            # Убираем fixture_id из множества обрабатываемых
-            analyzing_risk_fixtures.discard(fixture_id)
+            # Убираем fixture_id из множества обрабатываемых в любом случае (с блокировкой)
+            with analyzing_risk_lock:
+                analyzing_risk_fixtures.discard(fixture_id)
             
     except Exception as e:
-        # Убираем fixture_id из множества обрабатываемых в случае ошибки
-        analyzing_risk_fixtures.discard(fixture_id)
+        # Убираем fixture_id из множества обрабатываемых в случае ошибки (с блокировкой)
+        with analyzing_risk_lock:
+            analyzing_risk_fixtures.discard(fixture_id)
         print(f"[Football API] Ошибка анализа риска: {e}")
         import traceback
         traceback.print_exc()
