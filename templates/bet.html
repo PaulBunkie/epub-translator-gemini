@@ -1097,7 +1097,7 @@
             if (tableType === 'fav') {
                 // Применяем сортировку для первой таблицы
                 const field = currentSortField || 'match_date';
-                const direction = currentSortDirection || 'desc';
+                const direction = currentSortDirection || 'asc';
                 
                 const sortedMatches = [...filteredMatches].sort((a, b) => {
                     let valueA = a[field];
@@ -1147,7 +1147,7 @@
             } else {
                 // Применяем сортировку для второй таблицы
                 const field = currentSortFieldAll || 'match_date';
-                const direction = currentSortDirectionAll || 'desc';
+                const direction = currentSortDirectionAll || 'asc';
                 
                 const sortedMatches = [...filteredMatches].sort((a, b) => {
                     let valueA = a[field];
@@ -1563,10 +1563,10 @@
                         allMatchesData = allData.matches;
                         // Применяем фильтр и сортировку
                         const filtered = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
-                        // Сортировка по умолчанию: дата и время (по убыванию)
+                        // Сортировка по умолчанию: дата и время (по возрастанию)
                         if (!currentSortFieldAll) {
                             currentSortFieldAll = 'match_date';
-                            currentSortDirectionAll = 'desc';
+                            currentSortDirectionAll = 'asc';
                         }
                         // Используем applyCurrentSort для сохранения направления сортировки
                         applyCurrentSortForTable(filtered, 'all');
