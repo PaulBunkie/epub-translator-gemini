@@ -435,18 +435,6 @@
             {% endif %}
         </div>
         
-        <!-- Блок подписки на уведомления -->
-        <div class="telegram-info" id="telegramInfoBlock" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-            <h5><i class="fas fa-bell"></i> Уведомления в Telegram</h5>
-            <p style="margin-bottom: 10px; font-size: 14px;">Получайте уведомления о важных матчах прямо в Telegram</p>
-            <a href="#" id="tgSubscribeBtn" class="btn btn-primary" style="max-width: 350px; margin-bottom: 8px; display: inline-block;">
-                <i class="fab fa-telegram"></i> Подписаться на уведомления
-            </a>
-            <button id="tgSubscribedBtn" class="btn btn-success" style="max-width: 350px; margin-bottom: 8px; display: none;" disabled>
-                <i class="fas fa-check"></i> Вы подписаны
-            </button>
-            <p style="font-size: 13px; color: #888; margin-bottom: 0; margin-top: 8px;">Нажмите кнопку, перейдите в Telegram и выполните команду /start</p>
-        </div>
         
         {% if admin %}
         <!-- Блок лимитов API -->
@@ -2921,6 +2909,16 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- Блок подписки на уведомления -->
+    <div class="text-center my-4" id="telegramInfoBlock">
+        <a href="#" id="tgSubscribeBtn" class="btn btn-primary">
+            Подписаться на уведомления
+        </a>
+        <a href="https://t.me/aitube_notification_bot" target="_blank" id="tgSubscribedBtn" class="btn btn-success" style="display: none;">
+            Отписаться от уведомлений
+        </a>
+    </div>
 </body>
 </html>
 
