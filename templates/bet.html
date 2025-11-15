@@ -427,6 +427,10 @@
                 <div class="spinner-border spinner-border-sm text-primary ms-2" id="sync-spinner" role="status" style="display: none;">
                     <span class="visually-hidden">Синхронизация...</span>
                 </div>
+                <button class="btn btn-outline-secondary ms-2" id="auto-refresh-button" onclick="toggleAutoRefresh()">
+                    <i class="fas fa-pause" id="auto-refresh-icon"></i> <span id="auto-refresh-text">Автообновление: ВКЛ</span>
+                </button>
+                <span class="ms-2 text-muted" id="last-update-time" style="font-size: 0.85rem;"></span>
             </div>
             {% endif %}
         </div>
@@ -662,6 +666,11 @@
         
         // Переменные для модальных окон
         let sofascoreModalInstance = null;
+        
+        // Переменные для автообновления
+        let autoRefreshInterval = null;
+        let autoRefreshEnabled = true; // По умолчанию включено
+        const AUTO_REFRESH_INTERVAL = 30000; // 30 секунд
         
         // Инициализация обработчиков сортировки
         document.addEventListener('DOMContentLoaded', function() {
@@ -1280,9 +1289,11 @@
                 });
         }
         
-        function loadMatches() {
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('matches-container').style.display = 'none';
+        function loadMatches(silent = false) {
+            if (!silent) {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('matches-container').style.display = 'none';
+            }
             
             // Загружаем обе таблицы параллельно
             Promise.all([
@@ -1290,13 +1301,17 @@
                 fetch('/api/football/matches/all').then(r => r.json())
             ])
                 .then(([favData, allData]) => {
-                    document.getElementById('loading').style.display = 'none';
+                    if (!silent) {
+                        document.getElementById('loading').style.display = 'none';
+                    }
                     
                     // Обрабатываем матчи с фаворитом
                     if (favData.success && favData.matches && favData.matches.length > 0) {
                         allMatches = favData.matches;
-                        document.getElementById('matches-container').style.display = 'block';
-                        document.getElementById('empty-state').style.display = 'none';
+                        if (!silent) {
+                            document.getElementById('matches-container').style.display = 'block';
+                            document.getElementById('empty-state').style.display = 'none';
+                        }
                         
                         // Применяем фильтр и сортировку
                         const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
@@ -1307,7 +1322,9 @@
                         sortTable(currentSortField, filtered);
                     } else {
                         allMatches = [];
-                        document.getElementById('empty-state').style.display = 'block';
+                        if (!silent) {
+                            document.getElementById('empty-state').style.display = 'block';
+                        }
                     }
                     
                     // Обрабатываем все матчи
@@ -1323,18 +1340,92 @@
                         sortTableAll(currentSortFieldAll, filtered);
                     } else {
                         allMatchesData = [];
-                        document.getElementById('all-matches-empty-state').style.display = 'block';
-                        document.getElementById('all-matches-container').style.display = 'none';
+                        if (!silent) {
+                            document.getElementById('all-matches-empty-state').style.display = 'block';
+                            document.getElementById('all-matches-container').style.display = 'none';
+                        }
                     }
+                    
+                    // Обновляем время последнего обновления
+                    updateLastUpdateTime();
                 })
                 .catch(error => {
                     console.error('Error loading matches:', error);
-                    document.getElementById('loading').style.display = 'none';
-                    allMatches = [];
-                    allMatchesData = [];
-                    document.getElementById('empty-state').style.display = 'block';
-                    document.getElementById('all-matches-empty-state').style.display = 'block';
+                    if (!silent) {
+                        document.getElementById('loading').style.display = 'none';
+                        allMatches = [];
+                        allMatchesData = [];
+                        document.getElementById('empty-state').style.display = 'block';
+                        document.getElementById('all-matches-empty-state').style.display = 'block';
+                    }
                 });
+        }
+        
+        // Функция для обновления времени последнего обновления
+        function updateLastUpdateTime() {
+            const lastUpdateElement = document.getElementById('last-update-time');
+            if (lastUpdateElement) {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('ru-RU', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit' 
+                });
+                lastUpdateElement.textContent = `Обновлено: ${timeStr}`;
+                
+                // Добавляем визуальную индикацию обновления (краткое мигание)
+                lastUpdateElement.style.transition = 'none';
+                lastUpdateElement.style.color = '#28a745';
+                setTimeout(() => {
+                    lastUpdateElement.style.transition = 'color 0.5s ease';
+                    lastUpdateElement.style.color = '';
+                }, 300);
+            }
+        }
+        
+        // Функция для включения/выключения автообновления
+        function toggleAutoRefresh() {
+            autoRefreshEnabled = !autoRefreshEnabled;
+            
+            const button = document.getElementById('auto-refresh-button');
+            const icon = document.getElementById('auto-refresh-icon');
+            const text = document.getElementById('auto-refresh-text');
+            
+            if (autoRefreshEnabled) {
+                startAutoRefresh();
+                icon.className = 'fas fa-pause';
+                text.textContent = 'Автообновление: ВКЛ';
+                button.classList.remove('btn-outline-danger');
+                button.classList.add('btn-outline-secondary');
+            } else {
+                stopAutoRefresh();
+                icon.className = 'fas fa-play';
+                text.textContent = 'Автообновление: ВЫКЛ';
+                button.classList.remove('btn-outline-secondary');
+                button.classList.add('btn-outline-danger');
+            }
+        }
+        
+        // Функция для запуска автообновления
+        function startAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            
+            autoRefreshInterval = setInterval(() => {
+                if (autoRefreshEnabled) {
+                    console.log('[AutoRefresh] Обновление данных...');
+                    loadMatches(true); // Тихий режим - без показа загрузки
+                }
+            }, AUTO_REFRESH_INTERVAL);
+        }
+        
+        // Функция для остановки автообновления
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
         }
 
         function calculateTotals(matches) {
@@ -2478,7 +2569,14 @@
         // Загружаем лимиты только в режиме администратора
         if (isAdmin) {
             loadLimits();
+            // Запускаем автообновление для администратора
+            startAutoRefresh();
         }
+        
+        // Останавливаем автообновление при закрытии страницы
+        window.addEventListener('beforeunload', function() {
+            stopAutoRefresh();
+        });
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
