@@ -2827,9 +2827,6 @@ class FootballManager:
                         # Проверяем условия и записываем bet
             bet_value, _, ai_decision, ai_reason = self._calculate_bet(match, stats, fixture_id)
 
-            # Отправляем уведомление админу (если фаворит не выигрывает)
-            self._send_match_notification(match, stats, live_odds_value, ai_decision, ai_reason)
-
             # Сохраняем в БД (всегда сохраняем live_odds, даже если условия не выполнены)
             conn = get_football_db_connection()
             cursor = conn.cursor()
@@ -2883,11 +2880,62 @@ class FootballManager:
                     print(f"[Football] ИИ-прогноз сохранен для fixture {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}")
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
+            
+            # Отправляем уведомление админу ПОСЛЕ получения всех данных ИИ
+            # Используем данные из БД, если ai_decision/ai_reason не были получены
+            final_ai_decision = ai_decision
+            final_ai_reason = ai_reason
+            
+            # Если ai_decision не был получен, но есть bet_ai_reason, используем его как обоснование
+            # Это означает, что запрос к ИИ для прогноза (bet_ai) завершился успешно
+            if final_ai_decision is None and bet_ai_reason:
+                # Если есть bet_ai, значит ИИ дал прогноз - это успешный результат
+                # Используем bet_ai_reason как обоснование
+                final_ai_reason = bet_ai_reason
+                # Не можем определить ДА/НЕТ из bet_ai, но можем показать прогноз
+                # В этом случае ai_decision останется None, и в уведомлении будет показан прогноз
+            
+            # Если все еще нет данных, читаем из БД (на случай если данные были сохранены ранее)
+            bet_ai_for_notification = bet_ai  # Сохраняем bet_ai для уведомления
+            if final_ai_decision is None and not final_ai_reason:
+                conn = get_football_db_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT bet_ai, bet_ai_reason FROM matches WHERE id = ?", (match['id'],))
+                db_row = cursor.fetchone()
+                conn.close()
+                
+                if db_row:
+                    if db_row[0]:  # Если есть bet_ai в БД
+                        bet_ai_for_notification = db_row[0]
+                    if db_row[1] and not final_ai_reason:  # Если есть bet_ai_reason в БД
+                        final_ai_reason = db_row[1]
+            
+            # Отправляем уведомление (оборачиваем в try-except, чтобы гарантировать отправку)
+            try:
+                self._send_match_notification(match, stats, live_odds_value, final_ai_decision, final_ai_reason, bet_ai_for_notification)
+            except Exception as notify_error:
+                print(f"[Football ERROR] Ошибка отправки уведомления: {notify_error}")
+                # Не прерываем выполнение, просто логируем ошибку
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора статистики 60min: {e}")
             import traceback
             print(traceback.format_exc())
+            
+            # Даже при ошибке пытаемся отправить уведомление с информацией об ошибке
+            try:
+                # Пытаемся получить минимальные данные для уведомления
+                # Если stats не была получена, создаем минимальную структуру
+                try:
+                    error_stats = stats
+                except NameError:
+                    # Если stats не определена, создаем минимальную структуру
+                    error_stats = {'score': {'home': 0, 'away': 0}}
+                
+                error_reason = f"Ошибка обработки: {str(e)[:200]}"
+                self._send_match_notification(match, error_stats, None, None, error_reason, None)
+            except Exception as notify_error:
+                print(f"[Football ERROR] Не удалось отправить уведомление об ошибке: {notify_error}")
 
     def _collect_60min_stats_without_fav(self, match: sqlite3.Row):
         """
@@ -3721,7 +3769,7 @@ X2 ИГНОРИРУЕМ
             print(traceback.format_exc())
             return (0, None, None, None)
 
-    def _send_match_notification(self, match: sqlite3.Row, stats: Dict, live_odds: Optional[float], ai_decision: Optional[bool], ai_reason: Optional[str]) -> bool:
+    def _send_match_notification(self, match: sqlite3.Row, stats: Dict, live_odds: Optional[float], ai_decision: Optional[bool], ai_reason: Optional[str], bet_ai: Optional[str] = None) -> bool:
         """
         Отправляет уведомление в Telegram админу о матче, если фаворит не выигрывает.
 
@@ -3731,6 +3779,7 @@ X2 ИГНОРИРУЕМ
             live_odds: Коэффициент live odds (K60)
             ai_decision: Решение ИИ (True = ДА, False = НЕТ, None = ошибка)
             ai_reason: Полный ответ от ИИ
+            bet_ai: Прогноз ИИ (1/X/2/1X/X2), используется если ai_decision None
 
         Returns:
             bool: True если уведомление отправлено успешно
@@ -3765,7 +3814,12 @@ X2 ИГНОРИРУЕМ
                 return False
 
             # Формируем решение ИИ для сообщения
-            ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
+            # Если ai_decision None, но есть bet_ai, показываем прогноз вместо "ОШИБКА"
+            if ai_decision is None and bet_ai:
+                ai_decision_text = f"Прогноз: {bet_ai}"
+            else:
+                ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
+            
             ai_reason_short = (ai_reason[:200] + "...") if ai_reason and len(ai_reason) > 200 else (ai_reason or "Нет данных")
 
             # Формируем сообщение
