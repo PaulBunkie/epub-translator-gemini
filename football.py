@@ -2871,7 +2871,8 @@ class FootballManager:
             print(f"[Football] Запрашиваем ИИ-прогноз для fixture {fixture_id}...")
             bet_ai, bet_ai_reason = self._get_ai_prediction(match, stats) 
 
-            if bet_ai or bet_ai_reason:
+            # Сохраняем результат ИИ в БД, даже если bet_ai не распознан, но есть полный ответ
+            if bet_ai_reason:
                 # Получаем коэффициент на прогнозированный исход из БД
                 bet_ai_odds = None
                 if bet_ai:
@@ -2900,30 +2901,26 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
             
-            # Отправляем уведомление админу ПОСЛЕ получения всех данных ИИ
-            # Используем данные из БД, если ai_decision/ai_reason не были получены
-            final_ai_decision = ai_decision
-            final_ai_reason = ai_reason
-            bet_ai_for_notification = bet_ai  # Сохраняем bet_ai для уведомления
+            # Отправляем уведомление ПОСЛЕ записи в БД - читаем все данные из БД
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT bet_ai, bet_ai_reason FROM matches WHERE id = ?", (match['id'],))
+            db_row = cursor.fetchone()
+            conn.close()
             
-            # Приоритет: bet_ai_reason (полное обоснование прогноза из БД) > ai_reason (обоснование решения ДА/НЕТ)
-            # bet_ai_reason содержит полное обоснование прогноза, которое сохраняется в БД
-            if bet_ai_reason:
-                # Используем bet_ai_reason как основное обоснование (полное, из БД)
-                final_ai_reason = bet_ai_reason
-            elif not final_ai_reason:
-                # Если нет bet_ai_reason и нет ai_reason, читаем из БД
-                conn = get_football_db_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT bet_ai, bet_ai_reason FROM matches WHERE id = ?", (match['id'],))
-                db_row = cursor.fetchone()
-                conn.close()
-                
-                if db_row:
-                    if db_row[0]:  # Если есть bet_ai в БД
-                        bet_ai_for_notification = db_row[0]
-                    if db_row[1]:  # Если есть bet_ai_reason в БД
-                        final_ai_reason = db_row[1]
+            # Используем данные из БД для уведомления
+            bet_ai_for_notification = db_row[0] if db_row and db_row[0] else bet_ai
+            final_ai_reason = None
+            
+            # Приоритет: bet_ai_reason из БД (полное обоснование прогноза) > ai_reason (обоснование решения ДА/НЕТ)
+            if db_row and db_row[1] and str(db_row[1]).strip():
+                # Используем bet_ai_reason из БД как основное обоснование
+                final_ai_reason = str(db_row[1]).strip()
+            elif ai_reason and str(ai_reason).strip():
+                # Используем ai_reason как резервный вариант
+                final_ai_reason = str(ai_reason).strip()
+            
+            final_ai_decision = ai_decision
             
             # Отправляем уведомление (оборачиваем в try-except, чтобы гарантировать отправку)
             try:
@@ -3848,7 +3845,13 @@ X2 ИГНОРИРУЕМ
                 ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
             
             # Используем полное обоснование без обрезки
-            ai_reason_full = ai_reason or "Нет данных"
+            # Убеждаемся, что это строка, и берем полный текст
+            if ai_reason:
+                ai_reason_full = str(ai_reason).strip()
+                if not ai_reason_full:
+                    ai_reason_full = "Нет данных"
+            else:
+                ai_reason_full = "Нет данных"
 
             # Формируем сообщение (разное для матчей с фаворитом и без)
             if is_match_without_fav:
@@ -4003,9 +4006,9 @@ X2 ИГНОРИРУЕМ
                                     print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
                                     return bet_ai, ai_response
                                 else:
-                                    print(f"[Football AI] Не удалось распознать валидный прогноз в ответе: {ai_response[:200]}...")
-                                    # Продолжаем с следующей моделью
-                                    continue
+                                    # Даже если прогноз не распознан, возвращаем полный ответ для сохранения
+                                    print(f"[Football AI] Не удалось распознать валидный прогноз в ответе, но сохраняем полный ответ: {ai_response[:200]}...")
+                                    return None, ai_response
                             else:
                                 print(f"[Football AI] Неверный формат ответа от OpenRouter API для модели {model}")
                                 continue
