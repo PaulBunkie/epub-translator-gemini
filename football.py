@@ -3406,13 +3406,17 @@ X2 ИГНОРИРУЕМ
                         except Exception as e:
                             print(f"[Football Risk Analysis] Ошибка парсинга ответа от модели {model}: {e}")
                     else:
-                        print(f"[Football Risk Analysis] Ошибка API для модели {model}: статус {response.status_code}")
-                        if response.status_code == 429:
+                        error_status = response.status_code
+                        print(f"[Football Risk Analysis] Ошибка API для модели {model}: статус {error_status}")
+                        if error_status == 429:
                             print(f"[Football Risk Analysis] Превышен лимит запросов для модели {model}, пробуем следующую")
                             continue
-                        elif response.status_code == 401:
+                        elif error_status == 401:
                             print(f"[Football Risk Analysis] Ошибка авторизации для модели {model}")
                             break
+                        else:
+                            # Для других ошибок тоже пробуем следующую модель
+                            continue
                 
                 except requests.exceptions.Timeout:
                     print(f"[Football Risk Analysis] Таймаут при запросе к модели {model}")
