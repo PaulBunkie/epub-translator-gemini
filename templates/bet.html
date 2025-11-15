@@ -772,6 +772,40 @@
             return `${year}-${month}-${day}`;
         }
         
+        // Функция для конвертации UTC времени в локальное время браузера
+        function convertUTCToLocal(dateStr, timeStr) {
+            if (!dateStr || !timeStr) {
+                return { date: dateStr || '', time: timeStr || '' };
+            }
+            
+            // Создаем строку в формате ISO с явным указанием UTC (Z)
+            // Если время не содержит секунды, добавляем :00
+            const timeWithSeconds = timeStr.includes(':') && timeStr.split(':').length === 2 
+                ? timeStr + ':00' 
+                : timeStr;
+            
+            // Создаем Date объект, интерпретируя входные данные как UTC
+            const utcDate = new Date(dateStr + 'T' + timeWithSeconds + 'Z');
+            
+            // Проверяем, что дата валидна
+            if (isNaN(utcDate.getTime())) {
+                return { date: dateStr, time: timeStr };
+            }
+            
+            // Получаем локальные дату и время
+            const localDate = getLocalDateString(utcDate);
+            const localHours = String(utcDate.getHours()).padStart(2, '0');
+            const localMinutes = String(utcDate.getMinutes()).padStart(2, '0');
+            const localSeconds = String(utcDate.getSeconds()).padStart(2, '0');
+            
+            // Форматируем время в том же формате, что и исходное (с секундами или без)
+            const localTime = timeStr.includes(':') && timeStr.split(':').length === 3
+                ? `${localHours}:${localMinutes}:${localSeconds}`
+                : `${localHours}:${localMinutes}`;
+            
+            return { date: localDate, time: localTime };
+        }
+        
         // Функция для фильтрации матчей по дате
         function filterMatchesByDate(matches, filterType, dateRange) {
             if (filterType === 'all') {
@@ -1799,10 +1833,13 @@
                     // Нет статистики - просто показываем коэффициент или "-"
                     k60Cell = `<span class="odds">${formattedLiveOdds}</span>`;
                 }
+                
+                // Конвертируем UTC время в локальное время браузера
+                const localDateTime = convertUTCToLocal(match.match_date, match.match_time);
                  
                 row.innerHTML = `
-                    <td>${match.match_date}</td>
-                    <td>${match.match_time}</td>
+                    <td>${localDateTime.date}</td>
+                    <td>${localDateTime.time}</td>
                     <td>${match.home_team}</td>
                     <td>${match.away_team}</td>
                     <td><span class="fav-team">${match.fav}</span></td>
@@ -1975,9 +2012,12 @@
                     betAICell = '-';
                 }
                 
+                // Конвертируем UTC время в локальное время браузера
+                const localDateTime = convertUTCToLocal(match.match_date, match.match_time);
+                
                 row.innerHTML = `
-                    <td>${match.match_date}</td>
-                    <td>${match.match_time}</td>
+                    <td>${localDateTime.date}</td>
+                    <td>${localDateTime.time}</td>
                     <td>${match.home_team}</td>
                     <td>${match.away_team}</td>
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
