@@ -3878,13 +3878,8 @@ X2 ИГНОРИРУЕМ
             # Получаем список подписчиков
             subscribers = get_football_subscribers()
             
-            # Получаем chat_id админа
-            admin_chat_id = os.getenv("TELEGRAM_CHAT_ID")
-            
-            # Собираем всех получателей (подписчики + админ)
+            # Отправляем уведомление только подписчикам (админ тоже должен подписаться)
             recipients = set(subscribers)
-            if admin_chat_id:
-                recipients.add(admin_chat_id)
             
             # Отправляем уведомление всем получателям
             success_count = 0

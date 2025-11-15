@@ -45,16 +45,16 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'football_predict': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level3': 'x-ai/grok-4-fast'
+        'primary': 'openai/gpt-5.1',
+        'fallback_level1': 'microsoft/mai-ds-r1:free',
+        'fallback_level2': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level3': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'bet_risk_analysis': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level3': 'x-ai/grok-4-fast'
+        'primary': 'x-ai/grok-4-fast',
+        'fallback_level1': 'microsoft/mai-ds-r1:free',
+        'fallback_level2': 'deepseek/deepseek-chat-v3-0324:free',
+        'fallback_level3': 'tngtech/deepseek-r1t2-chimera:free'
     }
 }
 
