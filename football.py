@@ -3386,6 +3386,8 @@ X2 ИГНОРИРУЕМ
                     }
                     
                     print(f"[Football Risk Analysis] Отправка запроса к OpenRouter API (модель: {model})")
+                    print(f"[Football Risk Analysis] URL: {self.openrouter_api_url}/chat/completions")
+                    print(f"[Football Risk Analysis] Payload: model={model}, max_tokens={payload['max_tokens']}, temperature={payload['temperature']}")
                     
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
@@ -3393,6 +3395,8 @@ X2 ИГНОРИРУЕМ
                         json=payload,
                         timeout=60
                     )
+                    
+                    print(f"[Football Risk Analysis] Получен ответ от OpenRouter API (модель: {model}): статус {response.status_code}")
                     
                     if response.status_code == 200:
                         try:
