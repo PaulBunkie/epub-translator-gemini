@@ -1547,7 +1547,7 @@
                         const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
                         if (!currentSortField) {
                             currentSortField = 'match_date';
-                            currentSortDirection = 'desc';
+                            currentSortDirection = 'asc';
                         }
                         // Используем applyCurrentSort для сохранения направления сортировки
                         applyCurrentSortForTable(filtered, 'fav');
