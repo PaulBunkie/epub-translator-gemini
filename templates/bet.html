@@ -2486,32 +2486,52 @@
             }
         }
         
+        // Используем делегирование событий - один обработчик на document
+        let betAIClickHandlerSetup = false;
         function setupBetAIClickHandlers() {
-            // Используем делегирование событий для динамически созданных элементов
-            document.querySelectorAll('.bet-ai-clickable').forEach(clickable => {
-                clickable.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    
-                    const matchIndex = parseInt(this.getAttribute('data-match-index'));
-                    const matchType = this.getAttribute('data-match-type') || 'all';
-                    const matchesArray = matchType === 'fav' ? window.favMatchesForRisk : window.allMatchesForRisk;
-                    
-                    if (matchesArray && matchIndex >= 0 && matchIndex < matchesArray.length) {
-                        const match = matchesArray[matchIndex];
-                        if (match && match.fixture_id && match.bet_ai && match.bet_ai_odds && match.stats_60min) {
-                            // Преобразуем stats_60min в JSON строку, если это объект
-                            const statsJson = typeof match.stats_60min === 'string' 
-                                ? match.stats_60min 
-                                : JSON.stringify(match.stats_60min);
-                            showRiskAnalysis(match.fixture_id, match.bet_ai, parseFloat(match.bet_ai_odds), statsJson);
-                        }
+            // Настраиваем обработчик только один раз
+            if (betAIClickHandlerSetup) {
+                return;
+            }
+            betAIClickHandlerSetup = true;
+            
+            // Делегирование событий на document для обработки кликов на .bet-ai-clickable
+            document.addEventListener('click', function(e) {
+                const clickable = e.target.closest('.bet-ai-clickable');
+                if (!clickable) {
+                    return;
+                }
+                
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const matchIndex = parseInt(clickable.getAttribute('data-match-index'));
+                const matchType = clickable.getAttribute('data-match-type') || 'all';
+                const matchesArray = matchType === 'fav' ? window.favMatchesForRisk : window.allMatchesForRisk;
+                
+                if (matchesArray && matchIndex >= 0 && matchIndex < matchesArray.length) {
+                    const match = matchesArray[matchIndex];
+                    if (match && match.fixture_id && match.bet_ai && match.bet_ai_odds && match.stats_60min) {
+                        // Преобразуем stats_60min в JSON строку, если это объект
+                        const statsJson = typeof match.stats_60min === 'string' 
+                            ? match.stats_60min 
+                            : JSON.stringify(match.stats_60min);
+                        showRiskAnalysis(match.fixture_id, match.bet_ai, parseFloat(match.bet_ai_odds), statsJson);
                     }
-                });
+                }
             });
         }
         
+        // Отслеживаем активные запросы анализа риска
+        const activeRiskAnalysisRequests = new Set();
+        
         function showRiskAnalysis(fixtureId, betAI, betAIOdds, statsJson) {
+            // Проверяем, не выполняется ли уже запрос для этого матча
+            if (activeRiskAnalysisRequests.has(fixtureId)) {
+                console.log('Запрос анализа риска уже выполняется для матча:', fixtureId);
+                return;
+            }
+            
             const modalElement = document.getElementById('riskAnalysisModal');
             const modal = new bootstrap.Modal(modalElement);
             const content = document.getElementById('riskAnalysisContent');
@@ -2526,6 +2546,9 @@
                 </div>
             `;
             modal.show();
+            
+            // Добавляем fixture_id в множество активных запросов
+            activeRiskAnalysisRequests.add(fixtureId);
             
             // Отправляем запрос к API
             fetch('/api/football/analyze-risk', {
@@ -2542,6 +2565,9 @@
             })
             .then(response => response.json())
             .then(data => {
+                // Удаляем fixture_id из множества активных запросов
+                activeRiskAnalysisRequests.delete(fixtureId);
+                
                 if (data.success && data.analysis) {
                     // Рендерим markdown в HTML
                     const markdownHtml = marked.parse(data.analysis);
@@ -2563,6 +2589,9 @@
                 }
             })
             .catch(error => {
+                // Удаляем fixture_id из множества активных запросов
+                activeRiskAnalysisRequests.delete(fixtureId);
+                
                 console.error('Ошибка запроса анализа риска:', error);
                 content.innerHTML = `
                     <div class="alert alert-danger">

@@ -2455,6 +2455,7 @@ def api_test_football_notification():
 @app.route('/api/football/analyze-risk', methods=['POST'])
 def api_analyze_bet_risk():
     """API эндпойнт для анализа риска ставки на основе прогноза ИИ."""
+    fixture_id = None
     try:
         data = request.get_json()
         fixture_id = data.get('fixture_id')
@@ -2492,15 +2493,23 @@ def api_analyze_bet_risk():
                 }), 500
             
             return result
+        except Exception as e:
+            # Логируем ошибку, но не прерываем выполнение
+            print(f"[Football API] Ошибка анализа риска: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Ошибка анализа риска: {str(e)}'}), 500
         finally:
             # Убираем fixture_id из множества обрабатываемых в любом случае (с блокировкой)
-            with analyzing_risk_lock:
-                analyzing_risk_fixtures.discard(fixture_id)
+            if fixture_id:
+                with analyzing_risk_lock:
+                    analyzing_risk_fixtures.discard(fixture_id)
             
     except Exception as e:
         # Убираем fixture_id из множества обрабатываемых в случае ошибки (с блокировкой)
-        with analyzing_risk_lock:
-            analyzing_risk_fixtures.discard(fixture_id)
+        if fixture_id:
+            with analyzing_risk_lock:
+                analyzing_risk_fixtures.discard(fixture_id)
         print(f"[Football API] Ошибка анализа риска: {e}")
         import traceback
         traceback.print_exc()
