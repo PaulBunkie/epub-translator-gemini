@@ -319,6 +319,28 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'bet_approve_reason' already exists.")
         
+        # --- Проверка и добавление поля bet_alt_code ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_alt_code' not in columns:
+            print("[FootballDB] Adding 'bet_alt_code' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_alt_code TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'bet_alt_code' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_alt_code' already exists.")
+        
+        # --- Проверка и добавление поля bet_alt_odds ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_alt_odds' not in columns:
+            print("[FootballDB] Adding 'bet_alt_odds' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_alt_odds REAL")
+            conn.commit()
+            print("[FootballDB] Column 'bet_alt_odds' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_alt_odds' already exists.")
+        
         # --- Проверка и добавление поля live_odds ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -2364,13 +2386,13 @@ class FootballManager:
                     print(traceback.format_exc())
                     continue
 
-            # ===== ЧАСТЬ 1.7: Второй проход риск-менеджмента =====
-            try:
-                self._perform_bet_approval_checks(cursor, conn)
-            except Exception as e:
-                print(f"[Football ERROR] Ошибка выполнения второго прохода риск-менеджмента: {e}")
-                import traceback
-                print(traceback.format_exc())
+            # ===== ЧАСТЬ 1.7: Второй проход риск-менеджмента (ЗАКОММЕНТИРОВАН, НЕ ИСПОЛЬЗУЕТСЯ) =====
+            # try:
+            #     self._perform_bet_approval_checks(cursor, conn)
+            # except Exception as e:
+            #     print(f"[Football ERROR] Ошибка выполнения второго прохода риск-менеджмента: {e}")
+            #     import traceback
+            #     print(traceback.format_exc())
 
             # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
             cursor.execute("""
@@ -2572,79 +2594,275 @@ class FootballManager:
             except:
                 pass
 
-    def _perform_bet_approval_checks(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+    def _encode_alternative_bet(self, market: str, pick: str, line: Optional[float] = None) -> str:
         """
-        Выполняет второй проход риск-менеджмента (подтверждение ставок).
-
-        Анализирует все матчи, у которых есть рекомендация bet >= 1, но ещё не выставлен bet_approve.
-
+        Преобразует JSON ответ модели в короткую кодировку ставки.
+        
         Args:
-            cursor: Активный курсор БД
-            conn: Активное соединение с БД
+            market: Рынок (1X2, DoubleChance, Handicap, Total)
+            pick: Выбор (1/X/2/1X/X2/Home/Away/Over/Under)
+            line: Линия (для Handicap/Total)
+        
+        Returns:
+            Кодировка: Ф1-1.5, Ф2+2.5, Т2.5Б, Т0.5М, 1, X, 2, 1X, X2, 12
         """
-        cursor.execute(
-            """
-            SELECT * FROM matches
-            WHERE bet IS NOT NULL
-              AND bet >= 1
-              AND bet_ai IS NOT NULL
-              AND bet_ai_odds IS NOT NULL
-              AND stats_60min IS NOT NULL
-              AND bet_approve IS NULL
-            ORDER BY match_date, match_time
-            """
-        )
+        if market == "Handicap":
+            # Гандикап: Ф1-1.5 (фора хозяев -1.5), Ф2+2.5 (фора гостей +2.5)
+            if pick == "Home":
+                sign = "-" if line and line < 0 else "+"
+                line_str = f"{abs(line):.1f}" if line else "0.0"
+                return f"Ф1{sign}{line_str}"
+            elif pick == "Away":
+                sign = "+" if line and line > 0 else "-"
+                line_str = f"{abs(line):.1f}" if line else "0.0"
+                return f"Ф2{sign}{line_str}"
+        elif market == "Total":
+            # Тотал: Т2.5Б (больше 2.5), Т0.5М (меньше 0.5)
+            if pick == "Over":
+                line_str = f"{line:.1f}" if line else "2.5"
+                return f"Т{line_str}Б"
+            elif pick == "Under":
+                line_str = f"{line:.1f}" if line else "2.5"
+                return f"Т{line_str}М"
+        elif market == "1X2":
+            # 1X2: 1, X, 2
+            return pick
+        elif market == "DoubleChance":
+            # Двойной шанс: 1X, X2, 12
+            return pick
+        
+        # Если не распознано, возвращаем исходный pick
+        return pick
 
-        matches_to_check = cursor.fetchall()
-        if not matches_to_check:
-            print("[Football Risk Approve] Нет матчей для подтверждения ставок")
-            return
-
-        print(f"[Football Risk Approve] Запускаем подтверждение ставок для {len(matches_to_check)} матчей")
-
-        for match in matches_to_check:
+    def _get_alternative_bet(self, match: sqlite3.Row, stats: Dict) -> Optional[Tuple[str, float]]:
+        """
+        Получает альтернативную ставку от ИИ для одного матча.
+        
+        Args:
+            match: Запись матча из БД
+            stats: Статистика матча
+        
+        Returns:
+            Tuple (bet_alt_code, bet_alt_odds) или None
+        """
+        if not self.openrouter_api_key:
+            print("[Football Alt Bet] OpenRouter API ключ не установлен, пропускаем")
+            return None
+        
+        try:
             fixture_id = match['fixture_id']
-            bet_ai = match['bet_ai']
-            bet_ai_odds = match['bet_ai_odds']
-            stats_json = match['stats_60min']
-
-            if not bet_ai or bet_ai_odds is None or not stats_json:
-                print(f"[Football Risk Approve] Недостаточно данных для матча {fixture_id}, устанавливаем bet_approve = 0")
-                cursor.execute(
-                    """
-                    UPDATE matches
-                    SET bet_approve = 0,
-                        bet_approve_reason = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    ("Недостаточно данных для подтверждения", match['id'])
-                )
-                conn.commit()
-                continue
-
-            print(f"[Football Risk Approve] Анализируем матч {fixture_id} (прогноз {bet_ai}, кэф {bet_ai_odds})")
-            analysis_response = self.analyze_bet_risk(fixture_id, bet_ai, float(bet_ai_odds), stats_json)
-
-            bet_approve_value = self._parse_bet_approve_decision(analysis_response)
-            if bet_approve_value is None:
-                print(f"[Football Risk Approve] Не удалось распознать резюме для матча {fixture_id}, устанавливаем 0")
-                bet_approve_value = 0
-
-            cursor.execute(
-                """
-                UPDATE matches
-                SET bet_approve = ?,
-                    bet_approve_reason = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (bet_approve_value, analysis_response, match['id'])
+            home_team = match['home_team']
+            away_team = match['away_team']
+            
+            # Получаем коэффициенты 1X2
+            live_odds_1 = match.get('live_odds_1')
+            live_odds_x = match.get('live_odds_x')
+            live_odds_2 = match.get('live_odds_2')
+            
+            # Формируем промпт для одного матча
+            match_data = {
+                'fixture_id': fixture_id,
+                'home_team': home_team,
+                'away_team': away_team,
+                'live_odds_1': live_odds_1,
+                'live_odds_x': live_odds_x,
+                'live_odds_2': live_odds_2,
+                'stats_60min': stats
+            }
+            
+            context_json = json.dumps({'match': match_data}, ensure_ascii=False)
+            
+            system_instruction = (
+                "Ты - аналитик футбольных матчей и эксперт в области спортивных ставок. "
+                "Тебе предоставлена статистика первой половины матча. "
+                "Твоя задача - выбрать ОДНУ оптимальную ставку из следующих рынков: 1X2, DoubleChance, Handicap, Total. "
+                "Ты должен учитывать статистику первой половины матча, текущие коэффициенты букмекеров и другие факторы. "
+                "Выбранная ставка должна быть оптимальна по коэффициенту и минимальна по риску. "
+                "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,-0.5,+0.5,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
+                "Для Total используй Over/Under с ТОЛЬКО половинными линиями (… 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
+                "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
+                "Верни СТРОГО JSON (без текста вокруг) формата: "
+                "{\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number,\"odds_estimated\":boolean,\"reason\":str}."
             )
-            conn.commit()
+            
+            prompt = f"{system_instruction}\n\nДанные:\n{context_json}"
+            
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2, self.ai_fallback_model3]
+            
+            for model_idx, model in enumerate(models_to_try):
+                if not model:
+                    continue
+                
+                print(f"[Football Alt Bet] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model} для fixture {fixture_id}")
+                
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "user", "content": prompt}
+                        ],
+                        "max_tokens": 2000,
+                        "temperature": 0.4
+                    }
+                    
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=300
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if 'choices' in data and data['choices']:
+                            raw = data['choices'][0]['message']['content']
+                            
+                            # Пытаемся извлечь JSON из ответа
+                            parsed = None
+                            try:
+                                txt = raw.strip()
+                                # Удаляем markdown-фенс, если модель вернула ```json ... ```
+                                if txt.startswith('```'):
+                                    lines = txt.splitlines()
+                                    if lines and lines[0].startswith('```'):
+                                        lines = lines[1:]
+                                    if lines and lines[-1].startswith('```'):
+                                        lines = lines[:-1]
+                                    txt = "\n".join(lines).strip()
+                                
+                                parsed = json.loads(txt)
+                            except Exception:
+                                # Попробуем вытащить первый JSON-блок
+                                import re as _re
+                                m = _re.search(r'\{[\s\S]*\}', txt)
+                                if m:
+                                    parsed = json.loads(m.group(0))
+                            
+                            if isinstance(parsed, dict):
+                                market = parsed.get('market')
+                                pick = parsed.get('pick')
+                                line = parsed.get('line')
+                                odds = parsed.get('odds')
+                                
+                                if market and pick and odds:
+                                    # Преобразуем в кодировку
+                                    bet_alt_code = self._encode_alternative_bet(market, pick, line)
+                                    bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
+                                    
+                                    if bet_alt_code and bet_alt_odds:
+                                        print(f"[Football Alt Bet] Получена альтернативная ставка для {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                        return (bet_alt_code, bet_alt_odds)
+                                    else:
+                                        print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
+                                        continue
+                                else:
+                                    print(f"[Football Alt Bet] Неполный ответ модели: market={market}, pick={pick}, odds={odds}")
+                                    continue
+                            else:
+                                print(f"[Football Alt Bet] Не удалось распарсить JSON, пробуем следующую модель")
+                                continue
+                        else:
+                            print(f"[Football Alt Bet] Неверный формат ответа от модели {model}")
+                    else:
+                        print(f"[Football Alt Bet] HTTP ошибка {response.status_code} для модели {model}")
+                        if response.status_code == 429:
+                            continue
+                except requests.exceptions.Timeout:
+                    print(f"[Football Alt Bet] Таймаут модели {model}")
+                    continue
+                except Exception as e:
+                    print(f"[Football Alt Bet] Ошибка запроса к модели {model}: {e}")
+                    continue
+            
+            print(f"[Football Alt Bet] Не удалось получить альтернативную ставку ни от одной модели для fixture {fixture_id}")
+            return None
+            
+        except Exception as e:
+            print(f"[Football Alt Bet ERROR] Ошибка получения альтернативной ставки: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
 
-            status_text = "ОДОБРЕНО" if bet_approve_value == 1 else "ОТКЛОНЕНО"
-            print(f"[Football Risk Approve] Матч {fixture_id}: результат {status_text}")
+    # ===== СТАРЫЙ АППРУВ (ЗАКОММЕНТИРОВАН, НЕ ИСПОЛЬЗУЕТСЯ) =====
+    # def _perform_bet_approval_checks(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
+    #     """
+    #     Выполняет второй проход риск-менеджмента (подтверждение ставок).
+    #
+    #     Анализирует все матчи, у которых есть рекомендация bet >= 1, но ещё не выставлен bet_approve.
+    #
+    #     Args:
+    #         cursor: Активный курсор БД
+    #         conn: Активное соединение с БД
+    #     """
+    #     cursor.execute(
+    #         """
+    #         SELECT * FROM matches
+    #         WHERE bet IS NOT NULL
+    #           AND bet >= 1
+    #           AND bet_ai IS NOT NULL
+    #           AND bet_ai_odds IS NOT NULL
+    #           AND stats_60min IS NOT NULL
+    #           AND bet_approve IS NULL
+    #         ORDER BY match_date, match_time
+    #         """
+    #     )
+    #
+    #     matches_to_check = cursor.fetchall()
+    #     if not matches_to_check:
+    #         print("[Football Risk Approve] Нет матчей для подтверждения ставок")
+    #         return
+    #
+    #     print(f"[Football Risk Approve] Запускаем подтверждение ставок для {len(matches_to_check)} матчей")
+    #
+    #     for match in matches_to_check:
+    #         fixture_id = match['fixture_id']
+    #         bet_ai = match['bet_ai']
+    #         bet_ai_odds = match['bet_ai_odds']
+    #         stats_json = match['stats_60min']
+    #
+    #         if not bet_ai or bet_ai_odds is None or not stats_json:
+    #             print(f"[Football Risk Approve] Недостаточно данных для матча {fixture_id}, устанавливаем bet_approve = 0")
+    #             cursor.execute(
+    #                 """
+    #                 UPDATE matches
+    #                 SET bet_approve = 0,
+    #                     bet_approve_reason = ?,
+    #                     updated_at = CURRENT_TIMESTAMP
+    #                 WHERE id = ?
+    #                 """,
+    #                 ("Недостаточно данных для подтверждения", match['id'])
+    #             )
+    #             conn.commit()
+    #             continue
+    #
+    #         print(f"[Football Risk Approve] Анализируем матч {fixture_id} (прогноз {bet_ai}, кэф {bet_ai_odds})")
+    #         analysis_response = self.analyze_bet_risk(fixture_id, bet_ai, float(bet_ai_odds), stats_json)
+    #
+    #         bet_approve_value = self._parse_bet_approve_decision(analysis_response)
+    #         if bet_approve_value is None:
+    #             print(f"[Football Risk Approve] Не удалось распознать резюме для матча {fixture_id}, устанавливаем 0")
+    #             bet_approve_value = 0
+    #
+    #         cursor.execute(
+    #             """
+    #             UPDATE matches
+    #             SET bet_approve = ?,
+    #                 bet_approve_reason = ?,
+    #                 updated_at = CURRENT_TIMESTAMP
+    #             WHERE id = ?
+    #             """,
+    #             (bet_approve_value, analysis_response, match['id'])
+    #         )
+    #         conn.commit()
+    #
+    #         status_text = "ОДОБРЕНО" if bet_approve_value == 1 else "ОТКЛОНЕНО"
+    #         print(f"[Football Risk Approve] Матч {fixture_id}: результат {status_text}")
 
     def _fetch_sofascore_statistics(self, sofascore_event_id: int) -> Optional[Dict]:
         """
@@ -3172,6 +3390,40 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
             
+            # Получаем альтернативную ставку, если bet >= 1
+            if bet_value >= 1:
+                try:
+                    # Получаем актуальные данные матча из БД для альтернативной ставки
+                    conn = get_football_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                    match_updated = cursor.fetchone()
+                    conn.close()
+                    
+                    if match_updated:
+                        alt_result = self._get_alternative_bet(match_updated, stats)
+                        if alt_result:
+                            bet_alt_code, bet_alt_odds = alt_result
+                            # Сохраняем альтернативную ставку в БД
+                            conn = get_football_db_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE matches
+                                SET bet_alt_code = ?,
+                                    bet_alt_odds = ?,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            """, (bet_alt_code, bet_alt_odds, match['id']))
+                            conn.commit()
+                            conn.close()
+                            print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                        else:
+                            print(f"[Football] Не удалось получить альтернативную ставку для fixture {fixture_id}")
+                except Exception as alt_error:
+                    print(f"[Football ERROR] Ошибка получения альтернативной ставки для fixture {fixture_id}: {alt_error}")
+                    import traceback
+                    print(traceback.format_exc())
+            
             # Отправляем уведомление ПОСЛЕ записи в БД - читаем все данные из БД
             conn = get_football_db_connection()
             cursor = conn.cursor()
@@ -3357,6 +3609,40 @@ class FootballManager:
                     print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}, рекомендация: {recommendation_text}, bet: {bet_value}")
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}, bet: {bet_value}")
+                
+                # Получаем альтернативную ставку, если bet >= 1
+                if bet_value >= 1:
+                    try:
+                        # Получаем актуальные данные матча из БД для альтернативной ставки
+                        conn = get_football_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                        match_updated = cursor.fetchone()
+                        conn.close()
+                        
+                        if match_updated:
+                            alt_result = self._get_alternative_bet(match_updated, stats)
+                            if alt_result:
+                                bet_alt_code, bet_alt_odds = alt_result
+                                # Сохраняем альтернативную ставку в БД
+                                conn = get_football_db_connection()
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    UPDATE matches
+                                    SET bet_alt_code = ?,
+                                        bet_alt_odds = ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                """, (bet_alt_code, bet_alt_odds, match['id']))
+                                conn.commit()
+                                conn.close()
+                                print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                            else:
+                                print(f"[Football] Не удалось получить альтернативную ставку для матча без фаворита {fixture_id}")
+                    except Exception as alt_error:
+                        print(f"[Football ERROR] Ошибка получения альтернативной ставки для матча без фаворита {fixture_id}: {alt_error}")
+                        import traceback
+                        print(traceback.format_exc())
                 
                 # Отправляем уведомление если ИИ рекомендует СТАВИМ (bet_recommendation = True)
                 if bet_recommendation:
