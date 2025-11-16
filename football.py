@@ -264,6 +264,28 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'bet_ai_reason' already exists.")
         
+        # --- Проверка и добавление поля bet_ai_full_response ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_ai_full_response' not in columns:
+            print("[FootballDB] Adding 'bet_ai_full_response' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_ai_full_response TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'bet_ai_full_response' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_ai_full_response' already exists.")
+        
+        # --- Проверка и добавление поля bet_ai_model_name ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_ai_model_name' not in columns:
+            print("[FootballDB] Adding 'bet_ai_model_name' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_ai_model_name TEXT")
+            conn.commit()
+            print("[FootballDB] Column 'bet_ai_model_name' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_ai_model_name' already exists.")
+        
         # --- Проверка и добавление поля bet_ai_odds ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -2869,7 +2891,7 @@ class FootballManager:
             
             # Получаем прогноз от ИИ
             print(f"[Football] Запрашиваем ИИ-прогноз для fixture {fixture_id}...")
-            bet_ai, bet_ai_reason = self._get_ai_prediction(match, stats) 
+            bet_ai, bet_ai_reason, bet_ai_model_name = self._get_ai_prediction(match, stats) 
 
             # Сохраняем результат ИИ в БД, даже если bet_ai не распознан, но есть полный ответ
             if bet_ai_reason:
@@ -2889,9 +2911,14 @@ class FootballManager:
 
                 cursor.execute("""
                     UPDATE matches
-                    SET bet_ai = ?, bet_ai_reason = ?, bet_ai_odds = ?, updated_at = CURRENT_TIMESTAMP
+                    SET bet_ai = ?,
+                        bet_ai_reason = ?,
+                        bet_ai_full_response = ?,
+                        bet_ai_model_name = ?,
+                        bet_ai_odds = ?,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (bet_ai, bet_ai_reason, bet_ai_odds, match['id']))
+                """, (bet_ai, bet_ai_reason, bet_ai_reason, bet_ai_model_name, bet_ai_odds, match['id']))
 
                 conn.commit()
                 conn.close()
@@ -3044,7 +3071,7 @@ class FootballManager:
             
             # Получаем прогноз от ИИ (без упоминания фаворита)
             print(f"[Football] Запрашиваем ИИ-прогноз для матча без фаворита {fixture_id}...")
-            bet_ai, bet_ai_reason, bet_recommendation = self._get_ai_prediction_without_fav(match, stats) 
+            bet_ai, bet_ai_reason, bet_recommendation, bet_ai_model_name = self._get_ai_prediction_without_fav(match, stats) 
 
             # Устанавливаем bet на основе рекомендации
             bet_value = 1 if bet_recommendation else 0
@@ -3068,13 +3095,15 @@ class FootballManager:
                     UPDATE matches
                     SET bet_ai = ?,
                         bet_ai_reason = ?,
+                        bet_ai_full_response = ?,
+                        bet_ai_model_name = ?,
                         bet_ai_odds = ?,
                         bet = ?,
                         bet_approve = NULL,
                         bet_approve_reason = NULL,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (bet_ai, bet_ai_reason, bet_ai_odds, bet_value, match['id']))
+                """, (bet_ai, bet_ai_reason, bet_ai_reason, bet_ai_model_name, bet_ai_odds, bet_value, match['id']))
 
                 conn.commit()
                 conn.close()
@@ -3114,7 +3143,7 @@ class FootballManager:
             import traceback
             print(traceback.format_exc())
 
-    def _get_ai_prediction_without_fav(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
+    def _get_ai_prediction_without_fav(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str], Optional[bool], Optional[str]]:
         """
         Получает прогноз от ИИ для матчей без фаворита (без упоминания фаворита в промпте).
         
@@ -3123,14 +3152,15 @@ class FootballManager:
             stats: Статистика на 60-й минуте (из stats_60min)
         
         Returns:
-            Кортеж (bet_ai, bet_ai_reason, bet_recommendation):
+            Кортеж (bet_ai, bet_ai_reason, bet_recommendation, model_name):
             - bet_ai: Прогноз ('1', '1X', 'X', 'X2', '2') или None
             - bet_ai_reason: Полный ответ от ИИ или None
             - bet_recommendation: True если СТАВИМ, False если ИГНОРИРУЕМ, None если не распознано
+            - model_name: Имя модели, давшей ответ, или None
         """
         if not self.openrouter_api_key:
             print("[Football] OpenRouter API ключ не установлен, пропускаем ИИ-прогноз")
-            return None, None, None
+            return None, None, None, None
         
         try:
             # Формируем промпт без упоминания фаворита
@@ -3257,7 +3287,7 @@ X2 ИГНОРИРУЕМ
                                 if bet_ai:
                                     recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
                                     print(f"[Football AI] Успешно распознан прогноз: {bet_ai}, рекомендация: {recommendation_text}")
-                                    return bet_ai, ai_response, bet_recommendation
+                                    return bet_ai, ai_response, bet_recommendation, model
                                 else:
                                     print(f"[Football AI] Не удалось распознать прогноз в ответе, пробуем следующую модель")
                                     if model_idx < len(models_to_try) - 1:
@@ -3265,7 +3295,7 @@ X2 ИГНОРИРУЕМ
                                     else:
                                         # Последняя модель - возвращаем ответ даже если не распознан
                                         print(f"[Football AI] Все модели испробованы, возвращаем ответ без распознанного прогноза")
-                                        return None, ai_response, None
+                                        return None, ai_response, None, model
                         except json.JSONDecodeError as e:
                             print(f"[Football AI ERROR] Ошибка парсинга JSON ответа: {e}")
                             continue
@@ -3278,13 +3308,13 @@ X2 ИГНОРИРУЕМ
                     continue
             
             print(f"[Football AI] Не удалось получить прогноз от всех моделей")
-            return None, None, None
+            return None, None, None, None
             
         except Exception as e:
             print(f"[Football AI ERROR] Ошибка получения ИИ-прогноза: {e}")
             import traceback
             print(traceback.format_exc())
-            return None, None, None
+            return None, None, None, None
 
     def analyze_bet_risk(self, fixture_id: str, bet_ai: str, bet_ai_odds: float, stats_json: str) -> Optional[str]:
         """
@@ -3913,7 +3943,7 @@ X2 ИГНОРИРУЕМ
             print(traceback.format_exc())
             return False
 
-    def _get_ai_prediction(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str]]:
+    def _get_ai_prediction(self, match: sqlite3.Row, stats: Dict) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Получает прогноз от ИИ на основе статистики матча.
         
@@ -3922,13 +3952,14 @@ X2 ИГНОРИРУЕМ
             stats: Статистика на 60-й минуте (из stats_60min)
         
         Returns:
-            Кортеж (bet_ai, bet_ai_reason):
+            Кортеж (bet_ai, bet_ai_reason, model_name):
             - bet_ai: Прогноз ('1', '1X', 'X', 'X2', '2') или None
             - bet_ai_reason: Полный ответ от ИИ или None
+            - model_name: Имя модели, давшей ответ, или None
         """
         if not self.openrouter_api_key:
             print("[Football] OpenRouter API ключ не установлен, пропускаем ИИ-прогноз")
-            return None, None
+            return None, None, None
         
         try:
             # Формируем промпт
@@ -4012,11 +4043,11 @@ X2 ИГНОРИРУЕМ
                                 
                                 if bet_ai:
                                     print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
-                                    return bet_ai, ai_response
+                                    return bet_ai, ai_response, model
                                 else:
                                     # Даже если прогноз не распознан, возвращаем полный ответ для сохранения
                                     print(f"[Football AI] Не удалось распознать валидный прогноз в ответе, но сохраняем полный ответ: {ai_response[:200]}...")
-                                    return None, ai_response
+                                    return None, ai_response, model
                             else:
                                 print(f"[Football AI] Неверный формат ответа от OpenRouter API для модели {model}")
                                 continue
@@ -4051,13 +4082,13 @@ X2 ИГНОРИРУЕМ
             
             # Если все модели не дали валидного ответа
             print("[Football AI] Все модели не дали валидного прогноза")
-            return None, None
+            return None, None, None
             
         except Exception as e:
             print(f"[Football AI ERROR] Ошибка получения ИИ-прогноза: {e}")
             import traceback
             print(traceback.format_exc())
-            return None, None
+            return None, None, None
     
     def _parse_ai_prediction(self, ai_response: str) -> Optional[str]:
         """
