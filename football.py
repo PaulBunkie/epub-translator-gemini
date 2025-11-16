@@ -514,8 +514,11 @@ class FootballManager:
             except Exception:
                 pass
             system_instruction = (
-                "Ты спортивный аналитик. Составь экспресс из 2–4 событий из предоставленных матчей. "
-                "Используй ТОЛЬКО live_odds_1, live_odds_x, live_odds_2 и stats_60min. Не используй внешние прогнозы. "
+                "Ты - аналитик футбольных матчей и эксперт в области спортивных ставок. "
+                "Тебе предоставлена статистика первых половин матчей нескольких команд. "
+                "Твоя задача - составить экспресс из 2–4 событий из предоставленных матчей. "
+                "Ты должен учитывать статистику первых половин матчей, текущие коэффициенты букмекеров и другие факторы, которые могут повлиять на исход матча, в том числе исторические и статистические данные. "
+                "Твой экспресс должен быть оптимален по коэффициенту и минимален по риску. "
                 "Разрешенные рынки: 1X2, DoubleChance, Handicap, Total. "
                 "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,-0.5,+0.5,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
                 "Для Total используй Over/Under с ТОЛЬКО половинными линиями (… 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
@@ -563,20 +566,50 @@ class FootballManager:
                         if 'choices' in data and data['choices']:
                             raw = data['choices'][0]['message']['content']
                             last_raw = raw
-                            # Пытаемся извлечь JSON из ответа
+                            # Пытаемся извлечь JSON из ответа (с предобработкой частых артефактов)
                             parsed = None
                             try:
-                                # Если модель вернула чистый JSON
-                                parsed = json.loads(raw)
+                                txt = raw.strip()
+                                # Удаляем markdown-фенс, если модель вернула ```json ... ```
+                                if txt.startswith('```'):
+                                    lines = txt.splitlines()
+                                    # убираем первую и последнюю строку, если они выглядят как ```...```
+                                    if lines and lines[0].startswith('```'):
+                                        lines = lines[1:]
+                                    if lines and lines[-1].startswith('```'):
+                                        lines = lines[:-1]
+                                    txt = "\n".join(lines).strip()
+                                # Если total_odds отдан как выражение (например: 1.1 * 1.2 …), завернём в строку, чтобы json распарсился
+                                import re as _re
+                                txt_quoted = _re.sub(r'("total_odds"\s*:\s*)([^,\}\n]+)', r'\1"\2"', txt)
+                                try:
+                                    parsed = json.loads(txt_quoted)
+                                except Exception:
+                                    # Попробуем вытащить первый JSON-блок по скобкам и применить ту же подмену
+                                    m = _re.search(r'\{[\s\S]*\}', txt)
+                                    if m:
+                                        candidate = m.group(0)
+                                        candidate = _re.sub(r'("total_odds"\s*:\s*)([^,\}\n]+)', r'\1"\2"', candidate)
+                                        parsed = json.loads(candidate)
                             except Exception:
-                                # Попробуем найти блок JSON в тексте
-                                import re
-                                m = re.search(r'\{[\s\S]*\}', raw)
-                                if m:
+                                parsed = None
+
+                            # Если удалось распарсить, но total_odds не число — попробуем вычислить произведение коэффициентов
+                            if isinstance(parsed, dict):
+                                to = parsed.get('total_odds', None)
+                                if not isinstance(to, (int, float)):
                                     try:
-                                        parsed = json.loads(m.group(0))
+                                        legs = parsed.get('legs') or []
+                                        prod = 1.0
+                                        have_any = False
+                                        for lg in legs:
+                                            od = lg.get('odds')
+                                            if isinstance(od, (int, float)):
+                                                prod *= float(od)
+                                                have_any = True
+                                        parsed['total_odds'] = round(prod, 2) if have_any else None
                                     except Exception:
-                                        parsed = None
+                                        pass
                             try:
                                 legs_cnt = len(parsed.get('legs')) if parsed and isinstance(parsed.get('legs'), list) else 0
                                 print(f"[Football Parlay] parsed legs={legs_cnt} total_odds={(parsed or {}).get('total_odds')}")
