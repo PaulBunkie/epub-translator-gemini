@@ -79,6 +79,11 @@
             font-weight: bold;
             color: #0d6efd;
         }
+
+        /* Плюсики для экспресса: по умолчанию серые, при наведении темнее, выбранные зелёные */
+        .add-to-parlay { color: #adb5bd; }
+        .add-to-parlay:hover { color: #6c757d; }
+        .add-to-parlay.text-success { color: #198754 !important; }
         
         .odds {
             font-weight: bold;
@@ -510,9 +515,12 @@
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="tomorrow">Завтра</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="range">Период</button>
                     </div>
-                    <div class="ms-2">
+                    <div class="ms-2 d-flex align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-warning build-parlay-btn">
                             Составить экспресс <span class="badge bg-dark ms-1" data-parlay-badge>0</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary clear-parlay-btn" title="Очистить корзину экспресса">
+                            <i class="fas fa-trash"></i>
                         </button>
                     </div>
                     <div id="date-range-picker-fav" class="mt-2" style="display: none;">
@@ -578,9 +586,12 @@
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="tomorrow">Завтра</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="range">Период</button>
                     </div>
-                    <div class="ms-2">
+                    <div class="ms-2 d-flex align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-warning build-parlay-btn">
                             Составить экспресс <span class="badge bg-dark ms-1" data-parlay-badge>0</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary clear-parlay-btn" title="Очистить корзину экспресса">
+                            <i class="fas fa-trash"></i>
                         </button>
                     </div>
                     <div id="date-range-picker-all" class="mt-2" style="display: none;">
@@ -717,6 +728,26 @@
             updateParlayBadge();
         });
 
+        // Очистка корзины экспресса
+        document.addEventListener('click', function(e) {
+            const clearBtn = e.target.closest('.clear-parlay-btn');
+            if (!clearBtn) return;
+            selectedParlayFixtures.clear();
+            updateParlayBadge();
+            document.querySelectorAll('.add-to-parlay').forEach(btn => btn.classList.remove('text-success'));
+        });
+
+        // Синхронизировать подсветку плюсиков после перерисовки таблиц
+        function syncParlaySelectionHighlight() {
+            document.querySelectorAll('.add-to-parlay').forEach(btn => {
+                const fx = btn.getAttribute('data-fixture-id');
+                if (fx && selectedParlayFixtures.has(fx)) {
+                    btn.classList.add('text-success');
+                } else {
+                    btn.classList.remove('text-success');
+                }
+            });
+        }
         // Обработчики кнопок "Составить экспресс" (в обеих панелях)
         document.addEventListener('DOMContentLoaded', () => {
             const parlayModal = new bootstrap.Modal(document.getElementById('parlayModal'));
@@ -2285,8 +2316,13 @@
                 // Конвертируем UTC время в локальное время браузера
                 const localDateTime = convertUTCToLocal(match.match_date, match.match_time);
                  
+                const addSelectedClass = selectedParlayFixtures.has(String(match.fixture_id)) ? ' text-success' : '';
+                const hasStatsForParlay = !!(match.stats_60min && String(match.stats_60min).trim().length > 0);
+                const plusCellHtml = hasStatsForParlay
+                    ? `<span class="add-to-parlay${addSelectedClass}" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span>`
+                    : '';
                 row.innerHTML = `
-                    <td><span class="add-to-parlay" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span></td>
+                    <td>${plusCellHtml}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
                     <td>${match.home_team}</td>
@@ -2302,7 +2338,7 @@
                     <td>${statusHtml}</td>
                 `;
                 
-                                 tbody.appendChild(row);
+                 tbody.appendChild(row);
              });
              
              // Рассчитываем и отображаем итоги
@@ -2315,6 +2351,8 @@
                  setupSofascoreStatusHandlers();
                 // Добавляем обработчики клика на прогнозы ИИ для первой таблицы
                 setupBetAIClickHandlers();
+                // Синхронизируем подсветку плюсиков после обновления DOM
+                syncParlaySelectionHighlight();
              }, 0);
          }
          
@@ -2464,8 +2502,13 @@
                 // Конвертируем UTC время в локальное время браузера
                 const localDateTime = convertUTCToLocal(match.match_date, match.match_time);
                 
+                const addSelectedClassAll = selectedParlayFixtures.has(String(match.fixture_id)) ? ' text-success' : '';
+                const hasStatsForParlayAll = !!(match.stats_60min && String(match.stats_60min).trim().length > 0);
+                const plusCellHtmlAll = hasStatsForParlayAll
+                    ? `<span class="add-to-parlay${addSelectedClassAll}" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span>`
+                    : '';
                 row.innerHTML = `
-                    <td><span class="add-to-parlay" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span></td>
+                    <td>${plusCellHtmlAll}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
                     <td>${match.home_team}</td>

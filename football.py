@@ -2209,11 +2209,11 @@ class FootballManager:
                     time_diff = now - match_datetime
                     minutes_diff = time_diff.total_seconds() / 60
 
-                    print(f"[Football] Матч {fixture_id}: прошло {minutes_diff:.1f} минут, статус: {match['status']}")
+                    # (silenced) verbose time/status log
 
                     # Проверяем что матч уже начался
                     if minutes_diff < 0:
-                        print(f"[Football] Матч {fixture_id} еще не начался (прошло {minutes_diff:.1f} минут). Пропускаем.")
+                        # (silenced) verbose not-started log
                         continue  # Матч еще не начался
 
                     # Обновляем статус на in_progress если нужно
@@ -2228,7 +2228,7 @@ class FootballManager:
                     # Проверяем 60-я минута (минимум 50 минут, верхнее ограничение убрано для тестирования)
                     # Обрабатываем только необработанные матчи (bet IS NULL)
                     if minutes_diff >= 50:
-                        print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут (>= 50). Собираем статистику и обрабатываем...")
+                        # (silenced) verbose threshold log
                         try:
                             self._collect_60min_stats(match)
                         except Exception as e:
@@ -2243,11 +2243,8 @@ class FootballManager:
                             conn.commit()
                     else:
                         # Матч еще не достиг 50 минут или еще не начался - оставляем bet = NULL для следующей проверки
-                        if minutes_diff < 0:
-                            print(f"[Football] Матч {fixture_id} еще не начался - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
-                        else:
-                            print(f"[Football] Матч {fixture_id} еще не достиг 50 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
                         # Не трогаем bet - оставляем NULL
+                        pass
 
                 except Exception as e:
                     print(f"[Football ERROR] Ошибка проверки матча на 60-ю минуту {fixture_id}: {e}")
@@ -2279,11 +2276,11 @@ class FootballManager:
                     time_diff = now - match_datetime
                     minutes_diff = time_diff.total_seconds() / 60
 
-                    print(f"[Football] Матч без фаворита {fixture_id}: прошло {minutes_diff:.1f} минут, статус: {match['status']}")
+                    # (silenced) verbose no-fav time/status log
 
                     # Проверяем что матч уже начался
                     if minutes_diff < 0:
-                        print(f"[Football] Матч {fixture_id} еще не начался (прошло {minutes_diff:.1f} минут). Пропускаем.")
+                        # (silenced) verbose not-started log
                         continue  # Матч еще не начался
 
                     # Обновляем статус на in_progress если нужно
@@ -2297,7 +2294,7 @@ class FootballManager:
 
                     # Проверяем 60-я минута (минимум 50 минут)
                     if minutes_diff >= 50:
-                        print(f"[Football] Матч без фаворита {fixture_id} прошло {minutes_diff:.1f} минут (>= 50). Собираем статистику и обрабатываем...")
+                        # (silenced) verbose threshold log
                         try:
                             self._collect_60min_stats_without_fav(match)
                         except Exception as e:
@@ -2312,8 +2309,8 @@ class FootballManager:
                             conn.commit()
                     else:
                         # Матч еще не достиг 50 минут - оставляем bet = NULL для следующей проверки
-                        print(f"[Football] Матч без фаворита {fixture_id} еще не достиг 50 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
                         # Не трогаем bet - оставляем NULL
+                        pass
 
                 except Exception as e:
                     print(f"[Football ERROR] Ошибка проверки матча без фаворита на 60-ю минуту {fixture_id}: {e}")
@@ -2411,33 +2408,25 @@ class FootballManager:
                     should_check_final = False
                     
                     if sofascore_event_id and minutes_diff >= 85:
-                        print(f"[Football] Проверяем статус матча {fixture_id} из SofaScore API (event_id={sofascore_event_id}, прошло {minutes_diff:.1f} минут)...")
                         event_status = self._fetch_sofascore_event_status(sofascore_event_id)
                         
                         if event_status == 'finished':
-                            print(f"[Football] Матч {fixture_id} завершен по статусу из SofaScore API. Собираем финальный результат...")
                             should_check_final = True
                         elif event_status:
-                            print(f"[Football] Статус матча {fixture_id} из SofaScore: {event_status}")
                             # Если матч не завершен по статусу, но прошло много времени - используем запасной вариант
                             if minutes_diff >= 200:
-                                print(f"[Football] Матч {fixture_id} еще не завершен по статусу, но прошло {minutes_diff:.1f} минут. Используем запасной вариант.")
                                 should_check_final = True
                         else:
                             # Если не удалось получить статус из API, используем проверку по времени
-                            print(f"[Football] Не удалось получить статус из SofaScore API для {fixture_id}. Используем проверку по времени.")
                             if minutes_diff >= 200:
-                                print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут. Проверяем финальный результат...")
                                 should_check_final = True
                     elif not sofascore_event_id:
                         # Если нет sofascore_event_id, используем только проверку по времени
-                        print(f"[Football] У матча {fixture_id} нет sofascore_event_id. Используем проверку по времени.")
                         if minutes_diff >= 200:
-                            print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут. Проверяем финальный результат...")
                             should_check_final = True
                     elif minutes_diff < 85:
                         # Матч еще слишком рано (меньше 85 минут) - не проверяем статус из API
-                        print(f"[Football] Матч {fixture_id} прошло только {minutes_diff:.1f} минут (меньше 85). Пропускаем проверку статуса.")
+                        pass
 
                     if should_check_final:
                         try:
