@@ -1959,13 +1959,13 @@
             const totalBetEl = document.getElementById('total-bet');
             const totalBetAltEl = document.getElementById('total-bet-alt');
 
-            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetAIEl && totalBetEl && totalBetApproveEl) {
+            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetAIEl && totalBetEl && totalBetAltEl) {
                 totalK0El.textContent = sumK0.toFixed(2);
                 totalK1El.textContent = sumK1.toFixed(2);
                 totalK60El.textContent = sumK60.toFixed(2);
                 totalBetAIEl.textContent = sumBetAI.toFixed(2);
                 totalBetEl.textContent = sumBet.toFixed(2);
-                totalBetApproveEl.textContent = sumBetApprove.toFixed(2);
+                totalBetAltEl.textContent = sumBetApprove.toFixed(2);
 
                 const finishedMatches = matches.filter(m => m.status === 'finished');
                 totalsRow.style.display = finishedMatches.length > 0 ? '' : 'none';
