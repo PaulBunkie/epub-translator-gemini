@@ -405,6 +405,8 @@ class FootballManager:
             raise ValueError("Не установлена переменная окружения ODDS_API_KEY")
         
         self.api_key = ODDS_API_KEY
+        # Внешний провайдер для текущих счетов (TheSportsDB)
+        self.thesportsdb_api_key = os.getenv("THESPORTSDB_API_KEY", "123")
         
         # OpenRouter API для ИИ-прогнозов
         self.openrouter_api_key = OPENROUTER_API_KEY
@@ -644,6 +646,74 @@ class FootballManager:
             import traceback
             print(traceback.format_exc())
             return None
+
+    def update_inprogress_scores_from_thesportsdb(self) -> int:
+        """
+        Обновляет текущий счет для матчей в статусе 'in_progress' через API TheSportsDB.
+        Возвращает количество обновленных записей.
+        """
+        updated = 0
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, fixture_id, home_team, away_team, match_date, final_score_home, final_score_away
+                FROM matches
+                WHERE status = 'in_progress'
+            """)
+            rows = cursor.fetchall()
+            if not rows:
+                conn.close()
+                return 0
+            for row in rows:
+                fixture_id = row['fixture_id']
+                home = (row['home_team'] or '').strip()
+                away = (row['away_team'] or '').strip()
+                date_str = row['match_date']
+                if not home or not away or not date_str:
+                    continue
+                # Формируем slug вида "Home_vs_Away" для TheSportsDB
+                def to_slug(s: str) -> str:
+                    return s.replace(' ', '_')
+                slug = f"{to_slug(home)}_vs_{to_slug(away)}"
+                url = f"https://www.thesportsdb.com/api/v1/json/{self.thesportsdb_api_key}/searchevents.php?e={slug}&d={date_str}"
+                try:
+                    resp = requests.get(url, timeout=10)
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    events = data.get('event') or []
+                    if not events:
+                        continue
+                    evt = events[0]
+                    h = evt.get('intHomeScore')
+                    a = evt.get('intAwayScore')
+                    # Некоторые значения могут быть строками; пробуем привести к int
+                    try:
+                        h_val = int(h) if h is not None and str(h).isdigit() else None
+                        a_val = int(a) if a is not None and str(a).isdigit() else None
+                    except Exception:
+                        h_val = None
+                        a_val = None
+                    if h_val is None or a_val is None:
+                        continue
+                    # Обновляем счет в БД (используем поля final_* как хранилище текущего счёта)
+                    cursor.execute("""
+                        UPDATE matches
+                        SET final_score_home = ?, final_score_away = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, (h_val, a_val, row['id']))
+                    conn.commit()
+                    updated += 1
+                except Exception as ex:
+                    print(f"[Football Scores] Ошибка обновления для {fixture_id} ({home} vs {away}): {ex}")
+                    continue
+            conn.close()
+        except Exception as e:
+            print(f"[Football Scores ERROR] {e}")
+            import traceback
+            print(traceback.format_exc())
+        return updated
 
     def _extract_api_limits_from_headers(self, response: requests.Response):
         """
@@ -4837,6 +4907,18 @@ def check_matches_60min_task():
         manager.check_matches_60min_and_status()
     except Exception as e:
         print(f"[Football] Ошибка в задаче детектора 60-й минуты: {e}")
+        import traceback
+        print(traceback.format_exc())
+
+def thesportsdb_update_scores_task():
+    """Задача для планировщика - обновление текущих счетов через TheSportsDB для матчей in_progress."""
+    try:
+        manager = get_manager()
+        n = manager.update_inprogress_scores_from_thesportsdb()
+        if n:
+            print(f"[Football] Обновлены текущие счета (TheSportsDB): {n}")
+    except Exception as e:
+        print(f"[Football] Ошибка при обновлении счетов из TheSportsDB: {e}")
         import traceback
         print(traceback.format_exc())
 

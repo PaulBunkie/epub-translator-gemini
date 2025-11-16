@@ -199,6 +199,17 @@ if is_fly_io:
     )
     print("[Scheduler] ✅ Задание 'check_football_matches_final_job' добавлено (финальный счет каждые 5 минут)")
 
+    # Обновление текущих счетов из TheSportsDB каждые 2 минуты (только для in_progress)
+    scheduler.add_job(
+        football.thesportsdb_update_scores_task,
+        trigger='interval',
+        minutes=2,
+        id='thesportsdb_scores_job',
+        replace_existing=True,
+        misfire_grace_time=120
+    )
+    print("[Scheduler] ✅ Задание 'thesportsdb_scores_job' добавлено (обновление счетов из TheSportsDB каждые 2 минуты)")
+
 else:
     print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
     print("[Scheduler] 📍 Поиск локаций и анализ видео доступны только через API")
