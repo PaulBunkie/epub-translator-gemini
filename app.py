@@ -2559,7 +2559,12 @@ def api_parlay_preview():
                     legs_cnt = len(result['parlay_json']['legs'])
             except Exception:
                 legs_cnt = 0
-            print(f"[Football Parlay API] success legs={legs_cnt} total_odds={result.get('parlay_json',{}).get('total_odds')} user={user_key}")
+            try:
+                pj = result.get('parlay_json') if isinstance(result, dict) else None
+                total_odds = pj.get('total_odds') if isinstance(pj, dict) else None
+            except Exception:
+                total_odds = None
+            print(f"[Football Parlay API] success legs={legs_cnt} total_odds={total_odds} user={user_key}")
             return jsonify({'success': True, **result}), 200
         finally:
             with active_parlay_lock:
