@@ -506,9 +506,9 @@ class FootballManager:
             # Подготавливаем большой промпт: строго JSON-ответ
             context_json = json.dumps({'matches': matches_payload}, ensure_ascii=False)
             system_instruction = (
-                "Ты спортивный аналитик. Составь экспресс из 2-4 событий из предоставленных матчей. "
+                "Ты спортивный аналитик. Составь экспресс из 2-5 событий из предоставленных матчей. "
                 "Используй ТОЛЬКО live_odds_1, live_odds_x, live_odds_2 и stats_60min. "
-                "НЕ используй никакие чужие прогнозы. Верни СТРОГО JSON формата: "
+                "Верни СТРОГО JSON формата: "
                 "{\"legs\": [{\"fixture_id\": str, \"pick\": \"1|1X|X|X2|2\", \"odds\": number, \"reason\": str}], \"total_odds\": number}. "
                 "Без префиксов, без пояснений вне JSON."
             )

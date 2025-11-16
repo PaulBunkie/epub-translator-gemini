@@ -477,15 +477,7 @@
             </div>
         </div>
         
-            <!-- Панель экспресса -->
-            <div class="d-flex align-items-center justify-content-between my-2">
-                <div>
-                    <button id="buildParlayBtn" class="btn btn-sm btn-warning">
-                        Составить экспресс <span id="parlayCountBadge" class="badge bg-dark ms-1">0</span>
-                    </button>
-                </div>
-                <div id="parlayStatus" class="text-muted small"></div>
-            </div>
+            <!-- Панель экспресса перенесена в строки фильтров таблиц -->
 
             <!-- Modal для экспресса -->
             <div class="modal fade" id="parlayModal" tabindex="-1" aria-hidden="true">
@@ -510,13 +502,18 @@
             <!-- Вкладка с матчами с фаворитом -->
             <div class="tab-pane fade show active" id="fav-matches" role="tabpanel" aria-labelledby="fav-tab">
                 <!-- Фильтр по датам для первой таблицы -->
-                <div class="date-filter mb-3">
+                <div class="date-filter mb-3 d-flex align-items-center justify-content-between">
                     <div class="btn-group" role="group" aria-label="Фильтр по датам">
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="all">Все время</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="yesterday">Вчера</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn active" data-filter="today">Сегодня</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="tomorrow">Завтра</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="range">Период</button>
+                    </div>
+                    <div class="ms-2">
+                        <button type="button" class="btn btn-sm btn-warning build-parlay-btn">
+                            Составить экспресс <span class="badge bg-dark ms-1" data-parlay-badge>0</span>
+                        </button>
                     </div>
                     <div id="date-range-picker-fav" class="mt-2" style="display: none;">
                         <input type="date" id="date-from-fav" class="form-control form-control-sm d-inline-block" style="width: 150px;">
@@ -573,13 +570,18 @@
             <!-- Вкладка со всеми матчами -->
             <div class="tab-pane fade" id="all-matches" role="tabpanel" aria-labelledby="all-tab">
                 <!-- Фильтр по датам для второй таблицы -->
-                <div class="date-filter mb-3">
+                <div class="date-filter mb-3 d-flex align-items-center justify-content-between">
                     <div class="btn-group" role="group" aria-label="Фильтр по датам">
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="all">Все время</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="yesterday">Вчера</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all active" data-filter="today">Сегодня</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="tomorrow">Завтра</button>
                         <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="range">Период</button>
+                    </div>
+                    <div class="ms-2">
+                        <button type="button" class="btn btn-sm btn-warning build-parlay-btn">
+                            Составить экспресс <span class="badge bg-dark ms-1" data-parlay-badge>0</span>
+                        </button>
                     </div>
                     <div id="date-range-picker-all" class="mt-2" style="display: none;">
                         <input type="date" id="date-from-all" class="form-control form-control-sm d-inline-block" style="width: 150px;">
@@ -685,8 +687,9 @@
         let parlayRequestInFlight = false;
 
         function updateParlayBadge() {
-            const badge = document.getElementById('parlayCountBadge');
-            if (badge) badge.textContent = String(selectedParlayFixtures.size);
+            document.querySelectorAll('[data-parlay-badge]').forEach(b => {
+                b.textContent = String(selectedParlayFixtures.size);
+            });
         }
 
         function getMatchNameByFixtureId(fixtureId) {
@@ -714,18 +717,16 @@
             updateParlayBadge();
         });
 
-        // Обработчик кнопки "Составить экспресс"
+        // Обработчики кнопок "Составить экспресс" (в обеих панелях)
         document.addEventListener('DOMContentLoaded', () => {
-            const buildBtn = document.getElementById('buildParlayBtn');
-            const statusEl = document.getElementById('parlayStatus');
             const parlayModal = new bootstrap.Modal(document.getElementById('parlayModal'));
             const parlayContent = document.getElementById('parlayContent');
-            if (buildBtn) {
+            document.querySelectorAll('.build-parlay-btn').forEach(buildBtn => {
                 buildBtn.addEventListener('click', async () => {
                     if (parlayRequestInFlight) return;
                     parlayRequestInFlight = true;
-                    buildBtn.disabled = true;
-                    if (statusEl) statusEl.textContent = 'Готовим экспресс...';
+                    const buttons = document.querySelectorAll('.build-parlay-btn');
+                    buttons.forEach(b => b.disabled = true);
                     try {
                         const body = {
                             fixture_ids: Array.from(selectedParlayFixtures),
@@ -737,9 +738,8 @@
                             body: JSON.stringify(body)
                         });
                         const data = await resp.json();
+                        let html = '';
                         if (data && data.success) {
-                            // Пытаемся красиво отобразить JSON
-                            let html = '';
                             if (data.parlay_json && Array.isArray(data.parlay_json.legs)) {
                                 html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Матч</th><th>Исход</th><th>Коэфф.</th><th>Причина</th></tr></thead><tbody>';
                                 for (const leg of data.parlay_json.legs) {
@@ -755,23 +755,22 @@
                             } else {
                                 html = '<div class="text-muted">Модель не вернула результат</div>';
                             }
-                            parlayContent.innerHTML = html;
-                            parlayModal.show();
-                            if (statusEl) statusEl.textContent = 'Готово';
                         } else {
                             const err = (data && data.error) ? data.error : 'Не удалось составить экспресс';
-                            if (statusEl) statusEl.textContent = err;
+                            html = `<div class="alert alert-danger mb-0">${err}</div>`;
                         }
+                        parlayContent.innerHTML = html;
+                        parlayModal.show();
                     } catch (err) {
-                        if (statusEl) statusEl.textContent = 'Ошибка запроса';
                         console.error('Parlay preview error:', err);
+                        parlayContent.innerHTML = '<div class="alert alert-danger mb-0">Ошибка запроса</div>';
+                        parlayModal.show();
                     } finally {
                         parlayRequestInFlight = false;
-                        buildBtn.disabled = false;
-                        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+                        document.querySelectorAll('.build-parlay-btn').forEach(b => b.disabled = false);
                     }
                 });
-            }
+            });
         });
 
         // Глобальная переменная для хранения данных матчей
