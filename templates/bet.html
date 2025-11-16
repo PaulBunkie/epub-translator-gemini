@@ -477,6 +477,35 @@
             </div>
         </div>
         
+            <!-- Панель экспресса -->
+            <div class="d-flex align-items-center justify-content-between my-2">
+                <div>
+                    <button id="buildParlayBtn" class="btn btn-sm btn-warning">
+                        Составить экспресс <span id="parlayCountBadge" class="badge bg-dark ms-1">0</span>
+                    </button>
+                </div>
+                <div id="parlayStatus" class="text-muted small"></div>
+            </div>
+
+            <!-- Modal для экспресса -->
+            <div class="modal fade" id="parlayModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title">Экспресс (предпросмотр)</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body">
+                    <div id="parlayContent">
+                      <div class="text-muted">Нет данных</div>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                  </div>
+                </div>
+              </div>
+            </div>
         <div class="tab-content" id="matches-tab-content">
             <!-- Вкладка с матчами с фаворитом -->
             <div class="tab-pane fade show active" id="fav-matches" role="tabpanel" aria-labelledby="fav-tab">
@@ -649,6 +678,90 @@
     </div>
 
     <script>
+        // ============ Экспресс: выбор и отправка ============
+        const selectedParlayFixtures = new Set();
+        let parlayRequestInFlight = false;
+
+        function updateParlayBadge() {
+            const badge = document.getElementById('parlayCountBadge');
+            if (badge) badge.textContent = String(selectedParlayFixtures.size);
+        }
+
+        // Делегирование кликов по кнопкам добавления
+        document.addEventListener('click', function(e) {
+            const addBtn = e.target.closest('.add-to-parlay');
+            if (!addBtn) return;
+            const fixtureId = addBtn.getAttribute('data-fixture-id');
+            if (!fixtureId) return;
+            if (selectedParlayFixtures.has(fixtureId)) {
+                selectedParlayFixtures.delete(fixtureId);
+                addBtn.classList.remove('text-success');
+            } else {
+                selectedParlayFixtures.add(fixtureId);
+                addBtn.classList.add('text-success');
+            }
+            updateParlayBadge();
+        });
+
+        // Обработчик кнопки "Составить экспресс"
+        document.addEventListener('DOMContentLoaded', () => {
+            const buildBtn = document.getElementById('buildParlayBtn');
+            const statusEl = document.getElementById('parlayStatus');
+            const parlayModal = new bootstrap.Modal(document.getElementById('parlayModal'));
+            const parlayContent = document.getElementById('parlayContent');
+            if (buildBtn) {
+                buildBtn.addEventListener('click', async () => {
+                    if (parlayRequestInFlight) return;
+                    parlayRequestInFlight = true;
+                    buildBtn.disabled = true;
+                    if (statusEl) statusEl.textContent = 'Готовим экспресс...';
+                    try {
+                        const body = {
+                            fixture_ids: Array.from(selectedParlayFixtures),
+                            include_all_if_empty: selectedParlayFixtures.size === 0
+                        };
+                        const resp = await fetch('/api/football/parlay/preview', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body)
+                        });
+                        const data = await resp.json();
+                        if (data && data.success) {
+                            // Пытаемся красиво отобразить JSON
+                            let html = '';
+                            if (data.parlay_json && Array.isArray(data.parlay_json.legs)) {
+                                html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Матч</th><th>Исход</th><th>Коэфф.</th><th>Причина</th></tr></thead><tbody>';
+                                for (const leg of data.parlay_json.legs) {
+                                    html += `<tr><td>${leg.fixture_id || '-'}</td><td>${leg.pick || '-'}</td><td>${leg.odds ?? '-'}</td><td>${(leg.reason || '').toString().slice(0,500)}</td></tr>`;
+                                }
+                                html += '</tbody></table></div>';
+                                if (typeof data.parlay_json.total_odds !== 'undefined') {
+                                    html += `<div class="mt-2"><strong>Итоговый коэффициент:</strong> ${data.parlay_json.total_odds}</div>`;
+                                }
+                            } else if (data.raw) {
+                                html = `<pre style="white-space: pre-wrap;">${data.raw}</pre>`;
+                            } else {
+                                html = '<div class="text-muted">Модель не вернула результат</div>';
+                            }
+                            parlayContent.innerHTML = html;
+                            parlayModal.show();
+                            if (statusEl) statusEl.textContent = 'Готово';
+                        } else {
+                            const err = (data && data.error) ? data.error : 'Не удалось составить экспресс';
+                            if (statusEl) statusEl.textContent = err;
+                        }
+                    } catch (err) {
+                        if (statusEl) statusEl.textContent = 'Ошибка запроса';
+                        console.error('Parlay preview error:', err);
+                    } finally {
+                        parlayRequestInFlight = false;
+                        buildBtn.disabled = false;
+                        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+                    }
+                });
+            }
+        });
+
         // Глобальная переменная для хранения данных матчей
         let allMatches = [];
         let allMatchesData = [];
@@ -2170,7 +2283,7 @@
                     <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
                     <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
                     <td>${k60Cell}</td>
-                    <td>${betAICell}</td>
+                    <td>${betAICell} <span class="ms-2 add-to-parlay" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span></td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${(match.bet_approve && parseFloat(match.bet_approve) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScoreHtml}</td>
@@ -2347,7 +2460,7 @@
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
-                    <td>${betAICell}</td>
+                    <td>${betAICell} <span class="ms-2 add-to-parlay" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span></td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${(match.bet_approve && parseFloat(match.bet_approve) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScore}</td>

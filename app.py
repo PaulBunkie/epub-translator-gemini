@@ -100,6 +100,8 @@ executor = ThreadPoolExecutor(max_workers=int(os.getenv("MAX_TRANSLATION_WORKERS
 active_tasks = {} # Хранилище статусов активных задач {task_id: {"status": ..., "book_id": ..., "section_id": ...}}
 analyzing_risk_fixtures = set()  # Множество fixture_id, для которых идет анализ риска
 analyzing_risk_lock = threading.Lock()  # Блокировка для предотвращения race condition
+active_parlay_requests = set()  # Блокируем повторные запросы на составление экспресса
+active_parlay_lock = threading.Lock()
 
 # --- ИЗМЕНЕНИЕ: Передаем executor в alice_handler ---
 alice_handler.initialize_alice_handler(executor)
@@ -2537,6 +2539,45 @@ def api_analyze_bet_risk():
         return jsonify({'error': f'Ошибка анализа риска: {str(e)}'}), 500
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ ФУТБОЛА ---
+
+@app.route('/api/football/parlay/preview', methods=['POST'])
+def api_parlay_preview():
+    """
+    Составляет экспресс по выбранным матчам.
+    Body: { fixture_ids: [str], include_all_if_empty: bool }
+    Возвращает: { success: bool, parlay_json: any|null, raw: str|null }
+    """
+    user_key = request.remote_addr or "anon"
+    try:
+        data = request.get_json(silent=True) or {}
+        fixture_ids = data.get('fixture_ids') or []
+        include_all_if_empty = bool(data.get('include_all_if_empty', False))
+
+        # Атомарная блокировка повторных запросов на время выполнения
+        with active_parlay_lock:
+            if user_key in active_parlay_requests:
+                return jsonify({
+                    'success': False,
+                    'error': 'Формирование экспресса уже выполняется'
+                }), 409
+            active_parlay_requests.add(user_key)
+
+        try:
+            manager = football.get_manager()
+            result = manager.build_parlay_preview(fixture_ids, include_all_if_empty)
+            if not result:
+                return jsonify({'success': False, 'error': 'Не удалось составить экспресс'}), 500
+            return jsonify({'success': True, **result}), 200
+        finally:
+            with active_parlay_lock:
+                active_parlay_requests.discard(user_key)
+    except Exception as e:
+        with active_parlay_lock:
+            active_parlay_requests.discard(user_key)
+        print(f"[Football Parlay API] Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'Ошибка: {str(e)}'}), 500
 
 @app.route('/books', methods=['GET'])
 def books():

@@ -445,6 +445,142 @@ class FootballManager:
         
         print("[Football] Менеджер инициализирован")
 
+    def build_parlay_preview(self, fixture_ids: List[str], include_all_if_empty: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Формирует запрос к ИИ для составления экспресса на основе сырых данных:
+        - Используются только live_odds_1, live_odds_x, live_odds_2 и полные stats_60min.
+        - Не используются bet_ai и bet_ai_odds.
+        Returns dict with keys: {'parlay_json': any|None, 'raw': str|None}
+        """
+        if not self.openrouter_api_key:
+            print("[Football Parlay] OpenRouter API ключ не установлен, пропускаем составление экспресса")
+            return None
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            if fixture_ids:
+                qmarks = ",".join("?" for _ in fixture_ids)
+                cursor.execute(f"""
+                    SELECT fixture_id, home_team, away_team, status, match_date, match_time,
+                           live_odds_1, live_odds_x, live_odds_2, stats_60min
+                    FROM matches
+                    WHERE fixture_id IN ({qmarks})
+                    ORDER BY match_date, match_time
+                """, tuple(fixture_ids))
+            elif include_all_if_empty:
+                cursor.execute("""
+                    SELECT fixture_id, home_team, away_team, status, match_date, match_time,
+                           live_odds_1, live_odds_x, live_odds_2, stats_60min
+                    FROM matches
+                    ORDER BY match_date, match_time
+                """)
+            else:
+                conn.close()
+                return {'parlay_json': None, 'raw': None}
+            rows = cursor.fetchall()
+            conn.close()
+
+            matches_payload = []
+            for row in rows:
+                stats = None
+                try:
+                    stats = json.loads(row['stats_60min']) if row['stats_60min'] else None
+                except Exception:
+                    stats = row['stats_60min']
+                matches_payload.append({
+                    'fixture_id': row['fixture_id'],
+                    'home_team': row['home_team'],
+                    'away_team': row['away_team'],
+                    'status': row['status'],
+                    'match_date': row['match_date'],
+                    'match_time': row['match_time'],
+                    'live_odds_1': row['live_odds_1'],
+                    'live_odds_x': row['live_odds_x'],
+                    'live_odds_2': row['live_odds_2'],
+                    'stats_60min': stats
+                })
+
+            if not matches_payload:
+                return {'parlay_json': None, 'raw': None}
+
+            # Подготавливаем большой промпт: строго JSON-ответ
+            context_json = json.dumps({'matches': matches_payload}, ensure_ascii=False)
+            system_instruction = (
+                "Ты спортивный аналитик. Составь экспресс из 2-4 событий из предоставленных матчей. "
+                "Используй ТОЛЬКО live_odds_1, live_odds_x, live_odds_2 и stats_60min. "
+                "НЕ используй никакие чужие прогнозы. Верни СТРОГО JSON формата: "
+                "{\"legs\": [{\"fixture_id\": str, \"pick\": \"1|1X|X|X2|2\", \"odds\": number, \"reason\": str}], \"total_odds\": number}. "
+                "Без префиксов, без пояснений вне JSON."
+            )
+            prompt = f"{system_instruction}\n\nДанные:\n{context_json}"
+
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+            }
+            models_to_try = [self.ai_primary_model, self.ai_fallback_model1, self.ai_fallback_model2, self.ai_fallback_model3]
+
+            last_raw = None
+            for model_idx, model in enumerate(models_to_try):
+                if not model:
+                    continue
+                print(f"[Football Parlay] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
+                try:
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "user", "content": prompt}
+                        ],
+                        "max_tokens": 4000,
+                        "temperature": 0.4
+                    }
+                    response = requests.post(
+                        f"{self.openrouter_api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=120
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if 'choices' in data and data['choices']:
+                            raw = data['choices'][0]['message']['content']
+                            last_raw = raw
+                            # Пытаемся извлечь JSON из ответа
+                            parsed = None
+                            try:
+                                # Если модель вернула чистый JSON
+                                parsed = json.loads(raw)
+                            except Exception:
+                                # Попробуем найти блок JSON в тексте
+                                import re
+                                m = re.search(r'\\{[\\s\\S]*\\}', raw)
+                                if m:
+                                    try:
+                                        parsed = json.loads(m.group(0))
+                                    except Exception:
+                                        parsed = None
+                            return {'parlay_json': parsed, 'raw': raw}
+                        else:
+                            print(f"[Football Parlay] Неверный формат ответа от модели {model}")
+                    else:
+                        print(f"[Football Parlay] HTTP ошибка {response.status_code} для модели {model}")
+                        if response.status_code == 429:
+                            continue
+                except requests.exceptions.Timeout:
+                    print(f"[Football Parlay] Таймаут модели {model}")
+                    continue
+                except Exception as e:
+                    print(f"[Football Parlay] Ошибка запроса к модели {model}: {e}")
+                    continue
+            print("[Football Parlay] Не удалось получить ответ ни от одной модели")
+            return {'parlay_json': None, 'raw': last_raw}
+        except Exception as e:
+            print(f"[Football Parlay ERROR] Ошибка составления экспресса: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
+
     def _extract_api_limits_from_headers(self, response: requests.Response):
         """
         Извлекает лимиты API из заголовков ответа и обновляет переменные класса.
