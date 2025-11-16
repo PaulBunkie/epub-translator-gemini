@@ -12,6 +12,7 @@ import traceback # Для вывода ошибок
 import atexit
 import threading
 import datetime
+import logging
 
 # Flask и связанные утилиты
 from flask import (
@@ -106,6 +107,21 @@ active_parlay_lock = threading.Lock()
 # --- ИЗМЕНЕНИЕ: Передаем executor в alice_handler ---
 alice_handler.initialize_alice_handler(executor)
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+# --- Фильтрация шумных логов запросов (например, /api/football/check-subscription) ---
+class _SuppressPathFilter(logging.Filter):
+    def filter(self, record):
+        try:
+            msg = str(record.getMessage())
+            # Игнорируем частые фоновые пинги подписки
+            if "GET /api/football/check-subscription" in msg:
+                return False
+        except Exception:
+            pass
+        return True
+
+_werkzeug_logger = logging.getLogger("werkzeug")
+_werkzeug_logger.addFilter(_SuppressPathFilter())
 
 # --- ИЗМЕНЕНИЕ: Настройка и запуск APScheduler ---
 scheduler = BackgroundScheduler(daemon=True)
