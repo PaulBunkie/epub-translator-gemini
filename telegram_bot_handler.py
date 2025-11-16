@@ -167,10 +167,7 @@ class TelegramBotHandler:
                 # Используем chat_id как user_id напрямую
                 try:
                     import football
-                    # Генерируем фиктивный токен для совместимости с БД (можно использовать chat_id)
-                    # Но лучше использовать специальный маркер для прямых подписок
-                    dummy_token = f"direct_{chat_id}"
-                    success = football.add_football_subscription(dummy_token, chat_id)
+                    success = football.add_football_subscription(chat_id)
                     
                     if success:
                         message_text = """
@@ -201,7 +198,8 @@ class TelegramBotHandler:
                 # Импортируем функции футбола
                 try:
                     import football
-                    success = football.add_football_subscription(football_token, chat_id)
+                    # Токен больше не сохраняем — он нужен только для внешней валидации перехода
+                    success = football.add_football_subscription(chat_id)
                     
                     if success:
                         message_text = """

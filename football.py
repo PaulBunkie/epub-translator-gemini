@@ -360,21 +360,42 @@ def init_football_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_fixture_id ON matches(fixture_id)")
         conn.commit()
         
-        # --- Создание таблицы подписок Telegram ---
+        # --- Создание/миграция таблицы подписок Telegram ---
         print("[FootballDB] Checking/Creating 'football_telegram_subscriptions' table...")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS football_telegram_subscriptions (
-                token TEXT NOT NULL,
-                user_id TEXT NOT NULL,
+                user_id TEXT PRIMARY KEY,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                is_active BOOLEAN DEFAULT 1,
-                PRIMARY KEY (token, user_id)
+                is_active BOOLEAN DEFAULT 1
             )
         """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_football_subs_token ON football_telegram_subscriptions(token)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_football_subs_user ON football_telegram_subscriptions(user_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_football_subs_active ON football_telegram_subscriptions(is_active)")
         conn.commit()
+        # Проверяем, нет ли старой схемы с колонкой token
+        cursor.execute("PRAGMA table_info(football_telegram_subscriptions)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if "token" in cols:
+            print("[FootballDB] Migrating 'football_telegram_subscriptions' to drop 'token' and add unique user_id...")
+            # Переименовываем старую таблицу и переносим данные в новую схему
+            cursor.execute("ALTER TABLE football_telegram_subscriptions RENAME TO football_telegram_subscriptions_old")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS football_telegram_subscriptions (
+                    user_id TEXT PRIMARY KEY,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """)
+            # Переносим агрегированные данные: берём последнюю created_at и максимальный is_active по user_id
+            cursor.execute("""
+                INSERT OR REPLACE INTO football_telegram_subscriptions (user_id, created_at, is_active)
+                SELECT user_id,
+                       MAX(created_at) as created_at,
+                       MAX(COALESCE(is_active,0)) as is_active
+                FROM football_telegram_subscriptions_old
+                GROUP BY user_id
+            """)
+            cursor.execute("DROP TABLE football_telegram_subscriptions_old")
+            conn.commit()
+            print("[FootballDB] Migration completed.")
         print("[FootballDB] Table 'football_telegram_subscriptions' created/verified.")
 
         print("[FootballDB] Database initialization complete.")
@@ -4720,7 +4741,7 @@ X2 ИГНОРИРУЕМ
 
 # === Функции для работы с подписками Telegram ===
 
-def add_football_subscription(token: str, user_id: str) -> bool:
+def add_football_subscription(user_id: str) -> bool:
     """
     Добавляет подписку пользователя на уведомления о футболе.
     
@@ -4736,29 +4757,17 @@ def add_football_subscription(token: str, user_id: str) -> bool:
         conn = get_football_db_connection()
         cursor = conn.cursor()
         
-        # Проверяем, не подписан ли уже пользователь
+        # Включаем подписку через UPSERT по user_id (без токена)
         cursor.execute("""
-            SELECT is_active FROM football_telegram_subscriptions
-            WHERE user_id = ? AND is_active = 1
+            INSERT INTO football_telegram_subscriptions (user_id, created_at, is_active)
+            VALUES (?, CURRENT_TIMESTAMP, 1)
+            ON CONFLICT(user_id) DO UPDATE SET
+                is_active=1,
+                created_at=CURRENT_TIMESTAMP
         """, (user_id,))
-        existing = cursor.fetchone()
-        
-        if existing:
-            # Пользователь уже подписан, обновляем токен
-            cursor.execute("""
-                UPDATE football_telegram_subscriptions
-                SET token = ?, created_at = CURRENT_TIMESTAMP, is_active = 1
-                WHERE user_id = ?
-            """, (token, user_id))
-        else:
-            # Добавляем новую подписку
-            cursor.execute("""
-                INSERT OR REPLACE INTO football_telegram_subscriptions (token, user_id, created_at, is_active)
-                VALUES (?, ?, CURRENT_TIMESTAMP, 1)
-            """, (token, user_id))
         
         conn.commit()
-        print(f"[Football] Подписка добавлена: user_id={user_id}, token={token}")
+        print(f"[Football] Подписка активирована: user_id={user_id}")
         return True
         
     except sqlite3.Error as e:
