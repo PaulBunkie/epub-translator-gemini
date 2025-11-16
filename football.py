@@ -2699,8 +2699,6 @@ class FootballManager:
                 if not model:
                     continue
                 
-                print(f"[Football Alt Bet] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model} для fixture {fixture_id}")
-                
                 try:
                     payload = {
                         "model": model,
@@ -2756,31 +2754,21 @@ class FootballManager:
                                     bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
                                     
                                     if bet_alt_code and bet_alt_odds:
-                                        print(f"[Football Alt Bet] Получена альтернативная ставка для {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
                                         return (bet_alt_code, bet_alt_odds)
                                     else:
-                                        print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
                                         continue
                                 else:
-                                    print(f"[Football Alt Bet] Неполный ответ модели: market={market}, pick={pick}, odds={odds}")
                                     continue
                             else:
-                                print(f"[Football Alt Bet] Не удалось распарсить JSON, пробуем следующую модель")
                                 continue
-                        else:
-                            print(f"[Football Alt Bet] Неверный формат ответа от модели {model}")
                     else:
-                        print(f"[Football Alt Bet] HTTP ошибка {response.status_code} для модели {model}")
                         if response.status_code == 429:
                             continue
                 except requests.exceptions.Timeout:
-                    print(f"[Football Alt Bet] Таймаут модели {model}")
                     continue
                 except Exception as e:
-                    print(f"[Football Alt Bet] Ошибка запроса к модели {model}: {e}")
                     continue
             
-            print(f"[Football Alt Bet] Не удалось получить альтернативную ставку ни от одной модели для fixture {fixture_id}")
             return None
             
         except Exception as e:
@@ -3390,39 +3378,49 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
             
-            # Получаем альтернативную ставку, если bet >= 1
-            if bet_value >= 1:
+            # Получаем альтернативную ставку ОДИН РАЗ для каждого матча (если есть stats_60min и нет bet_alt_code)
+            if stats:
                 try:
-                    # Получаем актуальные данные матча из БД для альтернативной ставки
+                    # Проверяем, есть ли уже bet_alt_code
                     conn = get_football_db_connection()
                     cursor = conn.cursor()
-                    cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
-                    match_updated = cursor.fetchone()
+                    cursor.execute("SELECT bet_alt_code FROM matches WHERE id = ?", (match['id'],))
+                    db_row = cursor.fetchone()
                     conn.close()
                     
-                    if match_updated:
-                        alt_result = self._get_alternative_bet(match_updated, stats)
-                        if alt_result:
-                            bet_alt_code, bet_alt_odds = alt_result
-                            # Сохраняем альтернативную ставку в БД
-                            conn = get_football_db_connection()
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                UPDATE matches
-                                SET bet_alt_code = ?,
-                                    bet_alt_odds = ?,
-                                    updated_at = CURRENT_TIMESTAMP
-                                WHERE id = ?
-                            """, (bet_alt_code, bet_alt_odds, match['id']))
-                            conn.commit()
-                            conn.close()
-                            print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
-                        else:
-                            print(f"[Football] Не удалось получить альтернативную ставку для fixture {fixture_id}")
+                    if db_row and not db_row['bet_alt_code']:
+                        print(f"[Football] Запрашиваем альтернативную ставку для fixture {fixture_id} (есть stats_60min, нет bet_alt_code)")
+                        # Получаем актуальные данные матча из БД для альтернативной ставки
+                        conn = get_football_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                        match_updated = cursor.fetchone()
+                        conn.close()
+                        
+                        if match_updated:
+                            alt_result = self._get_alternative_bet(match_updated, stats)
+                            if alt_result:
+                                bet_alt_code, bet_alt_odds = alt_result
+                                print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                # Сохраняем альтернативную ставку в БД
+                                conn = get_football_db_connection()
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    UPDATE matches
+                                    SET bet_alt_code = ?,
+                                        bet_alt_odds = ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                """, (bet_alt_code, bet_alt_odds, match['id']))
+                                conn.commit()
+                                conn.close()
+                                print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                            else:
+                                print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                 except Exception as alt_error:
-                    print(f"[Football ERROR] Ошибка получения альтернативной ставки для fixture {fixture_id}: {alt_error}")
+                    print(f"[Football Alt Bet ERROR] Ошибка получения альтернативной ставки для fixture {fixture_id}: {alt_error}")
                     import traceback
-                    print(traceback.format_exc())
+                    traceback.print_exc()
             
             # Отправляем уведомление ПОСЛЕ записи в БД - читаем все данные из БД
             conn = get_football_db_connection()
@@ -3610,39 +3608,49 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}, bet: {bet_value}")
                 
-                # Получаем альтернативную ставку, если bet >= 1
-                if bet_value >= 1:
+                # Получаем альтернативную ставку ОДИН РАЗ для каждого матча (если есть stats_60min и нет bet_alt_code)
+                if stats:
                     try:
-                        # Получаем актуальные данные матча из БД для альтернативной ставки
+                        # Проверяем, есть ли уже bet_alt_code
                         conn = get_football_db_connection()
                         cursor = conn.cursor()
-                        cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
-                        match_updated = cursor.fetchone()
+                        cursor.execute("SELECT bet_alt_code FROM matches WHERE id = ?", (match['id'],))
+                        db_row = cursor.fetchone()
                         conn.close()
                         
-                        if match_updated:
-                            alt_result = self._get_alternative_bet(match_updated, stats)
-                            if alt_result:
-                                bet_alt_code, bet_alt_odds = alt_result
-                                # Сохраняем альтернативную ставку в БД
-                                conn = get_football_db_connection()
-                                cursor = conn.cursor()
-                                cursor.execute("""
-                                    UPDATE matches
-                                    SET bet_alt_code = ?,
-                                        bet_alt_odds = ?,
-                                        updated_at = CURRENT_TIMESTAMP
-                                    WHERE id = ?
-                                """, (bet_alt_code, bet_alt_odds, match['id']))
-                                conn.commit()
-                                conn.close()
-                                print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
-                            else:
-                                print(f"[Football] Не удалось получить альтернативную ставку для матча без фаворита {fixture_id}")
+                        if db_row and not db_row['bet_alt_code']:
+                            print(f"[Football] Запрашиваем альтернативную ставку для матча без фаворита {fixture_id} (есть stats_60min, нет bet_alt_code)")
+                            # Получаем актуальные данные матча из БД для альтернативной ставки
+                            conn = get_football_db_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                            match_updated = cursor.fetchone()
+                            conn.close()
+                            
+                            if match_updated:
+                                alt_result = self._get_alternative_bet(match_updated, stats)
+                                if alt_result:
+                                    bet_alt_code, bet_alt_odds = alt_result
+                                    print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                    # Сохраняем альтернативную ставку в БД
+                                    conn = get_football_db_connection()
+                                    cursor = conn.cursor()
+                                    cursor.execute("""
+                                        UPDATE matches
+                                        SET bet_alt_code = ?,
+                                            bet_alt_odds = ?,
+                                            updated_at = CURRENT_TIMESTAMP
+                                        WHERE id = ?
+                                    """, (bet_alt_code, bet_alt_odds, match['id']))
+                                    conn.commit()
+                                    conn.close()
+                                    print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                else:
+                                    print(f"[Football] _get_alternative_bet вернул None для матча без фаворита {fixture_id}")
                     except Exception as alt_error:
-                        print(f"[Football ERROR] Ошибка получения альтернативной ставки для матча без фаворита {fixture_id}: {alt_error}")
+                        print(f"[Football Alt Bet ERROR] Ошибка получения альтернативной ставки для матча без фаворита {fixture_id}: {alt_error}")
                         import traceback
-                        print(traceback.format_exc())
+                        traceback.print_exc()
                 
                 # Отправляем уведомление если ИИ рекомендует СТАВИМ (bet_recommendation = True)
                 if bet_recommendation:
