@@ -4310,10 +4310,10 @@ X2 ИГНОРИРУЕМ
                     print(f"[Football] Ошибка отправки уведомления пользователю {recipient_id} для матча {match['fixture_id']}")
             
             if success_count > 0:
-                print(f"[Football] Уведомление отправлено {success_count} получателям для матча {match['fixture_id']}")
+                print(f"[Football Notify] sent to {success_count} subscribers for fixture {match['fixture_id']}")
                 return True
             else:
-                print(f"[Football] Не удалось отправить уведомление ни одному получателю для матча {match['fixture_id']}")
+                print(f"[Football Notify] no subscribers delivered for fixture {match['fixture_id']}")
                 return False
 
         except Exception as e:
