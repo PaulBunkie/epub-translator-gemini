@@ -2655,9 +2655,9 @@ class FootballManager:
             away_team = match['away_team']
             
             # Получаем коэффициенты 1X2
-            live_odds_1 = match.get('live_odds_1')
-            live_odds_x = match.get('live_odds_x')
-            live_odds_2 = match.get('live_odds_2')
+            live_odds_1 = match['live_odds_1'] if 'live_odds_1' in match.keys() else None
+            live_odds_x = match['live_odds_x'] if 'live_odds_x' in match.keys() else None
+            live_odds_2 = match['live_odds_2'] if 'live_odds_2' in match.keys() else None
             
             # Формируем промпт для одного матча
             match_data = {

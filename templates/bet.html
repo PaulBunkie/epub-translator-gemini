@@ -508,26 +508,28 @@
             <div class="tab-pane fade show active" id="fav-matches" role="tabpanel" aria-labelledby="fav-tab">
                 <!-- Фильтр по датам для первой таблицы -->
                 <div class="date-filter mb-3 d-flex align-items-center justify-content-between">
-                    <div class="btn-group" role="group" aria-label="Фильтр по датам">
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="all">Все время</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="yesterday">Вчера</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn active" data-filter="today">Сегодня</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="tomorrow">Завтра</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="range">Период</button>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="btn-group" role="group" aria-label="Фильтр по датам">
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="all">Все время</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="yesterday">Вчера</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn active" data-filter="today">Сегодня</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="tomorrow">Завтра</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn" data-filter="range">Период</button>
+                        </div>
+                        <div id="date-range-picker-fav" class="d-flex align-items-center gap-2" style="display: none;">
+                            <input type="date" id="date-from-fav" class="form-control form-control-sm" style="width: 150px;">
+                            <span>-</span>
+                            <input type="date" id="date-to-fav" class="form-control form-control-sm" style="width: 150px;">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="applyDateRangeFilter('fav')">Применить</button>
+                        </div>
                     </div>
-                    <div class="ms-2 d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-warning build-parlay-btn">
                             Составить экспресс <span class="badge bg-dark ms-1" data-parlay-badge>0</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary clear-parlay-btn" title="Очистить корзину экспресса">
                             <i class="fas fa-trash"></i>
                         </button>
-                    </div>
-                    <div id="date-range-picker-fav" class="mt-2" style="display: none;">
-                        <input type="date" id="date-from-fav" class="form-control form-control-sm d-inline-block" style="width: 150px;">
-                        <span class="mx-2">-</span>
-                        <input type="date" id="date-to-fav" class="form-control form-control-sm d-inline-block" style="width: 150px;">
-                        <button type="button" class="btn btn-sm btn-primary ms-2" onclick="applyDateRangeFilter('fav')">Применить</button>
                     </div>
                 </div>
                 <div id="matches-container" style="display: none;">
@@ -580,26 +582,28 @@
             <div class="tab-pane fade" id="all-matches" role="tabpanel" aria-labelledby="all-tab">
                 <!-- Фильтр по датам для второй таблицы -->
                 <div class="date-filter mb-3 d-flex align-items-center justify-content-between">
-                    <div class="btn-group" role="group" aria-label="Фильтр по датам">
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="all">Все время</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="yesterday">Вчера</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all active" data-filter="today">Сегодня</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="tomorrow">Завтра</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="range">Период</button>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="btn-group" role="group" aria-label="Фильтр по датам">
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="all">Все время</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="yesterday">Вчера</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all active" data-filter="today">Сегодня</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="tomorrow">Завтра</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary date-filter-btn-all" data-filter="range">Период</button>
+                        </div>
+                        <div id="date-range-picker-all" class="d-flex align-items-center gap-2" style="display: none;">
+                            <input type="date" id="date-from-all" class="form-control form-control-sm" style="width: 150px;">
+                            <span>-</span>
+                            <input type="date" id="date-to-all" class="form-control form-control-sm" style="width: 150px;">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="applyDateRangeFilter('all')">Применить</button>
+                        </div>
                     </div>
-                    <div class="ms-2 d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-warning build-parlay-btn">
                             Составить экспресс <span class="badge bg-dark ms-1" data-parlay-badge>0</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary clear-parlay-btn" title="Очистить корзину экспресса">
                             <i class="fas fa-trash"></i>
                         </button>
-                    </div>
-                    <div id="date-range-picker-all" class="mt-2" style="display: none;">
-                        <input type="date" id="date-from-all" class="form-control form-control-sm d-inline-block" style="width: 150px;">
-                        <span class="mx-2">-</span>
-                        <input type="date" id="date-to-all" class="form-control form-control-sm d-inline-block" style="width: 150px;">
-                        <button type="button" class="btn btn-sm btn-primary ms-2" onclick="applyDateRangeFilter('all')">Применить</button>
                     </div>
                 </div>
                 <div id="all-matches-container" style="display: none;">
@@ -903,6 +907,34 @@
                     setDateFilter('all', filter);
                 });
             });
+            
+            // Инициализация: скрываем поля выбора дат при загрузке
+            const rangePickerFav = document.getElementById('date-range-picker-fav');
+            const rangePickerAll = document.getElementById('date-range-picker-all');
+            if (rangePickerFav) {
+                rangePickerFav.style.display = 'none';
+                rangePickerFav.classList.add('d-none');
+            }
+            if (rangePickerAll) {
+                rangePickerAll.style.display = 'none';
+                rangePickerAll.classList.add('d-none');
+            }
+            
+            // Применяем текущий фильтр при загрузке, чтобы скрыть поля, если нужно
+            if (currentDateFilterFav !== 'range') {
+                const pickerFav = document.getElementById('date-range-picker-fav');
+                if (pickerFav) {
+                    pickerFav.style.display = 'none';
+                    pickerFav.classList.add('d-none');
+                }
+            }
+            if (currentDateFilterAll !== 'range') {
+                const pickerAll = document.getElementById('date-range-picker-all');
+                if (pickerAll) {
+                    pickerAll.style.display = 'none';
+                    pickerAll.classList.add('d-none');
+                }
+            }
         });
         
         // Функция для установки фильтра по датам
@@ -918,11 +950,20 @@
                 });
                 // Показываем/скрываем выбор диапазона дат
                 const rangePicker = document.getElementById('date-range-picker-fav');
-                if (filter === 'range') {
-                    rangePicker.style.display = 'block';
-                } else {
-                    rangePicker.style.display = 'none';
-                    dateRangeFav = { from: null, to: null };
+                if (rangePicker) {
+                    if (filter === 'range') {
+                        rangePicker.style.display = 'flex';
+                        rangePicker.classList.remove('d-none');
+                    } else {
+                        rangePicker.style.display = 'none';
+                        rangePicker.classList.add('d-none');
+                        dateRangeFav = { from: null, to: null };
+                    }
+                }
+                // СНАЧАЛА очищаем таблицу, потом применяем фильтр
+                const tbody = document.getElementById('matches-table-body');
+                if (tbody) {
+                    tbody.innerHTML = '';
                 }
                 // Применяем фильтр и перерисовываем таблицу
                 applyDateFilter('fav');
@@ -937,11 +978,20 @@
                 });
                 // Показываем/скрываем выбор диапазона дат
                 const rangePicker = document.getElementById('date-range-picker-all');
-                if (filter === 'range') {
-                    rangePicker.style.display = 'block';
-                } else {
-                    rangePicker.style.display = 'none';
-                    dateRangeAll = { from: null, to: null };
+                if (rangePicker) {
+                    if (filter === 'range') {
+                        rangePicker.style.display = 'flex';
+                        rangePicker.classList.remove('d-none');
+                    } else {
+                        rangePicker.style.display = 'none';
+                        rangePicker.classList.add('d-none');
+                        dateRangeAll = { from: null, to: null };
+                    }
+                }
+                // СНАЧАЛА очищаем таблицу, потом применяем фильтр
+                const tbody = document.getElementById('all-matches-table-body');
+                if (tbody) {
+                    tbody.innerHTML = '';
                 }
                 // Применяем фильтр и перерисовываем таблицу
                 applyDateFilter('all');
@@ -1064,7 +1114,16 @@
         // Функция для применения фильтра и перерисовки таблицы
         function applyDateFilter(table) {
             if (table === 'fav') {
-                const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
+                const filtered = filterMatchesByDate(allMatches || [], currentDateFilterFav, dateRangeFav);
+                // Явно очищаем таблицу перед применением фильтра
+                const tbody = document.getElementById('matches-table-body');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                }
+                if (!filtered || filtered.length === 0) {
+                    displayMatches([]);
+                    return;
+                }
                 if (currentSortField) {
                     // Применяем текущую сортировку без изменения направления
                     applyCurrentSort('fav', filtered);
@@ -1072,7 +1131,16 @@
                     displayMatches(filtered);
                 }
             } else if (table === 'all') {
-                const filtered = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
+                const filtered = filterMatchesByDate(allMatchesData || [], currentDateFilterAll, dateRangeAll);
+                // Явно очищаем таблицу перед применением фильтра
+                const tbody = document.getElementById('all-matches-table-body');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                }
+                if (!filtered || filtered.length === 0) {
+                    displayAllMatches([]);
+                    return;
+                }
                 if (currentSortFieldAll) {
                     // Применяем текущую сортировку без изменения направления
                     applyCurrentSort('all', filtered);
@@ -1749,9 +1817,9 @@
                         applyCurrentSortForTable(filtered, 'fav');
                     } else {
                         allMatches = [];
-                        if (!silent) {
-                            document.getElementById('empty-state').style.display = 'block';
-                        }
+                        // Применяем фильтр даже для пустого массива, чтобы очистить таблицу
+                        const filtered = filterMatchesByDate([], currentDateFilterFav, dateRangeFav);
+                        displayMatches(filtered);
                     }
                     
                     // Обрабатываем все матчи
@@ -1768,10 +1836,9 @@
                         applyCurrentSortForTable(filtered, 'all');
                     } else {
                         allMatchesData = [];
-                        if (!silent) {
-                            document.getElementById('all-matches-empty-state').style.display = 'block';
-                            document.getElementById('all-matches-container').style.display = 'none';
-                        }
+                        // Применяем фильтр даже для пустого массива, чтобы очистить таблицу
+                        const filtered = filterMatchesByDate([], currentDateFilterAll, dateRangeAll);
+                        displayAllMatches(filtered);
                     }
                     
                     // Обновляем время последнего обновления
@@ -2172,23 +2239,38 @@
         
         function displayMatches(matches) {
             const tbody = document.getElementById('matches-table-body');
-            tbody.innerHTML = '';
-            window.favMatchesForRisk = matches;
+            const matchesContainer = document.getElementById('matches-container');
+            const emptyState = document.getElementById('empty-state');
+            
+            // Всегда очищаем таблицу в начале
+            if (tbody) {
+                tbody.innerHTML = '';
+            }
+            window.favMatchesForRisk = matches || [];
             
             if (!matches || matches.length === 0) {
                 // Если нет матчей, показываем пустую таблицу (состояние пустоты обрабатывается отдельно)
-                document.getElementById('matches-container').style.display = 'none';
-                document.getElementById('empty-state').style.display = 'block';
-                // Скрываем строку итогов
-                const totalsRow = document.getElementById('totals-row');
-                if (totalsRow) {
-                    totalsRow.style.display = 'none';
+                // Убеждаемся, что tbody полностью очищен
+                if (tbody) {
+                    tbody.innerHTML = '';
                 }
+                if (matchesContainer) {
+                    matchesContainer.style.display = 'none';
+                }
+                if (emptyState) {
+                    emptyState.style.display = 'block';
+                }
+                // Очищаем итоги
+                calculateTotals([]);
                 return;
             }
             
-            document.getElementById('matches-container').style.display = 'block';
-            document.getElementById('empty-state').style.display = 'none';
+            if (matchesContainer) {
+                matchesContainer.style.display = 'block';
+            }
+            if (emptyState) {
+                emptyState.style.display = 'none';
+            }
             
             matches.forEach((match, index) => {
                 const row = document.createElement('tr');
@@ -2398,16 +2480,36 @@
          
          function displayAllMatches(matches) {
              const tbody = document.getElementById('all-matches-table-body');
-             tbody.innerHTML = '';
+             const allMatchesContainer = document.getElementById('all-matches-container');
+             const allMatchesEmptyState = document.getElementById('all-matches-empty-state');
+             
+             // Всегда очищаем таблицу в начале
+             if (tbody) {
+                 tbody.innerHTML = '';
+             }
              
              if (!matches || matches.length === 0) {
-                 document.getElementById('all-matches-empty-state').style.display = 'block';
-                 document.getElementById('all-matches-container').style.display = 'none';
+                 // Убеждаемся, что tbody полностью очищен
+                 if (tbody) {
+                     tbody.innerHTML = '';
+                 }
+                 if (allMatchesEmptyState) {
+                     allMatchesEmptyState.style.display = 'block';
+                 }
+                 if (allMatchesContainer) {
+                     allMatchesContainer.style.display = 'none';
+                 }
+                 // Очищаем итоги
+                 calculateTotalsAllMatches([]);
                  return;
              }
              
-             document.getElementById('all-matches-container').style.display = 'block';
-             document.getElementById('all-matches-empty-state').style.display = 'none';
+             if (allMatchesContainer) {
+                 allMatchesContainer.style.display = 'block';
+             }
+             if (allMatchesEmptyState) {
+                 allMatchesEmptyState.style.display = 'none';
+             }
              
              // Сохраняем матчи в глобальную переменную для доступа из обработчиков
              window.allMatchesForRisk = matches;
