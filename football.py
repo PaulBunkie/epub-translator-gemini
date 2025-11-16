@@ -2582,6 +2582,45 @@ class FootballManager:
                     print(traceback.format_exc())
                     continue
 
+            # Проверяем матчи с stats_60min, но без bet_alt_code (для запроса альтернативной ставки)
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE stats_60min IS NOT NULL
+                  AND (bet_alt_code IS NULL OR bet_alt_code = '')
+                  AND status IN ('in_progress', 'finished')
+                ORDER BY match_date, match_time
+            """)
+            matches_for_alt_bet = cursor.fetchall()
+            
+            if matches_for_alt_bet:
+                print(f"[Football] Найдено {len(matches_for_alt_bet)} матчей с stats_60min, но без bet_alt_code")
+                for match in matches_for_alt_bet:
+                    fixture_id = match['fixture_id']
+                    try:
+                        import json
+                        stats = json.loads(match['stats_60min']) if isinstance(match['stats_60min'], str) else match['stats_60min']
+                        
+                        print(f"[Football] Запрашиваем альтернативную ставку для fixture {fixture_id}")
+                        alt_result = self._get_alternative_bet(match, stats)
+                        if alt_result:
+                            bet_alt_code, bet_alt_odds = alt_result
+                            cursor.execute("""
+                                UPDATE matches
+                                SET bet_alt_code = ?,
+                                    bet_alt_odds = ?,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            """, (bet_alt_code, bet_alt_odds, match['id']))
+                            conn.commit()
+                            print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                        else:
+                            print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
+                    except Exception as e:
+                        print(f"[Football ERROR] Ошибка получения альтернативной ставки для fixture {fixture_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
+
             conn.close()
         except Exception as e:
             print(f"[Football ERROR] Ошибка 2-мин проверки: {e}")
