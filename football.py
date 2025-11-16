@@ -4805,13 +4805,14 @@ def remove_football_subscription(user_id: str) -> bool:
         cursor.execute("""
             UPDATE football_telegram_subscriptions
             SET is_active = 0
-            WHERE user_id = ?
+            WHERE user_id = ? AND is_active = 1
         """, (user_id,))
         
         conn.commit()
         affected = cursor.rowcount
-        print(f"[Football] Подписка удалена: user_id={user_id}, affected={affected}")
-        return affected > 0
+        print(f"[Football] Подписка удалена (идемпотентно): user_id={user_id}, affected={affected}")
+        # Идемпотентность: даже если уже был отписан (affected=0), считаем операцию успешной
+        return True
         
     except sqlite3.Error as e:
         print(f"[Football ERROR] Ошибка удаления подписки: {e}")

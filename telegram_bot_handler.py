@@ -190,6 +190,24 @@ class TelegramBotHandler:
                     print(f"[TelegramBot] Ошибка при подписке на футбол пользователя {chat_id}: {e}")
                     return "❌ Ошибка при активации подписки. Попробуйте позже."
             
+            elif token_clean == "football_unsub" or token_clean.startswith("football_unsub_"):
+                # Deep-link для мгновенной отписки
+                try:
+                    import football
+                    football.remove_football_subscription(chat_id)  # идемпотентно
+                    message_text = """
+✅ <b>Вы отписались от уведомлений о футболе.</b>
+
+/start football — Подписаться снова
+                    """.strip()
+                    self.send_message(chat_id, message_text)
+                    return None
+                except ImportError:
+                    return "❌ Модуль футбола не доступен."
+                except Exception as e:
+                    print(f"[TelegramBot] Ошибка при отписке пользователя {chat_id}: {e}")
+                    return "❌ Ошибка при отписке. Попробуйте позже."
+
             elif token_clean.startswith("football_"):
                 # Подписка через ссылку с веб-страницы (с токеном)
                 # Извлекаем токен после "football_" (используем оригинальный token для сохранения регистра UUID)
@@ -200,6 +218,12 @@ class TelegramBotHandler:
                     import football
                     # Токен больше не сохраняем — он нужен только для внешней валидации перехода
                     success = football.add_football_subscription(chat_id)
+                    # Привязываем токен к user_id в памяти, чтобы UI мог проверить статус
+                    if football_token:
+                        try:
+                            football.bind_token_to_user(football_token, chat_id)
+                        except Exception as bind_err:
+                            print(f"[TelegramBot] Не удалось привязать токен к пользователю: {bind_err}")
                     # Привязываем токен к user_id в памяти, чтобы UI мог проверить статус
                     if football_token:
                         try:
