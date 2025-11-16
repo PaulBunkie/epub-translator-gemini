@@ -2312,171 +2312,15 @@ class FootballManager:
 
     def check_matches_and_collect(self):
         """
-        Проверяет активные матчи и собирает статистику на 60-й минуте и финальный результат.
+        Проверяет активные матчи и собирает финальный результат.
         Вызывается каждые 5 минут.
+        Обработка 60-й минуты вынесена в отдельный метод check_matches_60min_and_status (2-минутный интервал).
         """
-        print("[Football] Проверка матчей и сбор статистики")
+        print("[Football] Проверка матчей и сбор финального результата")
 
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
-
-            # ===== ЧАСТЬ 1: Обработка матчей на 60-й минуте (только bet IS NULL) =====
-            # Разделяем матчи с фаворитом и без
-            cursor.execute("""
-                SELECT * FROM matches
-                WHERE status IN ('scheduled', 'in_progress')
-                AND bet IS NULL
-                AND fav != 'NONE'
-                ORDER BY match_date, match_time
-            """)
-
-            matches_with_fav = cursor.fetchall()
-            print(f"[Football] Найдено {len(matches_with_fav)} необработанных матчей с фаворитом (bet IS NULL, fav != 'NONE') для проверки на 60-й минуте")
-
-            cursor.execute("""
-                SELECT * FROM matches
-                WHERE status IN ('scheduled', 'in_progress')
-                AND bet IS NULL
-                AND fav = 'NONE'
-                ORDER BY match_date, match_time
-            """)
-
-            matches_without_fav = cursor.fetchall()
-            print(f"[Football] Найдено {len(matches_without_fav)} необработанных матчей без фаворита (bet IS NULL, fav = 'NONE') для проверки на 60-й минуте")
-
-            # Обрабатываем матчи с фаворитом (как раньше - с live_odds)
-            for match in matches_with_fav:
-                match_id = match['id']
-                fixture_id = match['fixture_id']
-                match_datetime_str = f"{match['match_date']} {match['match_time']}"
-                
-                try:
-                    # Парсим дату и время из БД (они в UTC, но без tzinfo)
-                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
-                    # Добавляем UTC часовой пояс, так как время в БД сохранено в UTC
-                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
-                    
-                    # Используем UTC время для сравнения (независимо от часового пояса сервера)
-                    now = datetime.now(timezone.utc)
-                    
-                    # Вычисляем разницу во времени
-                    time_diff = now - match_datetime
-                    minutes_diff = time_diff.total_seconds() / 60
-
-                    # (silenced) verbose time/status log
-
-                    # Проверяем что матч уже начался
-                    if minutes_diff < 0:
-                        # (silenced) verbose not-started log
-                        continue  # Матч еще не начался
-
-                    # Обновляем статус на in_progress если нужно
-                    if match['status'] == 'scheduled':
-                        print(f"[Football] Обновляем статус матча {fixture_id} на 'in_progress'")
-                        cursor.execute(
-                            "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (match_id,)
-                        )
-                        conn.commit()
-
-                    # Проверяем 60-я минута (минимум 50 минут, верхнее ограничение убрано для тестирования)
-                    # Обрабатываем только необработанные матчи (bet IS NULL)
-                    if minutes_diff >= 50:
-                        # (silenced) verbose threshold log
-                        try:
-                            self._collect_60min_stats(match)
-                        except Exception as e:
-                            print(f"[Football ERROR] Ошибка сбора статистики 60min для {fixture_id}: {e}")
-                            import traceback
-                            print(traceback.format_exc())
-                            # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
-                            cursor.execute(
-                                "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                                (match_id,)
-                            )
-                            conn.commit()
-                    else:
-                        # Матч еще не достиг 50 минут или еще не начался - оставляем bet = NULL для следующей проверки
-                        # Не трогаем bet - оставляем NULL
-                        pass
-
-                except Exception as e:
-                    print(f"[Football ERROR] Ошибка проверки матча на 60-ю минуту {fixture_id}: {e}")
-                    import traceback
-                    print(traceback.format_exc())
-                    continue
-                
-                # Задержка между матчами (4-8 секунд) для избежания бана в SofaScore
-                delay_between_matches = random.uniform(4.0, 8.0)
-                print(f"[Football] Задержка {delay_between_matches:.1f} сек перед следующим матчем с фаворитом")
-                time.sleep(delay_between_matches)
-
-            # Обрабатываем матчи без фаворита (без live_odds, только прогноз ИИ)
-            for match in matches_without_fav:
-                match_id = match['id']
-                fixture_id = match['fixture_id']
-                match_datetime_str = f"{match['match_date']} {match['match_time']}"
-                
-                try:
-                    # Парсим дату и время из БД (они в UTC, но без tzinfo)
-                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
-                    # Добавляем UTC часовой пояс, так как время в БД сохранено в UTC
-                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
-                    
-                    # Используем UTC время для сравнения (независимо от часового пояса сервера)
-                    now = datetime.now(timezone.utc)
-                    
-                    # Вычисляем разницу во времени
-                    time_diff = now - match_datetime
-                    minutes_diff = time_diff.total_seconds() / 60
-
-                    # (silenced) verbose no-fav time/status log
-
-                    # Проверяем что матч уже начался
-                    if minutes_diff < 0:
-                        # (silenced) verbose not-started log
-                        continue  # Матч еще не начался
-
-                    # Обновляем статус на in_progress если нужно
-                    if match['status'] == 'scheduled':
-                        print(f"[Football] Обновляем статус матча {fixture_id} на 'in_progress'")
-                        cursor.execute(
-                            "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                            (match_id,)
-                        )
-                        conn.commit()
-
-                    # Проверяем 60-я минута (минимум 50 минут)
-                    if minutes_diff >= 50:
-                        # (silenced) verbose threshold log
-                        try:
-                            self._collect_60min_stats_without_fav(match)
-                        except Exception as e:
-                            print(f"[Football ERROR] Ошибка сбора статистики 60min для матча без фаворита {fixture_id}: {e}")
-                            import traceback
-                            print(traceback.format_exc())
-                            # В случае ошибки тоже помечаем как обработанный, чтобы не повторять
-                            cursor.execute(
-                                "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                                (match_id,)
-                            )
-                            conn.commit()
-                    else:
-                        # Матч еще не достиг 50 минут - оставляем bet = NULL для следующей проверки
-                        # Не трогаем bet - оставляем NULL
-                        pass
-
-                except Exception as e:
-                    print(f"[Football ERROR] Ошибка проверки матча без фаворита на 60-ю минуту {fixture_id}: {e}")
-                    import traceback
-                    print(traceback.format_exc())
-                    continue
-                
-                # Задержка между матчами (4-8 секунд) для избежания бана в SofaScore
-                delay_between_matches = random.uniform(4.0, 8.0)
-                print(f"[Football] Задержка {delay_between_matches:.1f} сек перед следующим матчем без фаворита")
-                time.sleep(delay_between_matches)
 
             # ===== ЧАСТЬ 1.5: Обновление live_odds для уже обработанных матчей без live_odds =====
             cursor.execute("""
@@ -2598,7 +2442,7 @@ class FootballManager:
                     continue
 
             conn.close()
-            print(f"[Football] Обработка матчей завершена. Проверено с фаворитом: {len(matches_with_fav)}, без фаворита: {len(matches_without_fav)}, на финальный результат: {len(matches_for_final)}")
+            print(f"[Football] Обработка матчей завершена. Проверено на финальный результат: {len(matches_for_final)}")
             
         except Exception as e:
             print(f"[Football ERROR] Ошибка проверки матчей: {e}")
