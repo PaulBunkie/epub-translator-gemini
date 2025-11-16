@@ -4235,6 +4235,14 @@ X2 ИГНОРИРУЕМ
             fav_team = match['fav']
             is_match_without_fav = (fav_team == 'NONE' or not fav_team)
 
+            # --- verbose but concise pre-send log
+            try:
+                print(f"[Football Notify] preparing fixture={match['fixture_id']} "
+                      f"teams={home_team} vs {away_team} score={home_score}-{away_score} "
+                      f"fav={fav_team if fav_team else 'NONE'}")
+            except Exception:
+                pass
+
             # Для матчей с фаворитом проверяем условие: фаворит не выигрывает
             if not is_match_without_fav:
                 fav_is_home = (fav_team == home_team)
@@ -4251,7 +4259,7 @@ X2 ИГНОРИРУЕМ
 
                 # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
                 if score_diff < 0:
-                    print(f"[Football] Фаворит {fav_team} выигрывает ({fav_score}-{opp_score}), пропускаем уведомление")
+                    print(f"[Football Notify] skip: favourite '{fav_team}' is leading {fav_score}-{opp_score} for fixture {match['fixture_id']}")
                     return False
 
             # Формируем решение ИИ для сообщения
@@ -4301,19 +4309,30 @@ X2 ИГНОРИРУЕМ
             # Отправляем уведомление только подписчикам (админ тоже должен подписаться)
             recipients = set(subscribers)
             
+            try:
+                print(f"[Football Notify] recipients={len(recipients)} for fixture {match['fixture_id']}")
+            except Exception:
+                pass
+
+            if not recipients:
+                print(f"[Football Notify] no subscribers (0) -> nothing to send for fixture {match['fixture_id']}")
+                return False
+
             # Отправляем уведомление всем получателям
             success_count = 0
+            fail_count = 0
             for recipient_id in recipients:
                 if telegram_notifier.send_message_to_user(recipient_id, message):
                     success_count += 1
                 else:
-                    print(f"[Football] Ошибка отправки уведомления пользователю {recipient_id} для матча {match['fixture_id']}")
+                    fail_count += 1
+                    print(f"[Football Notify] send failed to user={recipient_id} fixture={match['fixture_id']}")
             
             if success_count > 0:
-                print(f"[Football Notify] sent to {success_count} subscribers for fixture {match['fixture_id']}")
+                print(f"[Football Notify] sent={success_count} failed={fail_count} total={len(recipients)} fixture={match['fixture_id']}")
                 return True
             else:
-                print(f"[Football Notify] no subscribers delivered for fixture {match['fixture_id']}")
+                print(f"[Football Notify] delivered=0 failed={fail_count} fixture={match['fixture_id']}")
                 return False
 
         except Exception as e:
