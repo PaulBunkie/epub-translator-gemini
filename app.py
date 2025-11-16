@@ -177,14 +177,25 @@ if is_fly_io:
     print("[Scheduler] ✅ Задание 'collect_football_matches_job' добавлено (сбор матчей на завтра каждый день в 23:00)")
 
     scheduler.add_job(
+        football.check_matches_60min_task,
+        trigger='interval',
+        minutes=2,  # Каждые 2 минуты - статус и 60-я минута
+        id='check_football_matches_60min_job',
+        replace_existing=True,
+        misfire_grace_time=180  # 3 минуты grace time
+    )
+    print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 2 минуты)")
+
+    # Отдельная задача для финального счета - каждые 5 минут
+    scheduler.add_job(
         football.check_matches_and_collect_task,
         trigger='interval',
-        minutes=5,  # Каждые 5 минут
-        id='check_football_matches_job',
+        minutes=5,  # Каждые 5 минут - финальный счет и прочее
+        id='check_football_matches_final_job',
         replace_existing=True,
         misfire_grace_time=300  # 5 минут grace time
     )
-    print("[Scheduler] ✅ Задание 'check_football_matches_job' добавлено (проверка матчей каждые 5 минут)")
+    print("[Scheduler] ✅ Задание 'check_football_matches_final_job' добавлено (финальный счет каждые 5 минут)")
 
 else:
     print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
@@ -192,14 +203,24 @@ else:
     
     # Исключение: проверка матчей работает и локально для тестирования
     scheduler.add_job(
+        football.check_matches_60min_task,
+        trigger='interval',
+        minutes=2,  # Каждые 2 минуты - статус и 60-я минута
+        id='check_football_matches_60min_job',
+        replace_existing=True,
+        misfire_grace_time=180  # 3 минуты grace time
+    )
+    print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 2 минуты) - локальный режим")
+
+    scheduler.add_job(
         football.check_matches_and_collect_task,
         trigger='interval',
-        minutes=5,  # Каждые 5 минут
-        id='check_football_matches_job',
+        minutes=5,  # Каждые 5 минут - финальный счет
+        id='check_football_matches_final_job',
         replace_existing=True,
         misfire_grace_time=300  # 5 минут grace time
     )
-    print("[Scheduler] ✅ Задание 'check_football_matches_job' добавлено (проверка матчей каждые 5 минут) - локальный режим")
+    print("[Scheduler] ✅ Задание 'check_football_matches_final_job' добавлено (финальный счет каждые 5 минут) - локальный режим")
 
 try:
     scheduler.start()

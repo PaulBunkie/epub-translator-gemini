@@ -2089,10 +2089,10 @@ class FootballManager:
                         )
                         conn.commit()
 
-                    # Проверяем 60-я минута (минимум 55 минут, верхнее ограничение убрано для тестирования)
+                    # Проверяем 60-я минута (минимум 50 минут, верхнее ограничение убрано для тестирования)
                     # Обрабатываем только необработанные матчи (bet IS NULL)
-                    if minutes_diff >= 55:
-                        print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут (>= 55). Собираем статистику и обрабатываем...")
+                    if minutes_diff >= 50:
+                        print(f"[Football] Матч {fixture_id} прошло {minutes_diff:.1f} минут (>= 50). Собираем статистику и обрабатываем...")
                         try:
                             self._collect_60min_stats(match)
                         except Exception as e:
@@ -2106,11 +2106,11 @@ class FootballManager:
                             )
                             conn.commit()
                     else:
-                        # Матч еще не достиг 55 минут или еще не начался - оставляем bet = NULL для следующей проверки
+                        # Матч еще не достиг 50 минут или еще не начался - оставляем bet = NULL для следующей проверки
                         if minutes_diff < 0:
                             print(f"[Football] Матч {fixture_id} еще не начался - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
                         else:
-                            print(f"[Football] Матч {fixture_id} еще не достиг 55 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
+                            print(f"[Football] Матч {fixture_id} еще не достиг 50 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
                         # Не трогаем bet - оставляем NULL
 
                 except Exception as e:
@@ -2159,9 +2159,9 @@ class FootballManager:
                         )
                         conn.commit()
 
-                    # Проверяем 60-я минута (минимум 55 минут)
-                    if minutes_diff >= 55:
-                        print(f"[Football] Матч без фаворита {fixture_id} прошло {minutes_diff:.1f} минут (>= 55). Собираем статистику и обрабатываем...")
+                    # Проверяем 60-я минута (минимум 50 минут)
+                    if minutes_diff >= 50:
+                        print(f"[Football] Матч без фаворита {fixture_id} прошло {minutes_diff:.1f} минут (>= 50). Собираем статистику и обрабатываем...")
                         try:
                             self._collect_60min_stats_without_fav(match)
                         except Exception as e:
@@ -2175,8 +2175,8 @@ class FootballManager:
                             )
                             conn.commit()
                     else:
-                        # Матч еще не достиг 55 минут - оставляем bet = NULL для следующей проверки
-                        print(f"[Football] Матч без фаворита {fixture_id} еще не достиг 55 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
+                        # Матч еще не достиг 50 минут - оставляем bet = NULL для следующей проверки
+                        print(f"[Football] Матч без фаворита {fixture_id} еще не достиг 50 минут - прошло {minutes_diff:.1f} минут. Оставляем для следующей проверки.")
                         # Не трогаем bet - оставляем NULL
 
                 except Exception as e:
@@ -2211,8 +2211,8 @@ class FootballManager:
                     now = datetime.now(timezone.utc)
                     minutes_diff = (now - match_datetime).total_seconds() / 60.0
                     
-                    # Обновляем live_odds только если прошло >= 55 минут
-                    if minutes_diff >= 55:
+                    # Обновляем live_odds только если прошло >= 50 минут
+                    if minutes_diff >= 50:
                         print(f"[Football] Обновляем live_odds для матча {fixture_id} (прошло {minutes_diff:.1f} минут)...")
                         sport_key = match['sport_key'] if 'sport_key' in match.keys() else None
                         live_odds_value = self._get_live_odds(fixture_id, sport_key)
@@ -2327,6 +2327,126 @@ class FootballManager:
         finally:
             if conn:
                 conn.close()
+
+    def check_matches_60min_and_status(self):
+        """
+        Проверяет активные матчи только для смены статуса и сбора статистики на 60-й минуте (без проверки финального счета).
+        Используется для более частого (например, каждые 2 минуты) детектора 60-й минуты.
+        """
+        print("[Football] (2-мин) Проверка статуса и 60-й минуты")
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            # Матчи с фаворитом, еще не обработанные (bet IS NULL)
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE status IN ('scheduled', 'in_progress')
+                  AND bet IS NULL
+                  AND fav != 'NONE'
+                ORDER BY match_date, match_time
+            """)
+            matches_with_fav = cursor.fetchall()
+
+            # Матчи без фаворита, еще не обработанные (bet IS NULL)
+            cursor.execute("""
+                SELECT * FROM matches
+                WHERE status IN ('scheduled', 'in_progress')
+                  AND bet IS NULL
+                  AND fav = 'NONE'
+                ORDER BY match_date, match_time
+            """)
+            matches_without_fav = cursor.fetchall()
+
+            # Обработка матчей с фаворитом
+            for match in matches_with_fav:
+                match_id = match['id']
+                fixture_id = match['fixture_id']
+                match_datetime_str = f"{match['match_date']} {match['match_time']}"
+                try:
+                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
+                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    minutes_diff = (now - match_datetime).total_seconds() / 60
+
+                    if minutes_diff < 0:
+                        continue
+
+                    if match['status'] == 'scheduled':
+                        cursor.execute(
+                            "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (match_id,)
+                        )
+                        conn.commit()
+
+                    if minutes_diff >= 50:
+                        try:
+                            self._collect_60min_stats(match)
+                        except Exception as e:
+                            print(f"[Football ERROR] Ошибка сбора статистики 60min для {fixture_id}: {e}")
+                            import traceback
+                            print(traceback.format_exc())
+                            cursor.execute(
+                                "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (match_id,)
+                            )
+                            conn.commit()
+                except Exception as e:
+                    print(f"[Football ERROR] Ошибка обработки матча {fixture_id} (fav): {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+
+            # Обработка матчей без фаворита
+            for match in matches_without_fav:
+                match_id = match['id']
+                fixture_id = match['fixture_id']
+                match_datetime_str = f"{match['match_date']} {match['match_time']}"
+                try:
+                    match_datetime_naive = datetime.strptime(match_datetime_str, "%Y-%m-%d %H:%M")
+                    match_datetime = match_datetime_naive.replace(tzinfo=timezone.utc)
+                    now = datetime.now(timezone.utc)
+                    minutes_diff = (now - match_datetime).total_seconds() / 60
+
+                    if minutes_diff < 0:
+                        continue
+
+                    if match['status'] == 'scheduled':
+                        cursor.execute(
+                            "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (match_id,)
+                        )
+                        conn.commit()
+
+                    if minutes_diff >= 50:
+                        try:
+                            self._collect_60min_stats_without_fav(match)
+                        except Exception as e:
+                            print(f"[Football ERROR] Ошибка сбора статистики 60min (без фаворита) для {fixture_id}: {e}")
+                            import traceback
+                            print(traceback.format_exc())
+                            cursor.execute(
+                                "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (match_id,)
+                            )
+                            conn.commit()
+                except Exception as e:
+                    print(f"[Football ERROR] Ошибка обработки матча {fixture_id} (no fav): {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+
+            conn.close()
+        except Exception as e:
+            print(f"[Football ERROR] Ошибка 2-мин проверки: {e}")
+            import traceback
+            print(traceback.format_exc())
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except:
+                pass
 
     def _perform_bet_approval_checks(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection):
         """
@@ -4517,6 +4637,17 @@ def check_matches_and_collect_task():
         manager.check_matches_and_collect()
     except Exception as e:
         print(f"[Football] Ошибка в задаче проверки: {e}")
+        import traceback
+        print(traceback.format_exc())
+
+
+def check_matches_60min_task():
+    """Задача для планировщика - детектор 60-й минуты и обновление статусов (без финального счета)."""
+    try:
+        manager = get_manager()
+        manager.check_matches_60min_and_status()
+    except Exception as e:
+        print(f"[Football] Ошибка в задаче детектора 60-й минуты: {e}")
         import traceback
         print(traceback.format_exc())
 
