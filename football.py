@@ -4741,6 +4741,15 @@ X2 ИГНОРИРУЕМ
 
 # === Функции для работы с подписками Telegram ===
 
+# Временное сопоставление "токен -> user_id" только в памяти процесса,
+# чтобы UI мог узнать статус по токену, не храня токены в БД
+_football_token_bindings: Dict[str, str] = {}
+
+def bind_token_to_user(token: str, user_id: str) -> None:
+    """Связывает одноразовый токен с user_id в памяти процесса."""
+    if token:
+        _football_token_bindings[token] = str(user_id)
+
 def add_football_subscription(user_id: str) -> bool:
     """
     Добавляет подписку пользователя на уведомления о футболе.
@@ -4850,25 +4859,12 @@ def is_football_subscribed_by_token(token: str) -> bool:
     Returns:
         True если есть активная подписка с таким токеном, False иначе
     """
-    conn = None
-    try:
-        conn = get_football_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT COUNT(*) FROM football_telegram_subscriptions
-            WHERE token = ? AND is_active = 1
-        """, (token,))
-        
-        count = cursor.fetchone()[0]
-        return count > 0
-        
-    except sqlite3.Error as e:
-        print(f"[Football ERROR] Ошибка проверки подписки: {e}")
+    # Токены больше не храним в БД. Если токен был использован, он будет
+    # связан в памяти процесса с конкретным user_id. Проверяем по привязке.
+    user_id = _football_token_bindings.get(token)
+    if not user_id:
         return False
-    finally:
-        if conn:
-            conn.close()
+    return is_football_subscribed(user_id)
 
 
 def is_football_subscribed(user_id: str) -> bool:

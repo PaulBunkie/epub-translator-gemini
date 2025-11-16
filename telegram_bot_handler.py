@@ -200,6 +200,12 @@ class TelegramBotHandler:
                     import football
                     # Токен больше не сохраняем — он нужен только для внешней валидации перехода
                     success = football.add_football_subscription(chat_id)
+                    # Привязываем токен к user_id в памяти, чтобы UI мог проверить статус
+                    if football_token:
+                        try:
+                            football.bind_token_to_user(football_token, chat_id)
+                        except Exception as bind_err:
+                            print(f"[TelegramBot] Не удалось привязать токен к пользователю: {bind_err}")
                     
                     if success:
                         message_text = """
