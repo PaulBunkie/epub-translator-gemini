@@ -3101,10 +3101,15 @@
             }
         }
         
-        // Проверяет статус подписки
+        // Проверяет статус подписки (оставляем кнопку отписки всегда доступной)
         function checkFootballSubscription() {
             const token = localStorage.getItem('football_subscription_token');
             if (!token) {
+                // Даже без токена показываем обе кнопки: подписка и отписка по deep-link
+                const subscribeBtn = document.getElementById('tgSubscribeBtn');
+                const subscribedBtn = document.getElementById('tgSubscribedBtn');
+                if (subscribeBtn) subscribeBtn.style.display = 'inline-block';
+                if (subscribedBtn) subscribedBtn.style.display = 'inline-block';
                 return;
             }
             
@@ -3114,16 +3119,16 @@
                     const subscribeBtn = document.getElementById('tgSubscribeBtn');
                     const subscribedBtn = document.getElementById('tgSubscribedBtn');
                     
-                    if (data.subscribed) {
-                        subscribeBtn.style.display = 'none';
-                        subscribedBtn.style.display = 'inline-block';
-                    } else {
-                        subscribeBtn.style.display = 'inline-block';
-                        subscribedBtn.style.display = 'none';
-                    }
+                    // Всегда показываем обе кнопки: пользователь может повторно подписаться или отписаться
+                    if (subscribeBtn) subscribeBtn.style.display = 'inline-block';
+                    if (subscribedBtn) subscribedBtn.style.display = 'inline-block';
                 })
                 .catch(error => {
                     console.error('Ошибка проверки подписки:', error);
+                    const subscribeBtn = document.getElementById('tgSubscribeBtn');
+                    const subscribedBtn = document.getElementById('tgSubscribedBtn');
+                    if (subscribeBtn) subscribeBtn.style.display = 'inline-block';
+                    if (subscribedBtn) subscribedBtn.style.display = 'inline-block';
                 });
         }
         
@@ -3155,10 +3160,10 @@
     
     <!-- Блок подписки на уведомления -->
     <div class="text-center my-4" id="telegramInfoBlock">
-        <a href="#" id="tgSubscribeBtn" class="btn btn-primary">
+        <a href="#" id="tgSubscribeBtn" class="btn btn-primary" style="display: inline-block;">
             Подписаться на уведомления
         </a>
-        <a href="https://t.me/aitube_notification_bot" target="_blank" id="tgSubscribedBtn" class="btn btn-success" style="display: none;">
+        <a href="https://t.me/aitube_notification_bot?start=football_unsub" target="_blank" id="tgSubscribedBtn" class="btn btn-success" style="display: inline-block;">
             Отписаться от уведомлений
         </a>
     </div>
