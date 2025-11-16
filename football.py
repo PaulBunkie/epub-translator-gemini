@@ -596,6 +596,7 @@ class FootballManager:
 
                             # Если удалось распарсить, но total_odds не число — попробуем вычислить произведение коэффициентов
                             if isinstance(parsed, dict):
+                                # посчитать total_odds при необходимости
                                 to = parsed.get('total_odds', None)
                                 if not isinstance(to, (int, float)):
                                     try:
@@ -610,12 +611,20 @@ class FootballManager:
                                         parsed['total_odds'] = round(prod, 2) if have_any else None
                                     except Exception:
                                         pass
-                            try:
-                                legs_cnt = len(parsed.get('legs')) if parsed and isinstance(parsed.get('legs'), list) else 0
-                                print(f"[Football Parlay] parsed legs={legs_cnt} total_odds={(parsed or {}).get('total_odds')}")
-                            except Exception:
-                                pass
-                            return {'parlay_json': parsed, 'raw': raw}
+                                # проверяем, что действительно есть ноги; иначе пробуем следующую модель
+                                legs_list = parsed.get('legs') if isinstance(parsed.get('legs'), list) else []
+                                if legs_list:
+                                    try:
+                                        print(f"[Football Parlay] parsed legs={len(legs_list)} total_odds={parsed.get('total_odds')}")
+                                    except Exception:
+                                        pass
+                                    return {'parlay_json': parsed, 'raw': raw}
+                                else:
+                                    print("[Football Parlay] parsed but no legs found, trying next model…")
+                                    continue
+                            else:
+                                print("[Football Parlay] could not parse JSON, trying next model…")
+                                continue
                         else:
                             print(f"[Football Parlay] Неверный формат ответа от модели {model}")
                     else:

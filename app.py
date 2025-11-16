@@ -2577,6 +2577,33 @@ def api_parlay_preview():
         traceback.print_exc()
         return jsonify({'success': False, 'error': f'Ошибка: {str(e)}'}), 500
 
+@app.route('/api/football/match/delete', methods=['POST'])
+def api_football_delete_match():
+    """
+    Удаляет матч из БД по fixture_id. Для админа (простая проверка по флагу).
+    Body: { fixture_id: str, admin: bool }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        fixture_id = data.get('fixture_id')
+        is_admin = bool(data.get('admin', False))
+        if not is_admin:
+            return jsonify({'success': False, 'error': 'Требуются права администратора'}), 403
+        if not fixture_id:
+            return jsonify({'success': False, 'error': 'fixture_id обязателен'}), 400
+        manager = football.get_manager()
+        ok = manager._delete_match(str(fixture_id))
+        if ok:
+            print(f"[Football API] Матч {fixture_id} удален из БД")
+            return jsonify({'success': True}), 200
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось удалить матч'}), 500
+    except Exception as e:
+        print(f"[Football API] Ошибка удаления матча: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'Ошибка: {str(e)}'}), 500
+
 @app.route('/books', methods=['GET'])
 def books():
     admin_param = request.args.get('admin')
