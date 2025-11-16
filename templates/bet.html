@@ -772,10 +772,14 @@
                         let html = '';
                         if (data && data.success) {
                             if (data.parlay_json && Array.isArray(data.parlay_json.legs)) {
-                                html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Матч</th><th>Исход</th><th>Коэфф.</th><th>Причина</th></tr></thead><tbody>';
+                                html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Матч</th><th>Рынок</th><th>Исход</th><th>Линия</th><th>Коэфф.</th><th>Причина</th></tr></thead><tbody>';
                                 for (const leg of data.parlay_json.legs) {
                                     const matchName = getMatchNameByFixtureId(leg.fixture_id);
-                                    html += `<tr><td>${matchName}</td><td>${leg.pick || '-'}</td><td>${leg.odds ?? '-'}</td><td>${(leg.reason || '').toString().slice(0,500)}</td></tr>`;
+                                    const lineStr = (leg.line === 0 || leg.line) ? leg.line : '-';
+                                    const oddsStr = (leg.odds === 0 || leg.odds)
+                                        ? ((leg.odds_estimated ? '~' : '') + String(leg.odds))
+                                        : '-';
+                                    html += `<tr><td>${matchName}</td><td>${leg.market || '-'}</td><td>${leg.pick || '-'}</td><td>${lineStr}</td><td>${oddsStr}</td><td>${(leg.reason || '').toString().slice(0,500)}</td></tr>`;
                                 }
                                 html += '</tbody></table></div>';
                                 if (typeof data.parlay_json.total_odds !== 'undefined') {

@@ -506,11 +506,16 @@ class FootballManager:
             # Подготавливаем большой промпт: строго JSON-ответ
             context_json = json.dumps({'matches': matches_payload}, ensure_ascii=False)
             system_instruction = (
-                "Ты спортивный аналитик. Составь экспресс из 2-5 событий из предоставленных матчей. "
-                "Используй ТОЛЬКО live_odds_1, live_odds_x, live_odds_2 и stats_60min. "
-                "Верни СТРОГО JSON формата: "
-                "{\"legs\": [{\"fixture_id\": str, \"pick\": \"1|1X|X|X2|2\", \"odds\": number, \"reason\": str}], \"total_odds\": number}. "
-                "Без префиксов, без пояснений вне JSON."
+                "Ты спортивный аналитик. Составь экспресс из 2–4 событий из предоставленных матчей. "
+                "Используй ТОЛЬКО live_odds_1, live_odds_x, live_odds_2 и stats_60min. Не используй внешние прогнозы. "
+                "Разрешенные рынки: 1X2, DoubleChance, Handicap, Total. "
+                "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,-0.5,+0.5,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
+                "Для Total используй Over/Under с ТОЛЬКО половинными линиями (… 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
+                "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
+                "Не включай взаимно коррелированные ноги одного и того же матча. "
+                "Верни СТРОГО JSON (без текста вокруг) формата: "
+                "{\"legs\":[{\"fixture_id\":str,\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number|null,\"odds_estimated\":boolean|null,\"reason\":str}],"
+                "\"total_odds\":number|null}."
             )
             prompt = f"{system_instruction}\n\nДанные:\n{context_json}"
 
