@@ -202,27 +202,7 @@ if is_fly_io:
 else:
     print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
     print("[Scheduler] 📍 Поиск локаций и анализ видео доступны только через API")
-    
-    # Исключение: проверка матчей работает и локально для тестирования
-    scheduler.add_job(
-        football.check_matches_60min_task,
-        trigger='interval',
-        minutes=2,  # Каждые 2 минуты - статус и 60-я минута
-        id='check_football_matches_60min_job',
-        replace_existing=True,
-        misfire_grace_time=180  # 3 минуты grace time
-    )
-    print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 2 минуты) - локальный режим")
 
-    scheduler.add_job(
-        football.check_matches_and_collect_task,
-        trigger='interval',
-        minutes=5,  # Каждые 5 минут - финальный счет
-        id='check_football_matches_final_job',
-        replace_existing=True,
-        misfire_grace_time=300  # 5 минут grace time
-    )
-    print("[Scheduler] ✅ Задание 'check_football_matches_final_job' добавлено (финальный счет каждые 5 минут) - локальный режим")
 
 try:
     scheduler.start()
@@ -2552,10 +2532,15 @@ def api_parlay_preview():
         data = request.get_json(silent=True) or {}
         fixture_ids = data.get('fixture_ids') or []
         include_all_if_empty = bool(data.get('include_all_if_empty', False))
+        try:
+            print(f"[Football Parlay API] preview request: fixtures={len(fixture_ids)} include_all={include_all_if_empty} user={user_key}")
+        except Exception:
+            pass
 
         # Атомарная блокировка повторных запросов на время выполнения
         with active_parlay_lock:
             if user_key in active_parlay_requests:
+                print(f"[Football Parlay API] reject 409 (already running) user={user_key}")
                 return jsonify({
                     'success': False,
                     'error': 'Формирование экспресса уже выполняется'
@@ -2566,7 +2551,15 @@ def api_parlay_preview():
             manager = football.get_manager()
             result = manager.build_parlay_preview(fixture_ids, include_all_if_empty)
             if not result:
+                print(f"[Football Parlay API] result=None user={user_key}")
                 return jsonify({'success': False, 'error': 'Не удалось составить экспресс'}), 500
+            legs_cnt = 0
+            try:
+                if result.get('parlay_json') and isinstance(result['parlay_json'].get('legs'), list):
+                    legs_cnt = len(result['parlay_json']['legs'])
+            except Exception:
+                legs_cnt = 0
+            print(f"[Football Parlay API] success legs={legs_cnt} total_odds={result.get('parlay_json',{}).get('total_odds')} user={user_key}")
             return jsonify({'success': True, **result}), 200
         finally:
             with active_parlay_lock:

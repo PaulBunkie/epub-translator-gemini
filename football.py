@@ -458,6 +458,10 @@ class FootballManager:
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
+            try:
+                print(f"[Football Parlay] build start fixture_ids={len(fixture_ids)} include_all={include_all_if_empty}")
+            except Exception:
+                pass
             if fixture_ids:
                 qmarks = ",".join("?" for _ in fixture_ids)
                 cursor.execute(f"""
@@ -505,6 +509,10 @@ class FootballManager:
 
             # Подготавливаем большой промпт: строго JSON-ответ
             context_json = json.dumps({'matches': matches_payload}, ensure_ascii=False)
+            try:
+                print(f"[Football Parlay] context matches={len(matches_payload)} size={len(context_json)}")
+            except Exception:
+                pass
             system_instruction = (
                 "Ты спортивный аналитик. Составь экспресс из 2–4 событий из предоставленных матчей. "
                 "Используй ТОЛЬКО live_odds_1, live_odds_x, live_odds_2 и stats_60min. Не используй внешние прогнозы. "
@@ -544,8 +552,12 @@ class FootballManager:
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
                         json=payload,
-                        timeout=120
+                        timeout=600
                     )
+                    try:
+                        print(f"[Football Parlay] model={model} status={response.status_code}")
+                    except Exception:
+                        pass
                     if response.status_code == 200:
                         data = response.json()
                         if 'choices' in data and data['choices']:
@@ -559,12 +571,17 @@ class FootballManager:
                             except Exception:
                                 # Попробуем найти блок JSON в тексте
                                 import re
-                                m = re.search(r'\\{[\\s\\S]*\\}', raw)
+                                m = re.search(r'\{[\s\S]*\}', raw)
                                 if m:
                                     try:
                                         parsed = json.loads(m.group(0))
                                     except Exception:
                                         parsed = None
+                            try:
+                                legs_cnt = len(parsed.get('legs')) if parsed and isinstance(parsed.get('legs'), list) else 0
+                                print(f"[Football Parlay] parsed legs={legs_cnt} total_odds={(parsed or {}).get('total_odds')}")
+                            except Exception:
+                                pass
                             return {'parlay_json': parsed, 'raw': raw}
                         else:
                             print(f"[Football Parlay] Неверный формат ответа от модели {model}")
