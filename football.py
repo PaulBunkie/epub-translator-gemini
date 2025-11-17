@@ -2587,7 +2587,6 @@ class FootballManager:
                 SELECT * FROM matches
                 WHERE stats_60min IS NOT NULL
                   AND (bet_alt_code IS NULL OR bet_alt_code = '')
-                  AND status = 'in_progress'
                 ORDER BY match_date, match_time
             """)
             matches_for_alt_bet = cursor.fetchall()
