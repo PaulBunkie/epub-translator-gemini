@@ -2594,14 +2594,18 @@ class FootballManager:
             
             if matches_for_alt_bet:
                 print(f"[Football] Найдено {len(matches_for_alt_bet)} матчей с stats_60min, но без bet_alt_code")
-                for match in matches_for_alt_bet:
+                import time
+                for idx, match in enumerate(matches_for_alt_bet, 1):
                     fixture_id = match['fixture_id']
                     try:
                         import json
                         stats = json.loads(match['stats_60min']) if isinstance(match['stats_60min'], str) else match['stats_60min']
                         
-                        print(f"[Football] Запрашиваем альтернативную ставку для fixture {fixture_id}")
+                        start_time = time.time()
+                        print(f"[Football] [{idx}/{len(matches_for_alt_bet)}] Запрашиваем альтернативную ставку для fixture {fixture_id} (время начала: {time.strftime('%H:%M:%S')})")
                         alt_result = self._get_alternative_bet(match, stats)
+                        elapsed = time.time() - start_time
+                        print(f"[Football] [{idx}/{len(matches_for_alt_bet)}] Запрос для fixture {fixture_id} завершен за {elapsed:.2f} сек")
                         if alt_result:
                             bet_alt_code, bet_alt_odds = alt_result
                             cursor.execute("""
