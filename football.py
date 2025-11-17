@@ -641,21 +641,19 @@ class FootballManager:
 
                             # Если удалось распарсить, но total_odds не число — попробуем вычислить произведение коэффициентов
                             if isinstance(parsed, dict):
-                                # посчитать total_odds при необходимости
-                                to = parsed.get('total_odds', None)
-                                if not isinstance(to, (int, float)):
-                                    try:
-                                        legs = parsed.get('legs') or []
-                                        prod = 1.0
-                                        have_any = False
-                                        for lg in legs:
-                                            od = lg.get('odds')
-                                            if isinstance(od, (int, float)):
-                                                prod *= float(od)
-                                                have_any = True
-                                        parsed['total_odds'] = round(prod, 2) if have_any else None
-                                    except Exception:
-                                        pass
+                                # Всегда пересчитываем total_odds из коэффициентов legs для гарантии правильности
+                                try:
+                                    legs = parsed.get('legs') or []
+                                    prod = 1.0
+                                    have_any = False
+                                    for lg in legs:
+                                        od = lg.get('odds')
+                                        if isinstance(od, (int, float)):
+                                            prod *= float(od)
+                                            have_any = True
+                                    parsed['total_odds'] = round(prod, 2) if have_any else None
+                                except Exception:
+                                    pass
                                 # проверяем, что действительно есть ноги; иначе пробуем следующую модель
                                 legs_list = parsed.get('legs') if isinstance(parsed.get('legs'), list) else []
                                 if legs_list:
