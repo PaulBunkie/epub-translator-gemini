@@ -341,6 +341,17 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'bet_alt_odds' already exists.")
         
+        # --- Проверка и добавление поля bet_alt_confirm ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'bet_alt_confirm' not in columns:
+            print("[FootballDB] Adding 'bet_alt_confirm' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN bet_alt_confirm INTEGER")
+            conn.commit()
+            print("[FootballDB] Column 'bet_alt_confirm' added successfully.")
+        else:
+            print("[FootballDB] Column 'bet_alt_confirm' already exists.")
+        
         # --- Проверка и добавление поля live_odds ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -2607,16 +2618,17 @@ class FootballManager:
                         elapsed = time.time() - start_time
                         print(f"[Football] [{idx}/{len(matches_for_alt_bet)}] Запрос для fixture {fixture_id} завершен за {elapsed:.2f} сек")
                         if alt_result:
-                            bet_alt_code, bet_alt_odds = alt_result
+                            bet_alt_code, bet_alt_odds, bet_alt_confirm = alt_result
                             cursor.execute("""
                                 UPDATE matches
                                 SET bet_alt_code = ?,
                                     bet_alt_odds = ?,
+                                    bet_alt_confirm = ?,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE id = ?
-                            """, (bet_alt_code, bet_alt_odds, match['id']))
+                            """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, match['id']))
                             conn.commit()
-                            print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                            print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                         else:
                             print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                     except Exception as e:
@@ -2677,7 +2689,7 @@ class FootballManager:
         # Если не распознано, возвращаем исходный pick
         return pick
 
-    def _get_alternative_bet(self, match: sqlite3.Row, stats: Dict) -> Optional[Tuple[str, float]]:
+    def _get_alternative_bet(self, match: sqlite3.Row, stats: Dict) -> Optional[Tuple[str, float, int]]:
         """
         Получает альтернативную ставку от ИИ для одного матча.
         
@@ -2686,7 +2698,7 @@ class FootballManager:
             stats: Статистика матча
         
         Returns:
-            Tuple (bet_alt_code, bet_alt_odds) или None
+            Tuple (bet_alt_code, bet_alt_odds, bet_alt_confirm) или None
         """
         if not self.openrouter_api_key:
             print("[Football Alt Bet] OpenRouter API ключ не установлен, пропускаем")
@@ -2721,11 +2733,13 @@ class FootballManager:
                 "Твоя задача - выбрать ОДНУ оптимальную ставку из следующих рынков: 1X2, DoubleChance, Handicap, Total. "
                 "Ты должен учитывать статистику первой половины матча, текущие коэффициенты букмекеров и другие факторы. "
                 "Выбранная ставка должна быть оптимальна по коэффициенту и минимальна по риску. "
-                "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,-0.5,+0.5,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
-                "Для Total используй Over/Under с ТОЛЬКО половинными линиями (… 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
+                "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,0,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
+                "Для Total используй Over/Under с ТОЛЬКО половинными линиями (0, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
                 "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
+                "Оцени рискованность ставки. Если для этой ставки риск проигрыша слишком высок (нестабильная форма команд, неопределенность исхода, неблагоприятная статистика), установи confirm=0. "
+                "Если ставка имеет приемлемый уровень риска и хорошие шансы на успех, установи confirm=1. "
                 "Верни СТРОГО JSON (без текста вокруг) формата: "
-                "{\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number,\"odds_estimated\":boolean,\"reason\":str}."
+                "{\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number,\"odds_estimated\":boolean,\"confirm\":0|1,\"reason\":str}."
             )
             
             prompt = f"{system_instruction}\n\nДанные:\n{context_json}"
@@ -2798,15 +2812,18 @@ class FootballManager:
                                 pick = parsed.get('pick')
                                 line = parsed.get('line')
                                 odds = parsed.get('odds')
+                                confirm = parsed.get('confirm')
                                 
                                 if market and pick and odds:
                                     # Преобразуем в кодировку
                                     bet_alt_code = self._encode_alternative_bet(market, pick, line)
                                     bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
+                                    # Преобразуем confirm в 0 или 1
+                                    bet_alt_confirm = 1 if (confirm == 1 or confirm is True or (isinstance(confirm, str) and confirm.lower() in ['1', 'true', 'yes'])) else 0
                                     
-                                    if bet_alt_code and bet_alt_odds:
-                                        print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds})")
-                                        return (bet_alt_code, bet_alt_odds)
+                                    if bet_alt_code and bet_alt_odds is not None:
+                                        print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
+                                        return (bet_alt_code, bet_alt_odds, bet_alt_confirm)
                                     else:
                                         print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
                                         continue
@@ -3482,8 +3499,8 @@ class FootballManager:
                         if match_updated:
                             alt_result = self._get_alternative_bet(match_updated, stats)
                             if alt_result:
-                                bet_alt_code, bet_alt_odds = alt_result
-                                print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                bet_alt_code, bet_alt_odds, bet_alt_confirm = alt_result
+                                print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                 # Сохраняем альтернативную ставку в БД
                                 conn = get_football_db_connection()
                                 cursor = conn.cursor()
@@ -3491,12 +3508,13 @@ class FootballManager:
                                     UPDATE matches
                                     SET bet_alt_code = ?,
                                         bet_alt_odds = ?,
+                                        bet_alt_confirm = ?,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE id = ?
-                                """, (bet_alt_code, bet_alt_odds, match['id']))
+                                """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, match['id']))
                                 conn.commit()
                                 conn.close()
-                                print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                             else:
                                 print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                 except Exception as alt_error:
@@ -3723,8 +3741,8 @@ class FootballManager:
                             if match_updated:
                                 alt_result = self._get_alternative_bet(match_updated, stats)
                                 if alt_result:
-                                    bet_alt_code, bet_alt_odds = alt_result
-                                    print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                    bet_alt_code, bet_alt_odds, bet_alt_confirm = alt_result
+                                    print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                     # Сохраняем альтернативную ставку в БД
                                     conn = get_football_db_connection()
                                     cursor = conn.cursor()
@@ -3732,12 +3750,13 @@ class FootballManager:
                                         UPDATE matches
                                         SET bet_alt_code = ?,
                                             bet_alt_odds = ?,
+                                            bet_alt_confirm = ?,
                                             updated_at = CURRENT_TIMESTAMP
                                         WHERE id = ?
-                                    """, (bet_alt_code, bet_alt_odds, match['id']))
+                                    """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, match['id']))
                                     conn.commit()
                                     conn.close()
-                                    print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
+                                    print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                 else:
                                     print(f"[Football] _get_alternative_bet вернул None для матча без фаворита {fixture_id}")
                     except Exception as alt_error:

@@ -550,6 +550,7 @@
                             <th class="sortable-header" data-sort="bet_ai">Прогноз ИИ</th>
                             <th class="sortable-header" data-sort="bet">Bet</th>
                             <th class="sortable-header" data-sort="bet_alt_odds">Alt</th>
+                            <th class="sortable-header" data-sort="bet_alt_confirm">Alt Bet</th>
                             <th class="sortable-header" data-sort="final_score">Счет</th>
                             <th class="sortable-header" data-sort="status">Статус</th>
                         </tr>
@@ -565,6 +566,7 @@
                             <td id="total-bet-ai" class="odds">-</td>
                             <td id="total-bet" class="odds">-</td>
                             <td id="total-bet-alt" class="odds">-</td>
+                            <td id="total-bet-alt-confirm" class="odds">-</td>
                             <td></td>
                             <td></td>
                         </tr>
@@ -623,6 +625,7 @@
                             <th class="sortable-header-all" data-sort="bet_ai">Прогноз ИИ</th>
                             <th class="sortable-header-all" data-sort="bet">Bet</th>
                             <th class="sortable-header-all" data-sort="bet_alt_odds">Alt</th>
+                            <th class="sortable-header-all" data-sort="bet_alt_confirm">Alt Bet</th>
                             <th class="sortable-header-all" data-sort="final_score">Счет</th>
                             <th class="sortable-header-all" data-sort="status">Статус</th>
                                 </tr>
@@ -635,6 +638,7 @@
                                     <td id="total-bet-ai-all" class="odds">-</td>
                                     <td id="total-bet-all" class="odds">-</td>
                                     <td id="total-bet-alt-all" class="odds">-</td>
+                                    <td id="total-bet-alt-confirm-all" class="odds">-</td>
                                     <td></td>
                                     <td></td>
                                 </tr>
@@ -1194,7 +1198,7 @@
                         const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                         valueA = dateTimeA.getTime();
                         valueB = dateTimeB.getTime();
-                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds') {
+                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds' || field === 'bet_alt_confirm') {
                         valueA = parseFloat(valueA) || 0;
                         valueB = parseFloat(valueB) || 0;
                     } else if (field === 'status') {
@@ -1251,7 +1255,7 @@
                         const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                         valueA = dateTimeA.getTime();
                         valueB = dateTimeB.getTime();
-                    } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2' || field === 'bet' || field === 'bet_alt_odds') {
+                    } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2' || field === 'bet' || field === 'bet_alt_odds' || field === 'bet_alt_confirm') {
                         valueA = parseFloat(valueA) || 0;
                         valueB = parseFloat(valueB) || 0;
                     } else if (field === 'status') {
@@ -1327,7 +1331,7 @@
                     const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                     valueA = dateTimeA.getTime();
                     valueB = dateTimeB.getTime();
-                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds') {
+                } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds' || field === 'bet_alt_confirm') {
                     // Для коэффициентов - преобразуем в числа
                     valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
@@ -1386,7 +1390,7 @@
                         const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                         valueA = dateTimeA.getTime();
                         valueB = dateTimeB.getTime();
-                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds') {
+                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds' || field === 'bet_alt_confirm') {
                         valueA = parseFloat(valueA) || 0;
                         valueB = parseFloat(valueB) || 0;
                     } else if (field === 'status') {
@@ -1435,7 +1439,7 @@
                         const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                         valueA = dateTimeA.getTime();
                         valueB = dateTimeB.getTime();
-                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds') {
+                    } else if (field === 'initial_odds' || field === 'last_odds' || field === 'live_odds' || field === 'bet' || field === 'bet_alt_odds' || field === 'bet_alt_confirm') {
                         valueA = parseFloat(valueA) || 0;
                         valueB = parseFloat(valueB) || 0;
                     } else if (field === 'status') {
@@ -1495,7 +1499,7 @@
                                 const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                                 valueA = dateTimeA.getTime();
                                 valueB = dateTimeB.getTime();
-                            } else if (currentSortField === 'initial_odds' || currentSortField === 'last_odds' || currentSortField === 'live_odds' || currentSortField === 'bet' || currentSortField === 'bet_alt_odds') {
+                            } else if (currentSortField === 'initial_odds' || currentSortField === 'last_odds' || currentSortField === 'live_odds' || currentSortField === 'bet' || currentSortField === 'bet_alt_odds' || currentSortField === 'bet_alt_confirm') {
                                 valueA = parseFloat(valueA) || 0;
                                 valueB = parseFloat(valueB) || 0;
                             } else if (currentSortField === 'status') {
@@ -1551,7 +1555,7 @@
                                 const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                                 valueA = dateTimeA.getTime();
                                 valueB = dateTimeB.getTime();
-                            } else if (currentSortFieldAll === 'initial_odds' || currentSortFieldAll === 'last_odds' || currentSortFieldAll === 'live_odds' || currentSortFieldAll === 'bet' || currentSortFieldAll === 'bet_alt_odds') {
+                            } else if (currentSortFieldAll === 'initial_odds' || currentSortFieldAll === 'last_odds' || currentSortFieldAll === 'live_odds' || currentSortFieldAll === 'bet' || currentSortFieldAll === 'bet_alt_odds' || currentSortFieldAll === 'bet_alt_confirm') {
                                 valueA = parseFloat(valueA) || 0;
                                 valueB = parseFloat(valueB) || 0;
                             } else if (currentSortFieldAll === 'status') {
@@ -1635,7 +1639,7 @@
                     const dateTimeB = new Date(`${b.match_date}T${b.match_time || '00:00'}`);
                     valueA = dateTimeA.getTime();
                     valueB = dateTimeB.getTime();
-                } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2' || field === 'bet' || field === 'bet_alt_odds') {
+                } else if (field === 'live_odds_1' || field === 'live_odds_x' || field === 'live_odds_2' || field === 'bet' || field === 'bet_alt_odds' || field === 'bet_alt_confirm') {
                     // Для коэффициентов - преобразуем в числа
                     valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
@@ -2012,6 +2016,7 @@
             let sumK60 = 0;
             let sumBet = 0;
             let sumBetApprove = 0;
+            let sumBetAltConfirm = 0;
             let sumBetAI = 0;
 
             const isPredictionWin = (prediction, actualResult) => {
@@ -2089,11 +2094,22 @@
                     ? parseFloat(match.bet_alt_odds)
                     : NaN;
                 const betAltCode = match.bet_alt_code || null;
+                const betAltConfirm = match.bet_alt_confirm !== null && match.bet_alt_confirm !== undefined
+                    ? parseInt(match.bet_alt_confirm)
+                    : 0;
                 if (!isNaN(betAltOdds) && betAltCode && homeScore !== null && awayScore !== null) {
                     if (isAlternativeBetWin(betAltCode, homeScore, awayScore)) {
                         sumBetApprove += betAltOdds - 1;
+                        // Считаем итоги Alt Bet только если confirm = 1
+                        if (betAltConfirm === 1) {
+                            sumBetAltConfirm += betAltOdds - 1;
+                        }
                     } else {
                         sumBetApprove -= 1;
+                        // Считаем итоги Alt Bet только если confirm = 1
+                        if (betAltConfirm === 1) {
+                            sumBetAltConfirm -= 1;
+                        }
                     }
                 }
 
@@ -2113,14 +2129,16 @@
             const totalBetAIEl = document.getElementById('total-bet-ai');
             const totalBetEl = document.getElementById('total-bet');
             const totalBetAltEl = document.getElementById('total-bet-alt');
+            const totalBetAltConfirmEl = document.getElementById('total-bet-alt-confirm');
 
-            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetAIEl && totalBetEl && totalBetAltEl) {
+            if (totalsRow && totalK0El && totalK1El && totalK60El && totalBetAIEl && totalBetEl && totalBetAltEl && totalBetAltConfirmEl) {
                 totalK0El.textContent = sumK0.toFixed(2);
                 totalK1El.textContent = sumK1.toFixed(2);
                 totalK60El.textContent = sumK60.toFixed(2);
                 totalBetAIEl.textContent = sumBetAI.toFixed(2);
                 totalBetEl.textContent = sumBet.toFixed(2);
                 totalBetAltEl.textContent = sumBetApprove.toFixed(2);
+                totalBetAltConfirmEl.textContent = sumBetAltConfirm.toFixed(2);
 
                 const finishedMatches = matches.filter(m => m.status === 'finished');
                 totalsRow.style.display = finishedMatches.length > 0 ? '' : 'none';
@@ -2562,6 +2580,7 @@
                     <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${betAltCell}</td>
+                    <td>${(match.bet_alt_confirm && parseInt(match.bet_alt_confirm) === 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScoreHtml}</td>
                     <td>${statusHtml}</td>
                 `;
@@ -2791,6 +2810,7 @@
                     <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${betAltCellAll}</td>
+                    <td>${(match.bet_alt_confirm && parseInt(match.bet_alt_confirm) === 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
                     <td>${finalScore}</td>
                     <td>${statusHtml}</td>
                 `;
@@ -3045,6 +3065,7 @@
         function calculateTotalsAllMatches(matches) {
             let sumBet = 0;
             let sumBetApprove = 0;
+            let sumBetAltConfirm = 0;
             let sumBetAI = 0;
 
             const isPredictionWin = (prediction, actualResult) => {
@@ -3108,11 +3129,22 @@
                     ? parseFloat(match.bet_alt_odds)
                     : NaN;
                 const betAltCode = match.bet_alt_code || null;
+                const betAltConfirm = match.bet_alt_confirm !== null && match.bet_alt_confirm !== undefined
+                    ? parseInt(match.bet_alt_confirm)
+                    : 0;
                 if (!isNaN(betAltOdds) && betAltCode && homeScore !== null && awayScore !== null) {
                     if (isAlternativeBetWin(betAltCode, homeScore, awayScore)) {
                         sumBetApprove += betAltOdds - 1;
+                        // Считаем итоги Alt Bet только если confirm = 1
+                        if (betAltConfirm === 1) {
+                            sumBetAltConfirm += betAltOdds - 1;
+                        }
                     } else {
                         sumBetApprove -= 1;
+                        // Считаем итоги Alt Bet только если confirm = 1
+                        if (betAltConfirm === 1) {
+                            sumBetAltConfirm -= 1;
+                        }
                     }
                 }
 
@@ -3129,11 +3161,13 @@
             const totalBetAIEl = document.getElementById('total-bet-ai-all');
             const totalBetEl = document.getElementById('total-bet-all');
             const totalBetAltEl = document.getElementById('total-bet-alt-all');
+            const totalBetAltConfirmEl = document.getElementById('total-bet-alt-confirm-all');
 
-            if (totalsRow && totalBetAIEl && totalBetEl && totalBetAltEl) {
+            if (totalsRow && totalBetAIEl && totalBetEl && totalBetAltEl && totalBetAltConfirmEl) {
                 totalBetAIEl.textContent = sumBetAI.toFixed(2);
                 totalBetEl.textContent = sumBet.toFixed(2);
                 totalBetAltEl.textContent = sumBetApprove.toFixed(2);
+                totalBetAltConfirmEl.textContent = sumBetAltConfirm.toFixed(2);
 
                 const finishedMatches = matches.filter(m => m.status === 'finished');
                 totalsRow.style.display = finishedMatches.length > 0 ? '' : 'none';
