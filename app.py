@@ -12,6 +12,7 @@ import traceback # Для вывода ошибок
 import atexit
 import threading
 import datetime
+from datetime import timedelta
 import logging
 
 # Flask и связанные утилиты
@@ -201,7 +202,8 @@ if True:  # is_fly_io:
         minutes=2,  # Каждые 2 минуты - статус и 60-я минута
         id='check_football_matches_60min_job',
         replace_existing=True,
-        misfire_grace_time=180  # 3 минуты grace time
+        misfire_grace_time=180,  # 3 минуты grace time
+        next_run_time=datetime.datetime.now() + timedelta(minutes=2)  # Запуск через 2 минуты после старта
     )
     print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 2 минуты)")
 

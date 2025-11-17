@@ -2738,6 +2738,8 @@ class FootballManager:
                 if not model:
                     continue
                 
+                print(f"[Football Alt Bet] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model} для fixture {fixture_id}")
+                
                 try:
                     payload = {
                         "model": model,
@@ -2748,6 +2750,9 @@ class FootballManager:
                         "temperature": 0.4
                     }
                     
+                    print(f"[Football Alt Bet] Отправка запроса к OpenRouter API (модель: {model})")
+                    print(f"[Football Alt Bet] URL: {self.openrouter_api_url}/chat/completions")
+                    
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
@@ -2755,10 +2760,13 @@ class FootballManager:
                         timeout=300
                     )
                     
+                    print(f"[Football Alt Bet] Ответ от модели {model}: статус {response.status_code}")
+                    
                     if response.status_code == 200:
                         data = response.json()
                         if 'choices' in data and data['choices']:
                             raw = data['choices'][0]['message']['content']
+                            print(f"[Football Alt Bet] Получен ответ длиной {len(raw)} символов от модели {model}")
                             
                             # Пытаемся извлечь JSON из ответа
                             parsed = None
@@ -2793,21 +2801,37 @@ class FootballManager:
                                     bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
                                     
                                     if bet_alt_code and bet_alt_odds:
+                                        print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds})")
                                         return (bet_alt_code, bet_alt_odds)
                                     else:
+                                        print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
                                         continue
                                 else:
+                                    print(f"[Football Alt Bet] Неполный ответ модели {model}: market={market}, pick={pick}, odds={odds}")
                                     continue
                             else:
+                                print(f"[Football Alt Bet] Не удалось распарсить JSON от модели {model}, пробуем следующую")
                                 continue
+                        else:
+                            print(f"[Football Alt Bet] Неверный формат ответа от модели {model}")
                     else:
+                        print(f"[Football Alt Bet] HTTP ошибка {response.status_code} для модели {model}")
                         if response.status_code == 429:
+                            print(f"[Football Alt Bet] Превышен лимит запросов для модели {model}, пробуем следующую")
                             continue
+                        try:
+                            error_data = response.json()
+                            print(f"[Football Alt Bet] Ошибка API: {response.status_code} - {error_data}")
+                        except:
+                            print(f"[Football Alt Bet] Ошибка API: {response.status_code} - {response.text[:200]}")
                 except requests.exceptions.Timeout:
+                    print(f"[Football Alt Bet] Таймаут модели {model}")
                     continue
                 except Exception as e:
+                    print(f"[Football Alt Bet] Ошибка запроса к модели {model}: {e}")
                     continue
             
+            print(f"[Football Alt Bet] Не удалось получить альтернативную ставку ни от одной модели для fixture {fixture_id}")
             return None
             
         except Exception as e:
