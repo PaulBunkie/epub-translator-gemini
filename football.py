@@ -2336,7 +2336,7 @@ class FootballManager:
         """
         Проверяет активные матчи и собирает финальный результат.
         Вызывается каждые 5 минут.
-        Обработка 60-й минуты вынесена в отдельный метод check_matches_60min_and_status (2-минутный интервал).
+        Обработка 60-й минуты вынесена в отдельный метод check_matches_60min_and_status (3-минутный интервал).
         """
         print("[Football] Проверка матчей и сбор финального результата")
 
@@ -2477,9 +2477,9 @@ class FootballManager:
     def check_matches_60min_and_status(self):
         """
         Проверяет активные матчи только для смены статуса и сбора статистики на 60-й минуте (без проверки финального счета).
-        Используется для более частого (например, каждые 2 минуты) детектора 60-й минуты.
+        Используется для более частого (например, каждые 3 минуты) детектора 60-й минуты.
         """
-        print("[Football] (2-мин) Проверка статуса и 60-й минуты")
+        print("[Football] (3-мин) Проверка статуса и 60-й минуты")
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
@@ -2583,11 +2583,12 @@ class FootballManager:
                     continue
 
             # Проверяем матчи с stats_60min, но без bet_alt_code (для запроса альтернативной ставки)
+            # Только для матчей в процессе, не для завершенных!
             cursor.execute("""
                 SELECT * FROM matches
                 WHERE stats_60min IS NOT NULL
                   AND (bet_alt_code IS NULL OR bet_alt_code = '')
-                  AND status IN ('in_progress', 'finished')
+                  AND status = 'in_progress'
                 ORDER BY match_date, match_time
             """)
             matches_for_alt_bet = cursor.fetchall()
@@ -2627,7 +2628,7 @@ class FootballManager:
 
             conn.close()
         except Exception as e:
-            print(f"[Football ERROR] Ошибка 2-мин проверки: {e}")
+            print(f"[Football ERROR] Ошибка 3-мин проверки: {e}")
             import traceback
             print(traceback.format_exc())
         finally:

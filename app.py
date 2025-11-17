@@ -199,13 +199,13 @@ if True:  # is_fly_io:
     scheduler.add_job(
         football.check_matches_60min_task,
         trigger='interval',
-        minutes=2,  # Каждые 2 минуты - статус и 60-я минута
+        minutes=3,  # Каждые 3 минуты - статус и 60-я минута
         id='check_football_matches_60min_job',
         replace_existing=True,
         misfire_grace_time=180,  # 3 минуты grace time
-        next_run_time=datetime.datetime.now() + timedelta(minutes=2)  # Запуск через 2 минуты после старта
+        next_run_time=datetime.datetime.now() + timedelta(minutes=3)  # Запуск через 3 минуты после старта
     )
-    print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 2 минуты)")
+    print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 3 минуты)")
 
     # Отдельная задача для финального счета - каждые 5 минут
     scheduler.add_job(
@@ -236,7 +236,7 @@ else:
 
 try:
     scheduler.start()
-    print("Планировщик APScheduler запущен (задача запустится через час или по расписанию).")
+    print("Планировщик APScheduler запущен.")
 except Exception as e:
      print(f"ОШИБКА запуска APScheduler: {e}")
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
