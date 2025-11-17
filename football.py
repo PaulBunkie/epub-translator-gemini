@@ -2425,10 +2425,11 @@ class FootballManager:
                     minutes_diff = time_diff.total_seconds() / 60
 
                     # Проверяем статус матча из SofaScore API (предпочтительный способ)
-                    # Вызываем только если прошло минимум 85 минут (матч может быть близок к завершению)
+                    # Вызываем только если прошло минимум 100 минут (90 минут игры + ~15 минут перерыва)
+                    # Матч должен быть близок к завершению или уже завершен
                     should_check_final = False
                     
-                    if sofascore_event_id and minutes_diff >= 85:
+                    if sofascore_event_id and minutes_diff >= 100:
                         event_status = self._fetch_sofascore_event_status(sofascore_event_id)
                         
                         if event_status == 'finished':
@@ -2445,8 +2446,8 @@ class FootballManager:
                         # Если нет sofascore_event_id, используем только проверку по времени
                         if minutes_diff >= 200:
                             should_check_final = True
-                    elif minutes_diff < 85:
-                        # Матч еще слишком рано (меньше 85 минут) - не проверяем статус из API
+                    elif minutes_diff < 100:
+                        # Матч еще слишком рано (меньше 100 минут) - не проверяем статус из API
                         pass
 
                     if should_check_final:
@@ -2496,11 +2497,11 @@ class FootballManager:
 
             # Матчи без фаворита, еще не обработанные (bet IS NULL)
             cursor.execute("""
-                SELECT * FROM matches
+            SELECT * FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                   AND bet IS NULL
                   AND fav = 'NONE'
-                ORDER BY match_date, match_time
+            ORDER BY match_date, match_time
             """)
             matches_without_fav = cursor.fetchall()
 
@@ -2532,16 +2533,16 @@ class FootballManager:
                             print(f"[Football ERROR] Ошибка сбора статистики 60min для {fixture_id}: {e}")
                             import traceback
                             print(traceback.format_exc())
-                            cursor.execute(
+                cursor.execute(
                                 "UPDATE matches SET bet = 0, bet_approve = NULL, bet_approve_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                                 (match_id,)
-                            )
-                            conn.commit()
+                )
+                conn.commit()
                 except Exception as e:
                     print(f"[Football ERROR] Ошибка обработки матча {fixture_id} (fav): {e}")
                     import traceback
                     print(traceback.format_exc())
-                    continue
+                continue
 
             # Обработка матчей без фаворита
             for match in matches_without_fav:
@@ -2558,7 +2559,7 @@ class FootballManager:
                         continue
 
                     if match['status'] == 'scheduled':
-                        cursor.execute(
+            cursor.execute(
                             "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                             (match_id,)
                         )
@@ -2610,13 +2611,13 @@ class FootballManager:
                         if alt_result:
                             bet_alt_code, bet_alt_odds = alt_result
                             cursor.execute("""
-                                UPDATE matches
+                UPDATE matches
                                 SET bet_alt_code = ?,
                                     bet_alt_odds = ?,
-                                    updated_at = CURRENT_TIMESTAMP
-                                WHERE id = ?
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
                             """, (bet_alt_code, bet_alt_odds, match['id']))
-                            conn.commit()
+            conn.commit()
                             print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds})")
                         else:
                             print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
@@ -3391,6 +3392,21 @@ class FootballManager:
             cursor = conn.cursor()
 
             stats_json = json.dumps(stats)
+            # Обновляем счет в БД, если он был получен из SofaScore
+            if actual_score:
+                cursor.execute("""
+                    UPDATE matches
+                    SET stats_60min = ?,
+                        bet = ?,
+                        live_odds = ?,
+                        final_score_home = ?,
+                        final_score_away = ?,
+                        bet_approve = NULL,
+                        bet_approve_reason = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (stats_json, bet_value, live_odds_value, actual_score['home'], actual_score['away'], match['id']))
+            else:
             cursor.execute("""
                 UPDATE matches
                 SET stats_60min = ?,
@@ -3620,6 +3636,17 @@ class FootballManager:
             cursor = conn.cursor()
 
             stats_json = json.dumps(stats)
+            # Обновляем счет в БД, если он был получен из SofaScore
+            if actual_score:
+                cursor.execute("""
+                    UPDATE matches
+                    SET stats_60min = ?,
+                        final_score_home = ?,
+                        final_score_away = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (stats_json, actual_score['home'], actual_score['away'], match['id']))
+            else:
             cursor.execute("""
                 UPDATE matches
                 SET stats_60min = ?, updated_at = CURRENT_TIMESTAMP
@@ -4472,29 +4499,29 @@ X2 ИГНОРИРУЕМ
 
             # Для матчей с фаворитом проверяем условие: фаворит не выигрывает
             if not is_match_without_fav:
-                fav_is_home = (fav_team == home_team)
+            fav_is_home = (fav_team == home_team)
 
-                # Вычисляем разницу в счете с точки зрения фаворита
-                if fav_is_home:
-                    fav_score = home_score
-                    opp_score = away_score
-                else:
-                    fav_score = away_score
-                    opp_score = home_score
+            # Вычисляем разницу в счете с точки зрения фаворита
+            if fav_is_home:
+                fav_score = home_score
+                opp_score = away_score
+            else:
+                fav_score = away_score
+                opp_score = home_score
 
-                score_diff = opp_score - fav_score  # Положительное значение = фаворит проигрывает
+            score_diff = opp_score - fav_score  # Положительное значение = фаворит проигрывает
 
-                # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
-                if score_diff < 0:
+            # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
+            if score_diff < 0:
                     print(f"[Football Notify] skip: favourite '{fav_team}' is leading {fav_score}-{opp_score} for fixture {match['fixture_id']}")
-                    return False
+                return False
 
             # Формируем решение ИИ для сообщения
             # Если ai_decision None, но есть bet_ai, показываем прогноз вместо "ОШИБКА"
             if ai_decision is None and bet_ai:
                 ai_decision_text = f"Прогноз: {bet_ai}"
             else:
-                ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
+            ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
             
             # Используем полное обоснование без обрезки
             # Убеждаемся, что это строка, и берем полный текст
@@ -4518,7 +4545,7 @@ X2 ИГНОРИРУЕМ
 📝 <b>Обоснование:</b> {ai_reason_full}
                 """.strip()
             else:
-                message = f"""
+            message = f"""
 ⚽ <b>Футбольная аналитика - уведомление</b>
 
 🏟️ <b>Матч:</b> {home_team} vs {away_team}
@@ -4528,7 +4555,7 @@ X2 ИГНОРИРУЕМ
 
 🤖 <b>Решение ИИ:</b> {ai_decision_text}
 📝 <b>Обоснование:</b> {ai_reason_full}
-                """.strip()
+            """.strip()
 
             # Получаем список подписчиков
             subscribers = get_football_subscribers()
