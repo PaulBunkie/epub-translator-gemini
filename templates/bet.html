@@ -2005,8 +2005,13 @@
                 const betAltOdds = match.bet_alt_odds !== null && match.bet_alt_odds !== undefined
                     ? parseFloat(match.bet_alt_odds)
                     : NaN;
-                if (!isNaN(betAltOdds)) {
-                    sumBetApprove += betAltOdds;
+                const betAltCode = match.bet_alt_code || null;
+                if (!isNaN(betAltOdds) && betAltCode && homeScore !== null && awayScore !== null) {
+                    if (isAlternativeBetWin(betAltCode, homeScore, awayScore)) {
+                        sumBetApprove += betAltOdds - 1;
+                    } else {
+                        sumBetApprove -= 1;
+                    }
                 }
 
                 if (betAiUpper && !isNaN(betAiOdds) && actualResult) {
@@ -2939,6 +2944,63 @@
                 }
             };
 
+            const isAlternativeBetWin = (betAltCode, homeScore, awayScore) => {
+                if (!betAltCode || homeScore === null || awayScore === null) {
+                    return false;
+                }
+                const code = betAltCode.toUpperCase();
+                
+                // 1X2 и двойной шанс
+                if (code === '1' || code === 'X' || code === '2' || code === '1X' || code === 'X2' || code === '12') {
+                    let actualResult = null;
+                    if (homeScore > awayScore) {
+                        actualResult = '1';
+                    } else if (homeScore === awayScore) {
+                        actualResult = 'X';
+                    } else {
+                        actualResult = '2';
+                    }
+                    return isPredictionWin(code, actualResult);
+                }
+                
+                // Гандикап: Ф1-1.5, Ф1+0.5, Ф2-2.5, Ф2+1.0
+                const handicapMatch = code.match(/^Ф([12])([+-]?)(\d+\.?\d*)$/);
+                if (handicapMatch) {
+                    const team = handicapMatch[1]; // 1 или 2
+                    const sign = handicapMatch[2]; // + или - или пусто
+                    const line = parseFloat(handicapMatch[3]);
+                    
+                    let adjustedHomeScore = homeScore;
+                    let adjustedAwayScore = awayScore;
+                    
+                    if (team === '1') {
+                        // Гандикап для хозяев
+                        adjustedHomeScore += (sign === '-' ? -line : line);
+                    } else {
+                        // Гандикап для гостей
+                        adjustedAwayScore += (sign === '-' ? -line : line);
+                    }
+                    
+                    return adjustedHomeScore > adjustedAwayScore;
+                }
+                
+                // Тотал: Т2.5Б, Т1.5М, Т0.5Б
+                const totalMatch = code.match(/^Т(\d+\.?\d*)([БМ])$/);
+                if (totalMatch) {
+                    const line = parseFloat(totalMatch[1]);
+                    const direction = totalMatch[2]; // Б (больше) или М (меньше)
+                    const totalGoals = homeScore + awayScore;
+                    
+                    if (direction === 'Б') {
+                        return totalGoals > line;
+                    } else {
+                        return totalGoals < line;
+                    }
+                }
+                
+                return false;
+            };
+
             matches.forEach(match => {
                 if (match.status !== 'finished') {
                     return;
@@ -2979,8 +3041,13 @@
                 const betAltOdds = match.bet_alt_odds !== null && match.bet_alt_odds !== undefined
                     ? parseFloat(match.bet_alt_odds)
                     : NaN;
-                if (!isNaN(betAltOdds)) {
-                    sumBetApprove += betAltOdds;
+                const betAltCode = match.bet_alt_code || null;
+                if (!isNaN(betAltOdds) && betAltCode && homeScore !== null && awayScore !== null) {
+                    if (isAlternativeBetWin(betAltCode, homeScore, awayScore)) {
+                        sumBetApprove += betAltOdds - 1;
+                    } else {
+                        sumBetApprove -= 1;
+                    }
                 }
 
                 if (betAiUpper && !isNaN(betAiOdds) && actualResult) {
