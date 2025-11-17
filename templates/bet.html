@@ -2299,18 +2299,16 @@
                     const sign = handicapMatch[2]; // + или - или пусто
                     const line = parseFloat(handicapMatch[3]);
                     
-                    let adjustedHomeScore = homeScore;
-                    let adjustedAwayScore = awayScore;
+                    // Определяем знак гандикапа: если sign пусто, то это положительный гандикап
+                    const handicapValue = (sign === '-') ? -line : line;
                     
                     if (team === '1') {
-                        // Гандикап для хозяев
-                        adjustedHomeScore += (sign === '-' ? -line : line);
+                        // Гандикап для хозяев: выигрываем, если (homeScore + handicapValue) > awayScore
+                        return (homeScore + handicapValue) > awayScore;
                     } else {
-                        // Гандикап для гостей
-                        adjustedAwayScore += (sign === '-' ? -line : line);
+                        // Гандикап для гостей: выигрываем, если (awayScore + handicapValue) > homeScore
+                        return (awayScore + handicapValue) > homeScore;
                     }
-                    
-                    return adjustedHomeScore > adjustedAwayScore;
                 }
                 
                 // Тотал: Т2.5Б, Т1.5М, Т0.5Б
@@ -2542,7 +2540,7 @@
                         }
                     }
                     const betAltContent = betAltClass 
-                        ? `<span class="${betAltClass}">${match.bet_alt_code}</span> (${parseFloat(match.bet_alt_odds).toFixed(2)})`
+                        ? `<span class="${betAltClass}">${match.bet_alt_code} (${parseFloat(match.bet_alt_odds).toFixed(2)})</span>`
                         : `${match.bet_alt_code} (${parseFloat(match.bet_alt_odds).toFixed(2)})`;
                     betAltCell = betAltContent;
                 }
@@ -3174,18 +3172,16 @@
                     const sign = handicapMatch[2]; // + или - или пусто
                     const line = parseFloat(handicapMatch[3]);
                     
-                    let adjustedHomeScore = homeScore;
-                    let adjustedAwayScore = awayScore;
+                    // Определяем знак гандикапа: если sign пусто, то это положительный гандикап
+                    const handicapValue = (sign === '-') ? -line : line;
                     
                     if (team === '1') {
-                        // Гандикап для хозяев
-                        adjustedHomeScore += (sign === '-' ? -line : line);
+                        // Гандикап для хозяев: выигрываем, если (homeScore + handicapValue) > awayScore
+                        return (homeScore + handicapValue) > awayScore;
                     } else {
-                        // Гандикап для гостей
-                        adjustedAwayScore += (sign === '-' ? -line : line);
+                        // Гандикап для гостей: выигрываем, если (awayScore + handicapValue) > homeScore
+                        return (awayScore + handicapValue) > homeScore;
                     }
-                    
-                    return adjustedHomeScore > adjustedAwayScore;
                 }
                 
                 // Тотал: Т2.5Б, Т1.5М, Т0.5Б
