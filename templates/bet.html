@@ -2253,6 +2253,83 @@
             }
             window.favMatchesForRisk = matches || [];
             
+            // Функция для проверки результата альтернативной ставки
+            const isAlternativeBetWin = (betAltCode, homeScore, awayScore) => {
+                if (!betAltCode || homeScore === null || awayScore === null) {
+                    return false;
+                }
+                const code = betAltCode.toUpperCase();
+                
+                // 1X2 и двойной шанс
+                if (code === '1' || code === 'X' || code === '2' || code === '1X' || code === 'X2' || code === '12') {
+                    let actualResult = null;
+                    if (homeScore > awayScore) {
+                        actualResult = '1';
+                    } else if (homeScore === awayScore) {
+                        actualResult = 'X';
+                    } else {
+                        actualResult = '2';
+                    }
+                    const isPredictionWin = (prediction, actualResult) => {
+                        if (!prediction || !actualResult) {
+                            return false;
+                        }
+                        switch (prediction) {
+                            case '1':
+                                return actualResult === '1';
+                            case 'X':
+                                return actualResult === 'X';
+                            case '2':
+                                return actualResult === '2';
+                            case '1X':
+                                return actualResult === '1' || actualResult === 'X';
+                            case 'X2':
+                                return actualResult === 'X' || actualResult === '2';
+                            default:
+                                return false;
+                        }
+                    };
+                    return isPredictionWin(code, actualResult);
+                }
+                
+                // Гандикап: Ф1-1.5, Ф1+0.5, Ф2-2.5, Ф2+1.0
+                const handicapMatch = code.match(/^Ф([12])([+-]?)(\d+\.?\d*)$/);
+                if (handicapMatch) {
+                    const team = handicapMatch[1]; // 1 или 2
+                    const sign = handicapMatch[2]; // + или - или пусто
+                    const line = parseFloat(handicapMatch[3]);
+                    
+                    let adjustedHomeScore = homeScore;
+                    let adjustedAwayScore = awayScore;
+                    
+                    if (team === '1') {
+                        // Гандикап для хозяев
+                        adjustedHomeScore += (sign === '-' ? -line : line);
+                    } else {
+                        // Гандикап для гостей
+                        adjustedAwayScore += (sign === '-' ? -line : line);
+                    }
+                    
+                    return adjustedHomeScore > adjustedAwayScore;
+                }
+                
+                // Тотал: Т2.5Б, Т1.5М, Т0.5Б
+                const totalMatch = code.match(/^Т(\d+\.?\d*)([БМ])$/);
+                if (totalMatch) {
+                    const line = parseFloat(totalMatch[1]);
+                    const direction = totalMatch[2]; // Б (больше) или М (меньше)
+                    const totalGoals = homeScore + awayScore;
+                    
+                    if (direction === 'Б') {
+                        return totalGoals > line;
+                    } else {
+                        return totalGoals < line;
+                    }
+                }
+                
+                return false;
+            };
+            
             if (!matches || matches.length === 0) {
                 // Если нет матчей, показываем пустую таблицу (состояние пустоты обрабатывается отдельно)
                 // Убеждаемся, что tbody полностью очищен
@@ -2447,6 +2524,29 @@
                     ? `<span class="add-to-parlay${addSelectedClass}" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span>`
                     : '';
                 const adminDeleteBtnHtml = (window.isAdmin === true) ? `<span class="delete-match" data-fixture-id="${match.fixture_id}" title="Удалить матч" style="cursor:pointer;"><i class="fas fa-trash text-danger"></i></span>` : '';
+                
+                // Формируем содержимое для колонки Alt (с подсветкой результата)
+                let betAltCell = '';
+                if (match.bet_alt_code && match.bet_alt_odds) {
+                    let betAltClass = '';
+                    if (match.status === 'finished' && homeScore !== null && awayScore !== null) {
+                        if (isAlternativeBetWin(match.bet_alt_code, homeScore, awayScore)) {
+                            // Проверяем, ничья ли это для определения цвета
+                            if (homeScore === awayScore) {
+                                betAltClass = 'final-score-draw';
+                            } else {
+                                betAltClass = 'final-score-win';
+                            }
+                        } else {
+                            betAltClass = 'final-score-loss';
+                        }
+                    }
+                    const betAltContent = betAltClass 
+                        ? `<span class="${betAltClass}">${match.bet_alt_code}</span> (${parseFloat(match.bet_alt_odds).toFixed(2)})`
+                        : `${match.bet_alt_code} (${parseFloat(match.bet_alt_odds).toFixed(2)})`;
+                    betAltCell = betAltContent;
+                }
+                
                 row.innerHTML = `
                     <td>${plusCellHtml}</td>
                     <td>${adminDeleteBtnHtml}</td>
@@ -2460,7 +2560,7 @@
                     <td>${k60Cell}</td>
                     <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
-                    <td>${match.bet_alt_code && match.bet_alt_odds ? `${match.bet_alt_code} (${parseFloat(match.bet_alt_odds).toFixed(2)})` : ''}</td>
+                    <td>${betAltCell}</td>
                     <td>${finalScoreHtml}</td>
                     <td>${statusHtml}</td>
                 `;
@@ -2492,6 +2592,83 @@
              if (tbody) {
                  tbody.innerHTML = '';
              }
+             
+             // Функция для проверки результата альтернативной ставки
+             const isAlternativeBetWin = (betAltCode, homeScore, awayScore) => {
+                 if (!betAltCode || homeScore === null || awayScore === null) {
+                     return false;
+                 }
+                 const code = betAltCode.toUpperCase();
+                 
+                 // 1X2 и двойной шанс
+                 if (code === '1' || code === 'X' || code === '2' || code === '1X' || code === 'X2' || code === '12') {
+                     let actualResult = null;
+                     if (homeScore > awayScore) {
+                         actualResult = '1';
+                     } else if (homeScore === awayScore) {
+                         actualResult = 'X';
+                     } else {
+                         actualResult = '2';
+                     }
+                     const isPredictionWin = (prediction, actualResult) => {
+                         if (!prediction || !actualResult) {
+                             return false;
+                         }
+                         switch (prediction) {
+                             case '1':
+                                 return actualResult === '1';
+                             case 'X':
+                                 return actualResult === 'X';
+                             case '2':
+                                 return actualResult === '2';
+                             case '1X':
+                                 return actualResult === '1' || actualResult === 'X';
+                             case 'X2':
+                                 return actualResult === 'X' || actualResult === '2';
+                             default:
+                                 return false;
+                         }
+                     };
+                     return isPredictionWin(code, actualResult);
+                 }
+                 
+                 // Гандикап: Ф1-1.5, Ф1+0.5, Ф2-2.5, Ф2+1.0
+                 const handicapMatch = code.match(/^Ф([12])([+-]?)(\d+\.?\d*)$/);
+                 if (handicapMatch) {
+                     const team = handicapMatch[1]; // 1 или 2
+                     const sign = handicapMatch[2]; // + или - или пусто
+                     const line = parseFloat(handicapMatch[3]);
+                     
+                     let adjustedHomeScore = homeScore;
+                     let adjustedAwayScore = awayScore;
+                     
+                     if (team === '1') {
+                         // Гандикап для хозяев
+                         adjustedHomeScore += (sign === '-' ? -line : line);
+                     } else {
+                         // Гандикап для гостей
+                         adjustedAwayScore += (sign === '-' ? -line : line);
+                     }
+                     
+                     return adjustedHomeScore > adjustedAwayScore;
+                 }
+                 
+                 // Тотал: Т2.5Б, Т1.5М, Т0.5Б
+                 const totalMatch = code.match(/^Т(\d+\.?\d*)([БМ])$/);
+                 if (totalMatch) {
+                     const line = parseFloat(totalMatch[1]);
+                     const direction = totalMatch[2]; // Б (больше) или М (меньше)
+                     const totalGoals = homeScore + awayScore;
+                     
+                     if (direction === 'Б') {
+                         return totalGoals > line;
+                     } else {
+                         return totalGoals < line;
+                     }
+                 }
+                 
+                 return false;
+             };
              
              if (!matches || matches.length === 0) {
                  // Убеждаемся, что tbody полностью очищен
@@ -2655,6 +2832,33 @@
                     ? `<span class="add-to-parlay${addSelectedClassAll}" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span>`
                     : '';
                 const adminDeleteBtnHtmlAll = (window.isAdmin === true) ? `<span class="delete-match" data-fixture-id="${match.fixture_id}" title="Удалить матч" style="cursor:pointer;"><i class="fas fa-trash text-danger"></i></span>` : '';
+                
+                // Формируем содержимое для колонки Alt (с подсветкой результата)
+                let betAltCellAll = '';
+                if (match.bet_alt_code && match.bet_alt_odds) {
+                    let betAltClassAll = '';
+                    if (match.status === 'finished' && match.final_score_home !== null && match.final_score_away !== null) {
+                        const homeScoreAll = parseInt(match.final_score_home);
+                        const awayScoreAll = parseInt(match.final_score_away);
+                        if (!isNaN(homeScoreAll) && !isNaN(awayScoreAll)) {
+                            if (isAlternativeBetWin(match.bet_alt_code, homeScoreAll, awayScoreAll)) {
+                                // Проверяем, ничья ли это для определения цвета
+                                if (homeScoreAll === awayScoreAll) {
+                                    betAltClassAll = 'final-score-draw';
+                                } else {
+                                    betAltClassAll = 'final-score-win';
+                                }
+                            } else {
+                                betAltClassAll = 'final-score-loss';
+                            }
+                        }
+                    }
+                    const betAltContentAll = betAltClassAll 
+                        ? `<span class="${betAltClassAll}">${match.bet_alt_code}</span> (${parseFloat(match.bet_alt_odds).toFixed(2)})`
+                        : `${match.bet_alt_code} (${parseFloat(match.bet_alt_odds).toFixed(2)})`;
+                    betAltCellAll = betAltContentAll;
+                }
+                
                 row.innerHTML = `
                     <td>${plusCellHtmlAll}</td>
                     <td>${adminDeleteBtnHtmlAll}</td>
@@ -2667,7 +2871,7 @@
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
                     <td>${betAICell}</td>
                     <td>${(match.bet && parseFloat(match.bet) >= 1) ? '<i class="fas fa-check text-success"></i>' : ''}</td>
-                    <td>${match.bet_alt_code && match.bet_alt_odds ? `${match.bet_alt_code} (${parseFloat(match.bet_alt_odds).toFixed(2)})` : ''}</td>
+                    <td>${betAltCellAll}</td>
                     <td>${finalScore}</td>
                     <td>${statusHtml}</td>
                 `;
