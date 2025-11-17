@@ -1114,7 +1114,11 @@
         // Функция для применения фильтра и перерисовки таблицы
         function applyDateFilter(table) {
             if (table === 'fav') {
-                const filtered = filterMatchesByDate(allMatches || [], currentDateFilterFav, dateRangeFav);
+                // Убеждаемся, что allMatches инициализирован
+                if (!allMatches) {
+                    allMatches = [];
+                }
+                const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
                 // Явно очищаем таблицу перед применением фильтра
                 const tbody = document.getElementById('matches-table-body');
                 if (tbody) {
@@ -1131,7 +1135,11 @@
                     displayMatches(filtered);
                 }
             } else if (table === 'all') {
-                const filtered = filterMatchesByDate(allMatchesData || [], currentDateFilterAll, dateRangeAll);
+                // Убеждаемся, что allMatchesData инициализирован
+                if (!allMatchesData) {
+                    allMatchesData = [];
+                }
+                const filtered = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
                 // Явно очищаем таблицу перед применением фильтра
                 const tbody = document.getElementById('all-matches-table-body');
                 if (tbody) {
@@ -2625,26 +2633,24 @@
                      return isPredictionWin(code, actualResult);
                  }
                  
-                 // Гандикап: Ф1-1.5, Ф1+0.5, Ф2-2.5, Ф2+1.0
-                 const handicapMatch = code.match(/^Ф([12])([+-]?)(\d+\.?\d*)$/);
-                 if (handicapMatch) {
-                     const team = handicapMatch[1]; // 1 или 2
-                     const sign = handicapMatch[2]; // + или - или пусто
-                     const line = parseFloat(handicapMatch[3]);
-                     
-                     let adjustedHomeScore = homeScore;
-                     let adjustedAwayScore = awayScore;
-                     
-                     if (team === '1') {
-                         // Гандикап для хозяев
-                         adjustedHomeScore += (sign === '-' ? -line : line);
-                     } else {
-                         // Гандикап для гостей
-                         adjustedAwayScore += (sign === '-' ? -line : line);
-                     }
-                     
-                     return adjustedHomeScore > adjustedAwayScore;
-                 }
+                // Гандикап: Ф1-1.5, Ф1+0.5, Ф2-2.5, Ф2+1.0
+                const handicapMatch = code.match(/^Ф([12])([+-]?)(\d+\.?\d*)$/);
+                if (handicapMatch) {
+                    const team = handicapMatch[1]; // 1 или 2
+                    const sign = handicapMatch[2]; // + или - или пусто
+                    const line = parseFloat(handicapMatch[3]);
+                    
+                    // Определяем знак гандикапа: если sign пусто, то это положительный гандикап
+                    const handicapValue = (sign === '-') ? -line : line;
+                    
+                    if (team === '1') {
+                        // Гандикап для хозяев: выигрываем, если (homeScore + handicapValue) > awayScore
+                        return (homeScore + handicapValue) > awayScore;
+                    } else {
+                        // Гандикап для гостей: выигрываем, если (awayScore + handicapValue) > homeScore
+                        return (awayScore + handicapValue) > homeScore;
+                    }
+                }
                  
                  // Тотал: Т2.5Б, Т1.5М, Т0.5Б
                  const totalMatch = code.match(/^Т(\d+\.?\d*)([БМ])$/);
