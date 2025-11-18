@@ -3476,6 +3476,31 @@ class FootballManager:
                     print(f"[Football] ИИ-прогноз сохранен для fixture {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}")
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
+                
+                # Проверяем условие для отправки уведомления: bet = 1 И bet_ai_odds > 1.5
+                # Читаем данные из БД после сохранения bet_ai
+                try:
+                    conn = get_football_db_connection()
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT bet, bet_ai_odds FROM matches WHERE id = ?", (match['id'],))
+                    db_row = cursor.fetchone()
+                    conn.close()
+                    
+                    if db_row and db_row['bet'] == 1 and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.5:
+                        # Читаем полные данные матча из БД для уведомления
+                        conn = get_football_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                        match_for_notification = cursor.fetchone()
+                        conn.close()
+                        
+                        if match_for_notification:
+                            try:
+                                self._send_match_notification(match_for_notification, stats)
+                            except Exception as notify_error:
+                                print(f"[Football ERROR] Ошибка отправки уведомления для фаворита: {notify_error}")
+                except Exception as fav_check_error:
+                    print(f"[Football ERROR] Ошибка проверки условий для уведомления (фаворит): {fav_check_error}")
             
             # Получаем альтернативную ставку ОДИН РАЗ для каждого матча (если есть stats_60min и нет bet_alt_code)
             if stats:
@@ -3522,33 +3547,6 @@ class FootballManager:
                     import traceback
                     traceback.print_exc()
             
-            # Отправляем уведомление ПОСЛЕ записи в БД - читаем все данные из БД
-            conn = get_football_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT bet_ai, bet_ai_reason FROM matches WHERE id = ?", (match['id'],))
-            db_row = cursor.fetchone()
-            conn.close()
-            
-            # Используем данные из БД для уведомления
-            bet_ai_for_notification = db_row[0] if db_row and db_row[0] else bet_ai
-            final_ai_reason = None
-            
-            # Приоритет: bet_ai_reason из БД (полное обоснование прогноза) > ai_reason (обоснование решения ДА/НЕТ)
-            if db_row and db_row[1] and str(db_row[1]).strip():
-                # Используем bet_ai_reason из БД как основное обоснование
-                final_ai_reason = str(db_row[1]).strip()
-            elif ai_reason and str(ai_reason).strip():
-                # Используем ai_reason как резервный вариант
-                final_ai_reason = str(ai_reason).strip()
-            
-            final_ai_decision = ai_decision
-            
-            # Отправляем уведомление (оборачиваем в try-except, чтобы гарантировать отправку)
-            try:
-                self._send_match_notification(match, stats, live_odds_value, final_ai_decision, final_ai_reason, bet_ai_for_notification)
-            except Exception as notify_error:
-                print(f"[Football ERROR] Ошибка отправки уведомления: {notify_error}")
-                # Не прерываем выполнение, просто логируем ошибку
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора статистики 60min: {e}")
@@ -3757,6 +3755,21 @@ class FootballManager:
                                     conn.commit()
                                     conn.close()
                                     print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
+                                    
+                                    # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.5 И bet_alt_confirm = 1
+                                    if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.5 and bet_alt_confirm == 1:
+                                        # Читаем полные данные матча из БД для уведомления
+                                        conn = get_football_db_connection()
+                                        cursor = conn.cursor()
+                                        cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                                        match_for_notification = cursor.fetchone()
+                                        conn.close()
+                                        
+                                        if match_for_notification:
+                                            try:
+                                                self._send_match_notification(match_for_notification, stats)
+                                            except Exception as notify_error:
+                                                print(f"[Football ERROR] Ошибка отправки уведомления для матча без фаворита: {notify_error}")
                                 else:
                                     print(f"[Football] _get_alternative_bet вернул None для матча без фаворита {fixture_id}")
                     except Exception as alt_error:
@@ -3764,14 +3777,6 @@ class FootballManager:
                         import traceback
                         traceback.print_exc()
                 
-                # Отправляем уведомление если ИИ рекомендует СТАВИМ (bet_recommendation = True)
-                if bet_recommendation:
-                    try:
-                        # Для матчей без фаворита используем bet_ai как ai_decision (None, так как нет ДА/НЕТ)
-                        # bet_ai содержит прогноз (1/X/2/1X/X2)
-                        self._send_match_notification(match, stats, live_odds_value, None, bet_ai_reason, bet_ai)
-                    except Exception as notify_error:
-                        print(f"[Football ERROR] Ошибка отправки уведомления для матча без фаворита: {notify_error}")
             else:
                 # Если прогноз не получен, все равно обновляем bet = 0
                 conn = get_football_db_connection()
@@ -4478,17 +4483,13 @@ X2 ИГНОРИРУЕМ
             print(traceback.format_exc())
             return (0, None, None, None)
 
-    def _send_match_notification(self, match: sqlite3.Row, stats: Dict, live_odds: Optional[float], ai_decision: Optional[bool], ai_reason: Optional[str], bet_ai: Optional[str] = None) -> bool:
+    def _send_match_notification(self, match: sqlite3.Row, stats: Dict) -> bool:
         """
-        Отправляет уведомление в Telegram админу о матче, если фаворит не выигрывает.
+        Отправляет уведомление в Telegram подписчикам о матче.
 
         Args:
-            match: Запись матча из БД
-            stats: Статистика на 60-й минуте
-            live_odds: Коэффициент live odds (K60)
-            ai_decision: Решение ИИ (True = ДА, False = НЕТ, None = ошибка)
-            ai_reason: Полный ответ от ИИ
-            bet_ai: Прогноз ИИ (1/X/2/1X/X2), используется если ai_decision None
+            match: Запись матча из БД (должна содержать все необходимые поля)
+            stats: Статистика на 60-й минуте (для получения счета)
 
         Returns:
             bool: True если уведомление отправлено успешно
@@ -4506,62 +4507,44 @@ X2 ИГНОРИРУЕМ
             fav_team = match['fav']
             is_match_without_fav = (fav_team == 'NONE' or not fav_team)
 
-            # --- verbose but concise pre-send log
-            try:
-                print(f"[Football Notify] preparing fixture={match['fixture_id']} "
-                      f"teams={home_team} vs {away_team} score={home_score}-{away_score} "
-                      f"fav={fav_team if fav_team else 'NONE'}")
-            except Exception:
-                pass
-
-            # Для матчей с фаворитом проверяем условие: фаворит не выигрывает
-            if not is_match_without_fav:
-                fav_is_home = (fav_team == home_team)
-
-            # Вычисляем разницу в счете с точки зрения фаворита
-            if fav_is_home:
-                fav_score = home_score
-                opp_score = away_score
-            else:
-                fav_score = away_score
-                opp_score = home_score
-
-            score_diff = opp_score - fav_score  # Положительное значение = фаворит проигрывает
-
-            # Отправляем уведомление только если фаворит не выигрывает (score_diff >= 0)
-            if score_diff < 0:
-                print(f"[Football Notify] skip: favourite '{fav_team}' is leading {fav_score}-{opp_score} for fixture {match['fixture_id']}")
-                return False
-
-            # Формируем решение ИИ для сообщения
-            # Если ai_decision None, но есть bet_ai, показываем прогноз вместо "ОШИБКА"
-            if ai_decision is None and bet_ai:
-                ai_decision_text = f"Прогноз: {bet_ai}"
-            else:
-                ai_decision_text = "ДА" if ai_decision is True else ("НЕТ" if ai_decision is False else "ОШИБКА")
-            
-            # Используем полное обоснование без обрезки
-            # Убеждаемся, что это строка, и берем полный текст
-            if ai_reason:
-                ai_reason_full = str(ai_reason).strip()
+            # Получаем обоснование из БД
+            bet_ai_reason = match.get('bet_ai_reason') if 'bet_ai_reason' in match.keys() else None
+            if bet_ai_reason:
+                ai_reason_full = str(bet_ai_reason).strip()
                 if not ai_reason_full:
                     ai_reason_full = "Нет данных"
             else:
                 ai_reason_full = "Нет данных"
-
+            
             # Формируем сообщение (разное для матчей с фаворитом и без)
             if is_match_without_fav:
+                # Для не-фаворитов: Матч, Счет, Ставка (bet_alt_code), Кэф (bet_alt_odds), Обоснование
+                bet_alt_code = match.get('bet_alt_code') if 'bet_alt_code' in match.keys() else None
+                bet_alt_odds = match.get('bet_alt_odds') if 'bet_alt_odds' in match.keys() else None
+                
+                if not bet_alt_code:
+                    print(f"[Football Notify] skip: bet_alt_code is NULL for fixture {match['fixture_id']}")
+                    return False
+                
                 message = f"""
 ⚽ <b>Футбольная аналитика - уведомление</b>
 
 🏟️ <b>Матч:</b> {home_team} vs {away_team}
 📊 <b>Счет:</b> {home_score} - {away_score}
-💰 <b>K60:</b> {live_odds if live_odds else 'N/A'}
-
-🤖 <b>Решение ИИ:</b> {ai_decision_text}
+🎯 <b>Ставка:</b> {bet_alt_code}
+💰 <b>Кэф:</b> {bet_alt_odds if bet_alt_odds else 'N/A'}
 📝 <b>Обоснование:</b> {ai_reason_full}
                 """.strip()
             else:
+                # Для фаворитов: Матч, Счет, Фаворит, K60, Ставка (bet_ai), Обоснование
+                bet_ai = match.get('bet_ai') if 'bet_ai' in match.keys() else None
+                bet_ai_odds = match.get('bet_ai_odds') if 'bet_ai_odds' in match.keys() else None
+                live_odds = match.get('live_odds') if 'live_odds' in match.keys() else None
+                
+                if not bet_ai:
+                    print(f"[Football Notify] skip: bet_ai is NULL for fixture {match['fixture_id']}")
+                    return False
+                
                 message = f"""
 ⚽ <b>Футбольная аналитика - уведомление</b>
 
@@ -4569,22 +4552,16 @@ X2 ИГНОРИРУЕМ
 📊 <b>Счет:</b> {home_score} - {away_score}
 ⭐ <b>Фаворит:</b> {fav_team}
 💰 <b>K60:</b> {live_odds if live_odds else 'N/A'}
-
-🤖 <b>Решение ИИ:</b> {ai_decision_text}
+🎯 <b>Ставка:</b> {bet_ai}
 📝 <b>Обоснование:</b> {ai_reason_full}
-            """.strip()
+                """.strip()
 
             # Получаем список подписчиков
             subscribers = get_football_subscribers()
             
-            # Отправляем уведомление только подписчикам (админ тоже должен подписаться)
+            # Отправляем уведомление только подписчикам
             recipients = set(subscribers)
             
-            try:
-                print(f"[Football Notify] recipients={len(recipients)} for fixture {match['fixture_id']}")
-            except Exception:
-                pass
-
             if not recipients:
                 print(f"[Football Notify] no subscribers (0) -> nothing to send for fixture {match['fixture_id']}")
                 return False
@@ -4597,7 +4574,6 @@ X2 ИГНОРИРУЕМ
                     success_count += 1
                 else:
                     fail_count += 1
-                    print(f"[Football Notify] send failed to user={recipient_id} fixture={match['fixture_id']}")
             
             if success_count > 0:
                 print(f"[Football Notify] sent={success_count} failed={fail_count} total={len(recipients)} fixture={match['fixture_id']}")
