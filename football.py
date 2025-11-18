@@ -4508,7 +4508,7 @@ X2 ИГНОРИРУЕМ
             is_match_without_fav = (fav_team == 'NONE' or not fav_team)
 
             # Получаем обоснование из БД
-            bet_ai_reason = match.get('bet_ai_reason') if 'bet_ai_reason' in match.keys() else None
+            bet_ai_reason = match['bet_ai_reason'] if 'bet_ai_reason' in match.keys() else None
             if bet_ai_reason:
                 ai_reason_full = str(bet_ai_reason).strip()
                 if not ai_reason_full:
@@ -4519,8 +4519,8 @@ X2 ИГНОРИРУЕМ
             # Формируем сообщение (разное для матчей с фаворитом и без)
             if is_match_without_fav:
                 # Для не-фаворитов: Матч, Счет, Ставка (bet_alt_code), Кэф (bet_alt_odds), Обоснование
-                bet_alt_code = match.get('bet_alt_code') if 'bet_alt_code' in match.keys() else None
-                bet_alt_odds = match.get('bet_alt_odds') if 'bet_alt_odds' in match.keys() else None
+                bet_alt_code = match['bet_alt_code'] if 'bet_alt_code' in match.keys() else None
+                bet_alt_odds = match['bet_alt_odds'] if 'bet_alt_odds' in match.keys() else None
                 
                 if not bet_alt_code:
                     print(f"[Football Notify] skip: bet_alt_code is NULL for fixture {match['fixture_id']}")
@@ -4537,9 +4537,9 @@ X2 ИГНОРИРУЕМ
                 """.strip()
             else:
                 # Для фаворитов: Матч, Счет, Фаворит, K60, Ставка (bet_ai), Обоснование
-                bet_ai = match.get('bet_ai') if 'bet_ai' in match.keys() else None
-                bet_ai_odds = match.get('bet_ai_odds') if 'bet_ai_odds' in match.keys() else None
-                live_odds = match.get('live_odds') if 'live_odds' in match.keys() else None
+                bet_ai = match['bet_ai'] if 'bet_ai' in match.keys() else None
+                bet_ai_odds = match['bet_ai_odds'] if 'bet_ai_odds' in match.keys() else None
+                live_odds = match['live_odds'] if 'live_odds' in match.keys() else None
                 
                 if not bet_ai:
                     print(f"[Football Notify] skip: bet_ai is NULL for fixture {match['fixture_id']}")
