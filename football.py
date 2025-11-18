@@ -3477,16 +3477,16 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
                 
-                # Проверяем условие для отправки уведомления: bet = 1 И bet_ai_odds > 1.30
+                # Проверяем условие для отправки уведомления: bet_ai IS NOT NULL И bet_ai_odds > 1.30
                 # Читаем данные из БД после сохранения bet_ai
                 try:
                     conn = get_football_db_connection()
                     cursor = conn.cursor()
-                    cursor.execute("SELECT bet, bet_ai_odds FROM matches WHERE id = ?", (match['id'],))
+                    cursor.execute("SELECT bet_ai, bet_ai_odds FROM matches WHERE id = ?", (match['id'],))
                     db_row = cursor.fetchone()
                     conn.close()
                     
-                    if db_row and db_row['bet'] == 1 and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.30:
+                    if db_row and db_row['bet_ai'] and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.30:
                         # Читаем полные данные матча из БД для уведомления
                         conn = get_football_db_connection()
                         cursor = conn.cursor()
