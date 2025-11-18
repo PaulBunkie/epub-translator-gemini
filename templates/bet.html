@@ -711,6 +711,14 @@
             document.querySelectorAll('[data-parlay-badge]').forEach(b => {
                 b.textContent = String(selectedParlayFixtures.size);
             });
+            updateParlayButtonState();
+        }
+
+        function updateParlayButtonState() {
+            const hasMatches = selectedParlayFixtures.size > 0;
+            document.querySelectorAll('.build-parlay-btn').forEach(btn => {
+                btn.disabled = !hasMatches;
+            });
         }
 
         function getMatchNameByFixtureId(fixtureId) {
@@ -791,9 +799,11 @@
                     btn.classList.remove('text-success');
                 }
             });
+            updateParlayButtonState();
         }
         // Обработчики кнопок "Составить экспресс" (в обеих панелях)
         document.addEventListener('DOMContentLoaded', () => {
+            updateParlayButtonState(); // Инициализация состояния кнопки
             const parlayModal = new bootstrap.Modal(document.getElementById('parlayModal'));
             const parlayContent = document.getElementById('parlayContent');
             document.querySelectorAll('.build-parlay-btn').forEach(buildBtn => {
