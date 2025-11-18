@@ -3477,7 +3477,7 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
                 
-                # Проверяем условие для отправки уведомления: bet = 1 И bet_ai_odds > 1.5
+                # Проверяем условие для отправки уведомления: bet = 1 И bet_ai_odds > 1.30
                 # Читаем данные из БД после сохранения bet_ai
                 try:
                     conn = get_football_db_connection()
@@ -3486,7 +3486,7 @@ class FootballManager:
                     db_row = cursor.fetchone()
                     conn.close()
                     
-                    if db_row and db_row['bet'] == 1 and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.5:
+                    if db_row and db_row['bet'] == 1 and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.30:
                         # Читаем полные данные матча из БД для уведомления
                         conn = get_football_db_connection()
                         cursor = conn.cursor()
@@ -3756,8 +3756,8 @@ class FootballManager:
                                     conn.close()
                                     print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                     
-                                    # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.5 И bet_alt_confirm = 1
-                                    if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.5 and bet_alt_confirm == 1:
+                                    # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.30 И bet_alt_confirm = 1
+                                    if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.30 and bet_alt_confirm == 1:
                                         # Читаем полные данные матча из БД для уведомления
                                         conn = get_football_db_connection()
                                         cursor = conn.cursor()
