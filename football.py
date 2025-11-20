@@ -547,21 +547,11 @@ class FootballManager:
                     stats = json.loads(row['stats_60min']) if row['stats_60min'] else None
                 except Exception:
                     stats = row['stats_60min']
-                
-                # Извлекаем текущий счет из статистики для явной передачи
-                current_score = stats.get('score', {}) if stats and isinstance(stats, dict) else {}
-                current_home_score = current_score.get('home', 0) if isinstance(current_score, dict) else 0
-                current_away_score = current_score.get('away', 0) if isinstance(current_score, dict) else 0
-                
+                # Примечание: текущий счет находится внутри stats_60min['score'] = {'home': X, 'away': Y}
                 matches_payload.append({
                     'fixture_id': row['fixture_id'],
                     'home_team': row['home_team'],
                     'away_team': row['away_team'],
-                    'current_score': {
-                        'home': current_home_score,
-                        'away': current_away_score,
-                        'total': current_home_score + current_away_score
-                    },
                     'status': row['status'],
                     'match_date': row['match_date'],
                     'match_time': row['match_time'],
@@ -585,12 +575,12 @@ class FootballManager:
                 "Тебе предоставлена статистика первых половин матчей нескольких команд. "
                 "Твоя задача - составить экспресс из 2–4 событий из предоставленных матчей. "
                 "Ты должен учитывать статистику первых половин матчей, текущие коэффициенты букмекеров и другие факторы, которые могут повлиять на исход матча, в том числе исторические и статистические данные. "
-                "ВСЕГДА учитывай текущий счет (current_score) при расчете коэффициентов для тоталов и гандикапов: чем ближе текущий счет к проходу ставки, тем ниже должен быть коэффициент. "
+                "ВСЕГДА учитывай текущий счет из stats_60min['score'] (stats_60min.score.home + stats_60min.score.away = текущее количество голов) при расчете коэффициентов для тоталов и гандикапов: чем ближе текущий счет к проходу ставки, тем ниже должен быть коэффициент. "
                 "Твой экспресс должен быть оптимален по коэффициенту и минимален по риску. "
                 "Разрешенные рынки: 1X2, DoubleChance, Handicap, Total. "
                 "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,-0.5,+0.5,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
                 "Для Total используй Over/Under с ТОЛЬКО половинными линиями (… 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
-                "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики, текущего счета и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
+                "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
                 "Не включай взаимно коррелированные ноги одного и того же матча. "
                 "Верни СТРОГО JSON (без текста вокруг) формата: "
                 "{\"legs\":[{\"fixture_id\":str,\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number|null,\"odds_estimated\":boolean|null,\"reason\":str}],"
@@ -2726,21 +2716,12 @@ class FootballManager:
             live_odds_x = match['live_odds_x'] if 'live_odds_x' in match.keys() else None
             live_odds_2 = match['live_odds_2'] if 'live_odds_2' in match.keys() else None
             
-            # Извлекаем текущий счет из статистики для явной передачи
-            current_score = stats.get('score', {}) if stats else {}
-            current_home_score = current_score.get('home', 0) if isinstance(current_score, dict) else 0
-            current_away_score = current_score.get('away', 0) if isinstance(current_score, dict) else 0
-            
             # Формируем промпт для одного матча
+            # Примечание: текущий счет находится внутри stats_60min['score'] = {'home': X, 'away': Y}
             match_data = {
                 'fixture_id': fixture_id,
                 'home_team': home_team,
                 'away_team': away_team,
-                'current_score': {
-                    'home': current_home_score,
-                    'away': current_away_score,
-                    'total': current_home_score + current_away_score
-                },
                 'live_odds_1': live_odds_1,
                 'live_odds_x': live_odds_x,
                 'live_odds_2': live_odds_2,
@@ -2754,11 +2735,11 @@ class FootballManager:
                 "Тебе предоставлена статистика первой половины матча. "
                 "Твоя задача - выбрать ОДНУ оптимальную ставку из следующих рынков: 1X2, DoubleChance, Handicap, Total. "
                 "Ты должен учитывать статистику первой половины матча, текущие коэффициенты букмекеров и другие факторы. "
-                "ВСЕГДА учитывай текущий счет (current_score) при расчете коэффициентов для тоталов и гандикапов: чем ближе текущий счет к проходу ставки, тем ниже должен быть коэффициент. "
+                "ВСЕГДА учитывай текущий счет из stats_60min.score (stats_60min.score.home + stats_60min.score.away = текущее количество голов) при расчете коэффициентов для тоталов и гандикапов: чем ближе текущий счет к проходу ставки, тем ниже должен быть коэффициент. Например, если счет 1:0 (1 гол) и ты выбираешь Total Over 1.5, коэффициент должен быть около 1.10-1.20 (очень высокий шанс, нужно еще 1 гол), а не 1.80. "
                 "Выбранная ставка должна быть оптимальна по коэффициенту и минимальна по риску. "
                 "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,0,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
                 "Для Total используй Over/Under с ТОЛЬКО половинными линиями (0, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
-                "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики, текущего счета и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
+                "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
                 "Оцени рискованность ставки. Если для этой ставки риск проигрыша слишком высок (нестабильная форма команд, неопределенность исхода, неблагоприятная статистика), установи confirm=0. "
                 "Если ставка имеет приемлемый уровень риска и хорошие шансы на успех, установи confirm=1. "
                 "Верни СТРОГО JSON (без текста вокруг) формата: "
