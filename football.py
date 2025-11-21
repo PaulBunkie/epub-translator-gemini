@@ -4488,6 +4488,12 @@ X2 ИГНОРИРУЕМ
         try:
             fav_team = match['fav']
             
+            # Проверяем last_odds (K1) - если коэффициент > 1.50, не отправляем запрос модели
+            last_odds = match['last_odds'] if 'last_odds' in match.keys() and match['last_odds'] is not None else None
+            if last_odds is None or last_odds > 1.50:
+                print(f"[Football] Коэффициент фаворита {fav_team} (last_odds={last_odds}) > 1.50, пропускаем запрос модели для {fixture_id}")
+                return (0, None, None, None)
+            
             # Проверяем текущий счет - если фаворит выигрывает, не делаем ставку
             score = stats.get('score', {})
             home_score = score.get('home', 0)
