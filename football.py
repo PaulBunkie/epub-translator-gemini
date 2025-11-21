@@ -1628,7 +1628,7 @@ class FootballManager:
                     match_exists = self._match_exists(fixture_id)
                     
                     # Определяем, есть ли фаворит с кэфом <= 1.30
-                    has_favorite = fav_info is not None and fav_info['odds'] <= 1.30
+                    has_favorite = fav_info is not None and fav_info['odds'] <= 1.50
                     
                     if has_favorite:
                         # Матч с фаворитом - заполняем все поля
