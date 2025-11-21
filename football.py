@@ -2651,6 +2651,40 @@ class FootballManager:
             except:
                 pass
 
+    def _parse_confirm_value(self, confirm) -> int:
+        """
+        Умно парсит значение confirm из различных форматов.
+        
+        Args:
+            confirm: Значение confirm (может быть int, bool, str, None)
+        
+        Returns:
+            1 если confirm = True/1/"true"/"yes"/"да" и т.д., 0 в остальных случаях
+        """
+        if confirm is None:
+            return 0
+        
+        # Если это число
+        if isinstance(confirm, (int, float)):
+            return 1 if confirm == 1 else 0
+        
+        # Если это булево значение
+        if isinstance(confirm, bool):
+            return 1 if confirm is True else 0
+        
+        # Если это строка
+        if isinstance(confirm, str):
+            confirm_lower = confirm.lower().strip()
+            # Положительные значения
+            if confirm_lower in ['1', 'true', 'yes', 'да', 'yes.', 'да.', 'true.', '1.']:
+                return 1
+            # Отрицательные значения (для ясности, хотя по умолчанию будет 0)
+            if confirm_lower in ['0', 'false', 'no', 'нет', 'false.', 'no.', 'нет.', '0.']:
+                return 0
+        
+        # Если не распознано, возвращаем 0 (безопасный выбор)
+        return 0
+    
     def _encode_alternative_bet(self, market: str, pick: str, line: Optional[float] = None) -> str:
         """
         Преобразует JSON ответ модели в короткую кодировку ставки.
@@ -2822,8 +2856,8 @@ class FootballManager:
                                     # Преобразуем в кодировку
                                     bet_alt_code = self._encode_alternative_bet(market, pick, line)
                                     bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
-                                    # Преобразуем confirm в 0 или 1
-                                    bet_alt_confirm = 1 if (confirm == 1 or confirm is True or (isinstance(confirm, str) and confirm.lower() in ['1', 'true', 'yes'])) else 0
+                                    # Умно преобразуем confirm в 0 или 1
+                                    bet_alt_confirm = self._parse_confirm_value(confirm)
                                     
                                     if bet_alt_code and bet_alt_odds is not None:
                                         print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
