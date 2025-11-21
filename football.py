@@ -2620,15 +2620,16 @@ class FootballManager:
                         elapsed = time.time() - start_time
                         print(f"[Football] [{idx}/{len(matches_for_alt_bet)}] Запрос для fixture {fixture_id} завершен за {elapsed:.2f} сек")
                         if alt_result:
-                            bet_alt_code, bet_alt_odds, bet_alt_confirm = alt_result
+                            bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason = alt_result
                             cursor.execute("""
                                 UPDATE matches
                                 SET bet_alt_code = ?,
                                     bet_alt_odds = ?,
                                     bet_alt_confirm = ?,
+                                    bet_ai_reason = ?,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE id = ?
-                            """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, match['id']))
+                            """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason if bet_alt_reason else None, match['id']))
                             conn.commit()
                             print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                         else:
@@ -2725,7 +2726,7 @@ class FootballManager:
         # Если не распознано, возвращаем исходный pick
         return pick
 
-    def _get_alternative_bet(self, match: sqlite3.Row, stats: Dict) -> Optional[Tuple[str, float, int]]:
+    def _get_alternative_bet(self, match: sqlite3.Row, stats: Dict) -> Optional[Tuple[str, float, int, str]]:
         """
         Получает альтернативную ставку от ИИ для одного матча.
         
@@ -2734,7 +2735,7 @@ class FootballManager:
             stats: Статистика матча
         
         Returns:
-            Tuple (bet_alt_code, bet_alt_odds, bet_alt_confirm) или None
+            Tuple (bet_alt_code, bet_alt_odds, bet_alt_confirm, reason) или None
         """
         if not self.openrouter_api_key:
             print("[Football Alt Bet] OpenRouter API ключ не установлен, пропускаем")
@@ -2851,6 +2852,7 @@ class FootballManager:
                                 line = parsed.get('line')
                                 odds = parsed.get('odds')
                                 confirm = parsed.get('confirm')
+                                reason = parsed.get('reason', '')
                                 
                                 if market and pick and odds:
                                     # Преобразуем в кодировку
@@ -2858,10 +2860,12 @@ class FootballManager:
                                     bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
                                     # Умно преобразуем confirm в 0 или 1
                                     bet_alt_confirm = self._parse_confirm_value(confirm)
+                                    # Получаем reason или пустую строку
+                                    bet_alt_reason = str(reason).strip() if reason else ''
                                     
                                     if bet_alt_code and bet_alt_odds is not None:
                                         print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
-                                        return (bet_alt_code, bet_alt_odds, bet_alt_confirm)
+                                        return (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason)
                                     else:
                                         print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
                                         continue
@@ -3562,9 +3566,9 @@ class FootballManager:
                         if match_updated:
                             alt_result = self._get_alternative_bet(match_updated, stats)
                             if alt_result:
-                                bet_alt_code, bet_alt_odds, bet_alt_confirm = alt_result
+                                bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason = alt_result
                                 print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
-                                # Сохраняем альтернативную ставку в БД
+                                # Сохраняем альтернативную ставку в БД (сохраняем reason в bet_ai_reason для не-фаворитов)
                                 conn = get_football_db_connection()
                                 cursor = conn.cursor()
                                 cursor.execute("""
@@ -3572,9 +3576,10 @@ class FootballManager:
                                     SET bet_alt_code = ?,
                                         bet_alt_odds = ?,
                                         bet_alt_confirm = ?,
+                                        bet_ai_reason = ?,
                                         updated_at = CURRENT_TIMESTAMP
                                     WHERE id = ?
-                                """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, match['id']))
+                                """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason if bet_alt_reason else None, match['id']))
                                 conn.commit()
                                 conn.close()
                                 print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
@@ -3777,9 +3782,9 @@ class FootballManager:
                             if match_updated:
                                 alt_result = self._get_alternative_bet(match_updated, stats)
                                 if alt_result:
-                                    bet_alt_code, bet_alt_odds, bet_alt_confirm = alt_result
+                                    bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason = alt_result
                                     print(f"[Football] Получена альтернативная ставка: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
-                                    # Сохраняем альтернативную ставку в БД
+                                    # Сохраняем альтернативную ставку в БД (сохраняем reason в bet_ai_reason для не-фаворитов)
                                     conn = get_football_db_connection()
                                     cursor = conn.cursor()
                                     cursor.execute("""
@@ -3787,9 +3792,10 @@ class FootballManager:
                                         SET bet_alt_code = ?,
                                             bet_alt_odds = ?,
                                             bet_alt_confirm = ?,
+                                            bet_ai_reason = ?,
                                             updated_at = CURRENT_TIMESTAMP
                                         WHERE id = ?
-                                    """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, match['id']))
+                                    """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason if bet_alt_reason else None, match['id']))
                                     conn.commit()
                                     conn.close()
                                     print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
@@ -4575,6 +4581,24 @@ X2 ИГНОРИРУЕМ
                 ai_reason_full = str(bet_ai_reason).strip()
                 if not ai_reason_full:
                     ai_reason_full = "Нет данных"
+                else:
+                    # Убираем markdown из текста
+                    import re
+                    # Удаляем markdown жирный текст **text** -> text
+                    ai_reason_full = re.sub(r'\*\*(.+?)\*\*', r'\1', ai_reason_full)
+                    # Удаляем markdown курсив *text* -> text
+                    ai_reason_full = re.sub(r'(?<!\*)\*([^*]+?)\*(?!\*)', r'\1', ai_reason_full)
+                    # Удаляем markdown код `text` -> text
+                    ai_reason_full = re.sub(r'`(.+?)`', r'\1', ai_reason_full)
+                    # Удаляем markdown заголовки # text -> text
+                    ai_reason_full = re.sub(r'^#+\s+', '', ai_reason_full, flags=re.MULTILINE)
+                    # Удаляем markdown списки - и *
+                    ai_reason_full = re.sub(r'^[\-\*]\s+', '', ai_reason_full, flags=re.MULTILINE)
+                    # Удаляем markdown ссылки [text](url) -> text
+                    ai_reason_full = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', ai_reason_full)
+                    # Заменяем множественные переносы строк на одинарные
+                    ai_reason_full = re.sub(r'\n{3,}', '\n\n', ai_reason_full)
+                    ai_reason_full = ai_reason_full.strip()
             else:
                 ai_reason_full = "Нет данных"
             
