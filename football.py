@@ -765,12 +765,14 @@ class FootballManager:
                     updated += 1
                     
                     # Проверяем и отправляем уведомление, если фаворит проигрывает
+                    fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
+                    fav_team_name = row['fav'] if 'fav' in row.keys() else None
                     self._check_and_notify_favorite_losing(
                         row['fixture_id'],
                         row['home_team'],
                         row['away_team'],
-                        row.get('fav_team_id'),
-                        row.get('fav'),
+                        fav_team_id,
+                        fav_team_name,
                         h_val,
                         a_val
                     )
