@@ -3514,11 +3514,40 @@
             // Периодически проверяем подписку (каждые 5 секунд)
             setInterval(checkFootballSubscription, 5000);
             
-            // Обновляем ссылку экспорта в Excel с учетом параметра admin
-            const exportBtn = document.getElementById('exportExcelBtn');
-            if (exportBtn && window.isAdmin) {
-                exportBtn.href = '/api/football/export-excel?admin=true';
+            // Функция для обновления ссылки экспорта в Excel
+            function updateExportLink() {
+                const exportBtn = document.getElementById('exportExcelBtn');
+                if (exportBtn && window.isAdmin) {
+                    let url = '/api/football/export-excel?admin=true';
+                    url += '&date_filter=' + encodeURIComponent(currentDateFilterFav);
+                    if (currentDateFilterFav === 'range' && dateRangeFav.from && dateRangeFav.to) {
+                        url += '&date_from=' + encodeURIComponent(dateRangeFav.from);
+                        url += '&date_to=' + encodeURIComponent(dateRangeFav.to);
+                    }
+                    exportBtn.href = url;
+                }
             }
+            
+            // Обновляем ссылку при загрузке
+            updateExportLink();
+            
+            // Обновляем ссылку при изменении фильтра по дате
+            const originalSetDateFilter = setDateFilter;
+            setDateFilter = function(table, filter) {
+                originalSetDateFilter(table, filter);
+                if (table === 'fav') {
+                    updateExportLink();
+                }
+            };
+            
+            // Обновляем ссылку при изменении диапазона дат
+            const originalApplyDateRangeFilter = applyDateRangeFilter;
+            applyDateRangeFilter = function(table) {
+                originalApplyDateRangeFilter(table);
+                if (table === 'fav') {
+                    updateExportLink();
+                }
+            };
         });
         
         // Останавливаем автообновление при закрытии страницы

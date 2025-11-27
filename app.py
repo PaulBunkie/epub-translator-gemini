@@ -2820,7 +2820,16 @@ def api_export_football_excel():
         return jsonify({'error': 'Доступ запрещен'}), 403
     
     try:
-        excel_file = football.export_matches_to_excel()
+        # Получаем параметры фильтра по дате
+        date_filter = request.args.get('date_filter', 'today')  # По умолчанию 'today'
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        
+        excel_file = football.export_matches_to_excel(
+            date_filter=date_filter,
+            date_from=date_from,
+            date_to=date_to
+        )
         if excel_file is None:
             return jsonify({'error': 'Ошибка создания Excel файла'}), 500
         

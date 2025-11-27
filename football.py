@@ -5521,7 +5521,21 @@ def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int)
             adjusted_away = away_score + (value if sign == '+' else -value)
             return adjusted_away > home_score
     
-    # Тотал: Б, М
+    # Тотал: Б, М, T2.5Б, T2.5М и т.д.
+    # Может быть формат: Б2.5, М2.5, T2.5Б, T2.5М
+    # Сначала проверяем формат с префиксом T: T2.5Б, T2.5М
+    total_match = re.match(r'^T(\d+\.?\d*)([БМ])$', code)
+    if total_match:
+        threshold = float(total_match.group(1))
+        over_under = total_match.group(2)  # Б (больше) или М (меньше)
+        total_goals = home_score + away_score
+        
+        if over_under == 'Б':
+            return total_goals > threshold
+        else:  # М
+            return total_goals < threshold
+    
+    # Старый формат без префикса T: Б2.5, М2.5
     if code.startswith('Б') or code.startswith('М'):
         total_match = re.match(r'^([БМ])(\d+\.?\d*)$', code)
         if total_match:
@@ -5537,10 +5551,15 @@ def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int)
     return False
 
 
-def export_matches_to_excel() -> Optional[BytesIO]:
+def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Optional[BytesIO]:
     """
     Экспортирует матчи с фаворитом в Excel файл с результатами ставок.
     Экспортирует только то, что показано на странице (с учетом фильтра).
+    
+    Args:
+        date_filter: Тип фильтра ('all', 'today', 'yesterday', 'tomorrow', 'range')
+        date_from: Начальная дата для фильтра 'range' (формат YYYY-MM-DD)
+        date_to: Конечная дата для фильтра 'range' (формат YYYY-MM-DD)
     
     Returns:
         BytesIO объект с Excel файлом или None в случае ошибки
@@ -5549,13 +5568,31 @@ def export_matches_to_excel() -> Optional[BytesIO]:
         print("[Football ERROR] openpyxl не установлен, экспорт в Excel недоступен")
         return None
     
-    conn = None
+        conn = None
     try:
         conn = get_football_db_connection()
         cursor = conn.cursor()
         
-        # Получаем только матчи с фаворитом (как на странице)
-        cursor.execute("""
+        # Формируем условие фильтра по дате
+        date_condition = "fav != 'NONE'"
+        
+        if date_filter and date_filter != 'all':
+            from datetime import datetime, timedelta
+            
+            if date_filter == 'today':
+                today = datetime.now().strftime('%Y-%m-%d')
+                date_condition += f" AND match_date = '{today}'"
+            elif date_filter == 'yesterday':
+                yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+                date_condition += f" AND match_date = '{yesterday}'"
+            elif date_filter == 'tomorrow':
+                tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+                date_condition += f" AND match_date = '{tomorrow}'"
+            elif date_filter == 'range' and date_from and date_to:
+                date_condition += f" AND match_date >= '{date_from}' AND match_date <= '{date_to}'"
+        
+        # Получаем только матчи с фаворитом (как на странице) с учетом фильтра по дате
+        query = f"""
             SELECT 
                 fixture_id,
                 home_team,
@@ -5577,9 +5614,10 @@ def export_matches_to_excel() -> Optional[BytesIO]:
                 final_score_away,
                 fav_won
             FROM matches
-            WHERE fav != 'NONE'
+            WHERE {date_condition}
             ORDER BY match_date DESC, match_time DESC
-        """)
+        """
+        cursor.execute(query)
         
         rows = cursor.fetchall()
         
