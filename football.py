@@ -5446,9 +5446,101 @@ def get_api_limits() -> Dict[str, Any]:
         }
 
 
+def _is_prediction_win(prediction: str, actual_result: str) -> bool:
+    """
+    Проверяет, выиграл ли прогноз на основе фактического результата.
+    
+    Args:
+        prediction: Прогноз (1, X, 2, 1X, X2)
+        actual_result: Фактический результат (1, X, 2)
+    
+    Returns:
+        True если прогноз выиграл, False иначе
+    """
+    if not prediction or not actual_result:
+        return False
+    
+    pred_upper = prediction.upper()
+    
+    if pred_upper == '1':
+        return actual_result == '1'
+    elif pred_upper == 'X':
+        return actual_result == 'X'
+    elif pred_upper == '2':
+        return actual_result == '2'
+    elif pred_upper == '1X':
+        return actual_result == '1' or actual_result == 'X'
+    elif pred_upper == 'X2':
+        return actual_result == 'X' or actual_result == '2'
+    elif pred_upper == '12':
+        return actual_result == '1' or actual_result == '2'
+    
+    return False
+
+
+def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int) -> bool:
+    """
+    Проверяет, выиграла ли альтернативная ставка.
+    
+    Args:
+        bet_alt_code: Код альтернативной ставки
+        home_score: Счет домашней команды
+        away_score: Счет гостевой команды
+    
+    Returns:
+        True если ставка выиграла, False иначе
+    """
+    if not bet_alt_code or home_score is None or away_score is None:
+        return False
+    
+    code = bet_alt_code.upper()
+    
+    # Определяем фактический результат
+    if home_score > away_score:
+        actual_result = '1'
+    elif home_score == away_score:
+        actual_result = 'X'
+    else:
+        actual_result = '2'
+    
+    # Проверяем простые ставки 1X2
+    if code in ['1', 'X', '2', '1X', 'X2', '12']:
+        return _is_prediction_win(code, actual_result)
+    
+    # Гандикап: Ф1-1.5, Ф1+0.5, Ф2-2.5, Ф2+1.0
+    handicap_match = re.match(r'^Ф([12])([+-]?)(\d+\.?\d*)$', code)
+    if handicap_match:
+        team = handicap_match.group(1)  # 1 или 2
+        sign = handicap_match.group(2)  # + или -
+        value = float(handicap_match.group(3))
+        
+        if team == '1':
+            adjusted_home = home_score + (value if sign == '+' else -value)
+            return adjusted_home > away_score
+        else:  # team == '2'
+            adjusted_away = away_score + (value if sign == '+' else -value)
+            return adjusted_away > home_score
+    
+    # Тотал: Б, М
+    if code.startswith('Б') or code.startswith('М'):
+        total_match = re.match(r'^([БМ])(\d+\.?\d*)$', code)
+        if total_match:
+            over_under = total_match.group(1)  # Б (больше) или М (меньше)
+            threshold = float(total_match.group(2))
+            total_goals = home_score + away_score
+            
+            if over_under == 'Б':
+                return total_goals > threshold
+            else:  # М
+                return total_goals < threshold
+    
+    return False
+
+
 def export_matches_to_excel() -> Optional[BytesIO]:
     """
-    Экспортирует все матчи из базы данных в Excel файл.
+    Экспортирует матчи с фаворитом в Excel файл с результатами ставок.
+    Экспортирует только то, что показано на странице (с учетом фильтра).
     
     Returns:
         BytesIO объект с Excel файлом или None в случае ошибки
@@ -5462,32 +5554,30 @@ def export_matches_to_excel() -> Optional[BytesIO]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
         
-        # Получаем все матчи (без stats_60min - сырой статистики)
+        # Получаем только матчи с фаворитом (как на странице)
         cursor.execute("""
             SELECT 
                 fixture_id,
-                sofascore_event_id,
                 home_team,
                 away_team,
                 fav,
-                fav_team_id,
                 match_date,
                 match_time,
                 initial_odds,
                 last_odds,
                 live_odds,
-                live_odds_1,
-                live_odds_x,
-                live_odds_2,
                 status,
                 bet,
+                bet_ai,
+                bet_ai_odds,
+                bet_alt_code,
+                bet_alt_odds,
+                bet_alt_confirm,
                 final_score_home,
                 final_score_away,
-                fav_won,
-                sport_key,
-                created_at,
-                updated_at
+                fav_won
             FROM matches
+            WHERE fav != 'NONE'
             ORDER BY match_date DESC, match_time DESC
         """)
         
@@ -5498,36 +5588,38 @@ def export_matches_to_excel() -> Optional[BytesIO]:
         ws = wb.active
         ws.title = "Матчи"
         
-        # Заголовки
+        # Заголовки (как на странице)
         headers = [
-            "ID матча",
-            "SofaScore ID",
+            "Дата",
+            "Время",
             "Домашняя команда",
             "Гостевая команда",
             "Фаворит",
-            "ID фаворита",
-            "Дата",
-            "Время",
             "Начальные коэффициенты",
             "Последние коэффициенты",
-            "Текущие коэффициенты",
-            "Коэф. 1",
-            "Коэф. X",
-            "Коэф. 2",
-            "Статус",
+            "Коэффициент на 60 мин",
+            "Прогноз ИИ",
+            "Коэф. ИИ",
+            "Результат прогноза ИИ",
             "Ставка",
-            "Финальный счет (дома)",
-            "Финальный счет (гости)",
-            "Фаворит выиграл",
-            "Спорт",
-            "Создан",
-            "Обновлен"
+            "Альтернативная ставка",
+            "Коэф. Alt",
+            "Alt Bet",
+            "Результат Alt ставки",
+            "Финальный счет",
+            "Результат для фаворита",
+            "Статус"
         ]
         
         # Стили для заголовков
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF")
         header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Стили для результатов
+        win_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Зеленый
+        loss_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # Красный
+        draw_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")  # Желтый
         
         # Записываем заголовки
         for col_num, header in enumerate(headers, 1):
@@ -5539,22 +5631,139 @@ def export_matches_to_excel() -> Optional[BytesIO]:
         
         # Записываем данные
         for row_num, row in enumerate(rows, 2):
-            row_data = list(row)
-            # Преобразуем fav_team_id для читаемости (1=Дома, 0=Гости)
-            if row_data[5] is not None:  # fav_team_id (индекс 5)
-                row_data[5] = "Дома" if row_data[5] == 1 else "Гости" if row_data[5] == 0 else row_data[5]
-            # Преобразуем fav_won для читаемости (1=Да, 0=Нет)
-            # После удаления stats_60min, fav_won теперь на индексе 18 (было 19)
-            if row_data[18] is not None:  # fav_won (индекс 18)
-                row_data[18] = "Да" if row_data[18] == 1 else "Нет" if row_data[18] == 0 else row_data[18]
+            # Распаковываем данные
+            (fixture_id, home_team, away_team, fav, match_date, match_time,
+             initial_odds, last_odds, live_odds, status, bet,
+             bet_ai, bet_ai_odds, bet_alt_code, bet_alt_odds, bet_alt_confirm,
+             final_score_home, final_score_away, fav_won) = row
             
-            for col_num, value in enumerate(row_data, 1):
-                cell = ws.cell(row=row_num, column=col_num)
-                if value is None:
-                    cell.value = ""
+            # Определяем фактический результат матча
+            actual_result = None
+            if status == 'finished' and final_score_home is not None and final_score_away is not None:
+                home_score = int(final_score_home)
+                away_score = int(final_score_away)
+                if home_score > away_score:
+                    actual_result = '1'
+                elif home_score == away_score:
+                    actual_result = 'X'
                 else:
-                    cell.value = value
-                cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+                    actual_result = '2'
+            
+            # Результат прогноза ИИ
+            bet_ai_result = ""
+            if bet_ai and actual_result:
+                if _is_prediction_win(bet_ai, actual_result):
+                    bet_ai_result = "Выиграл"
+                else:
+                    bet_ai_result = "Проиграл"
+            elif bet_ai:
+                bet_ai_result = "Не завершен"
+            
+            # Результат альтернативной ставки
+            bet_alt_result = ""
+            if bet_alt_code and final_score_home is not None and final_score_away is not None:
+                home_score = int(final_score_home)
+                away_score = int(final_score_away)
+                if _is_alternative_bet_win(bet_alt_code, home_score, away_score):
+                    bet_alt_result = "Выиграл"
+                else:
+                    bet_alt_result = "Проиграл"
+            elif bet_alt_code:
+                bet_alt_result = "Не завершен"
+            
+            # Результат для фаворита
+            fav_result = ""
+            if status == 'finished':
+                if final_score_home is not None and final_score_away is not None:
+                    home_score = int(final_score_home)
+                    away_score = int(final_score_away)
+                    if home_score == away_score:
+                        fav_result = "Ничья"
+                    elif fav_won == 1:
+                        fav_result = "Выиграл"
+                    elif fav_won == 0:
+                        fav_result = "Проиграл"
+                    else:
+                        fav_result = "Не определен"
+                else:
+                    fav_result = "Нет счета"
+            else:
+                fav_result = "Не завершен"
+            
+            # Форматируем финальный счет
+            final_score = ""
+            if final_score_home is not None and final_score_away is not None:
+                final_score = f"{final_score_home}-{final_score_away}"
+            
+            # Форматируем коэффициенты
+            def format_odds(odds):
+                if odds is None:
+                    return ""
+                try:
+                    return f"{float(odds):.2f}"
+                except:
+                    return str(odds)
+            
+            # Форматируем статус
+            status_text = {
+                'scheduled': 'Запланирован',
+                'in_progress': 'Идет',
+                'finished': 'Завершен'
+            }.get(status, status)
+            
+            # Форматируем ставку
+            bet_text = "Да" if (bet and float(bet) >= 1) else ""
+            
+            # Форматируем Alt Bet
+            alt_bet_text = "Да" if (bet_alt_confirm and int(bet_alt_confirm) == 1) else ""
+            
+            # Подготавливаем данные для записи
+            data = [
+                match_date or "",
+                match_time or "",
+                home_team or "",
+                away_team or "",
+                fav or "",
+                format_odds(initial_odds),
+                format_odds(last_odds),
+                format_odds(live_odds),
+                bet_ai or "",
+                format_odds(bet_ai_odds),
+                bet_ai_result,
+                bet_text,
+                bet_alt_code or "",
+                format_odds(bet_alt_odds),
+                alt_bet_text,
+                bet_alt_result,
+                final_score,
+                fav_result,
+                status_text
+            ]
+            
+            # Записываем данные
+            for col_num, value in enumerate(data, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                cell.value = value
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+                
+                # Применяем цветовую подсветку для результатов
+                if col_num == 11:  # Результат прогноза ИИ
+                    if value == "Выиграл":
+                        cell.fill = win_fill
+                    elif value == "Проиграл":
+                        cell.fill = loss_fill
+                elif col_num == 16:  # Результат Alt ставки
+                    if value == "Выиграл":
+                        cell.fill = win_fill
+                    elif value == "Проиграл":
+                        cell.fill = loss_fill
+                elif col_num == 18:  # Результат для фаворита
+                    if value == "Выиграл":
+                        cell.fill = win_fill
+                    elif value == "Проиграл":
+                        cell.fill = loss_fill
+                    elif value == "Ничья":
+                        cell.fill = draw_fill
         
         # Автоматическая ширина колонок
         for col in ws.columns:
