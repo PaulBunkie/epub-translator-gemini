@@ -5530,42 +5530,34 @@ def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int)
             adjusted_away = away_score + (value if sign == '+' else -value)
             return adjusted_away > home_score
     
-    # Тотал: Б, М, T2.5Б, T2.5М и т.д.
-    # Может быть формат: Б2.5, М2.5, T2.5Б, T2.5М
+    # Тотал: Б, М, T2.5Б, T2.5М, Т2.5Б, Т2.5М и т.д.
+    # Может быть формат: Б2.5, М2.5, T2.5Б, T2.5М, Т2.5Б, Т2.5М (латинская или кириллическая Т)
     total_goals = home_score + away_score
     
-    # Проверяем формат с префиксом T: T2.5Б, T2.5М
-    if code.startswith('T'):
+    # Проверяем формат с префиксом T (латинская) или Т (кириллическая): T2.5Б, T2.5М, Т2.5Б, Т2.5М
+    if code.startswith('T') or code.startswith('Т'):  # Проверяем и латинскую, и кириллическую Т
         # Извлекаем число и букву Б/М
-        # Формат: T2.5Б или T2.5М
+        # Формат: T2.5Б или T2.5М или Т2.5Б или Т2.5М
         try:
-            # Пробуем регулярное выражение
-            total_match = re.match(r'^T(\d+\.?\d*)([БМ])$', code)
-            if total_match:
-                threshold = float(total_match.group(1))
-                over_under = total_match.group(2)  # Б (больше) или М (меньше)
-                
-                if over_under == 'Б':
-                    return total_goals > threshold
-                else:  # М
-                    return total_goals < threshold
-            else:
-                # Альтернативный парсинг: находим число и букву Б/М вручную
-                # Убираем 'T' в начале
-                rest = code[1:]
-                if rest.endswith('Б') or rest.endswith('М'):
-                    over_under = rest[-1]
-                    threshold_str = rest[:-1]
-                    try:
-                        threshold = float(threshold_str)
-                        if over_under == 'Б':
-                            return total_goals > threshold
-                        else:  # М
-                            return total_goals < threshold
-                    except ValueError:
-                        pass
+            # Убираем первый символ (T или Т) и парсим остальное
+            rest = code[1:]
+            if rest.endswith('Б') or rest.endswith('М'):
+                over_under = rest[-1]
+                threshold_str = rest[:-1]
+                try:
+                    threshold = float(threshold_str)
+                    if over_under == 'Б':
+                        result = total_goals > threshold
+                        print(f"[DEBUG] Тотал Б: code={code}, threshold={threshold}, total_goals={total_goals}, {total_goals} > {threshold} = {result}")
+                        return result
+                    else:  # М
+                        result = total_goals < threshold
+                        print(f"[DEBUG] Тотал М: code={code}, threshold={threshold}, total_goals={total_goals}, {total_goals} < {threshold} = {result}")
+                        return result
+                except ValueError as e:
+                    print(f"[Football ERROR] Ошибка парсинга числа в тотале: {code}, threshold_str={threshold_str}, {e}")
         except Exception as e:
-            print(f"[Football ERROR] Ошибка парсинга тотала с префиксом T: {code}, {e}")
+            print(f"[Football ERROR] Ошибка парсинга тотала с префиксом T/Т: {code}, {e}")
     
     # Старый формат без префикса T: Б2.5, М2.5
     if code.startswith('Б') or code.startswith('М'):
@@ -5768,7 +5760,11 @@ def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Option
                 if status == 'finished' and final_score_home is not None and final_score_away is not None:
                     home_score = int(final_score_home)
                     away_score = int(final_score_away)
-                    if _is_alternative_bet_win(bet_alt_code, home_score, away_score):
+                    result = _is_alternative_bet_win(bet_alt_code, home_score, away_score)
+                    # Отладочный вывод для проблемных случаев
+                    if bet_alt_code.upper().startswith('T') and (home_score + away_score) > 2:
+                        print(f"[DEBUG] Тотал: code={bet_alt_code}, home={home_score}, away={away_score}, total={home_score + away_score}, result={result}")
+                    if result:
                         bet_alt_result = "Выиграл"
                     else:
                         bet_alt_result = "Проиграл"
