@@ -5551,15 +5551,18 @@ def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int)
     return False
 
 
-def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Optional[BytesIO]:
+def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, 
+                             match_type: str = 'fav', timezone_offset: Optional[int] = None) -> Optional[BytesIO]:
     """
-    Экспортирует матчи с фаворитом в Excel файл с результатами ставок.
+    Экспортирует матчи в Excel файл с результатами ставок.
     Экспортирует только то, что показано на странице (с учетом фильтра).
     
     Args:
         date_filter: Тип фильтра ('all', 'today', 'yesterday', 'tomorrow', 'range')
         date_from: Начальная дата для фильтра 'range' (формат YYYY-MM-DD)
         date_to: Конечная дата для фильтра 'range' (формат YYYY-MM-DD)
+        match_type: Тип матчей ('fav' - с фаворитом, 'all' - все матчи)
+        timezone_offset: Смещение часового пояса пользователя в минутах (например, 180 для GMT+3)
     
     Returns:
         BytesIO объект с Excel файлом или None в случае ошибки
@@ -5573,25 +5576,47 @@ def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Option
         conn = get_football_db_connection()
         cursor = conn.cursor()
         
-        # Формируем условие фильтра по дате
-        date_condition = "fav != 'NONE'"
+        # Формируем условие фильтра по типу матчей
+        if match_type == 'fav':
+            match_condition = "fav != 'NONE'"
+        else:  # 'all'
+            match_condition = "1=1"  # Все матчи
+        
+        # Формируем условие фильтра по дате с учетом часового пояса пользователя
+        date_condition = ""
         
         if date_filter and date_filter != 'all':
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
+            
+            # Получаем текущее время в UTC
+            utc_now = datetime.now(timezone.utc)
+            
+            # Применяем смещение часового пояса пользователя (если указано)
+            if timezone_offset is not None:
+                user_tz = timezone(timedelta(minutes=timezone_offset))
+                user_now = utc_now.astimezone(user_tz)
+            else:
+                # Если смещение не указано, используем UTC
+                user_now = utc_now
+            
+            # Получаем дату в часовом поясе пользователя
+            user_date = user_now.date()
             
             if date_filter == 'today':
-                today = datetime.now().strftime('%Y-%m-%d')
-                date_condition += f" AND match_date = '{today}'"
+                date_condition = f" AND match_date = '{user_date}'"
             elif date_filter == 'yesterday':
-                yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-                date_condition += f" AND match_date = '{yesterday}'"
+                yesterday = user_date - timedelta(days=1)
+                date_condition = f" AND match_date = '{yesterday}'"
             elif date_filter == 'tomorrow':
-                tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-                date_condition += f" AND match_date = '{tomorrow}'"
+                tomorrow = user_date + timedelta(days=1)
+                date_condition = f" AND match_date = '{tomorrow}'"
             elif date_filter == 'range' and date_from and date_to:
-                date_condition += f" AND match_date >= '{date_from}' AND match_date <= '{date_to}'"
+                date_condition = f" AND match_date >= '{date_from}' AND match_date <= '{date_to}'"
         
-        # Получаем только матчи с фаворитом (как на странице) с учетом фильтра по дате
+        # Формируем полное условие WHERE
+        where_condition = match_condition + date_condition
+        
+        # Получаем матчи с учетом фильтров
         query = f"""
             SELECT 
                 fixture_id,
@@ -5614,7 +5639,7 @@ def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Option
                 final_score_away,
                 fav_won
             FROM matches
-            WHERE {date_condition}
+            WHERE {where_condition}
             ORDER BY match_date DESC, match_time DESC
         """
         cursor.execute(query)

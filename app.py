@@ -2824,11 +2824,23 @@ def api_export_football_excel():
         date_filter = request.args.get('date_filter', 'today')  # По умолчанию 'today'
         date_from = request.args.get('date_from')
         date_to = request.args.get('date_to')
+        match_type = request.args.get('match_type', 'fav')  # 'fav' или 'all'
+        
+        # Получаем смещение часового пояса пользователя (в минутах)
+        timezone_offset_str = request.args.get('timezone_offset')
+        timezone_offset = None
+        if timezone_offset_str:
+            try:
+                timezone_offset = int(timezone_offset_str)
+            except ValueError:
+                pass
         
         excel_file = football.export_matches_to_excel(
             date_filter=date_filter,
             date_from=date_from,
-            date_to=date_to
+            date_to=date_to,
+            match_type=match_type,
+            timezone_offset=timezone_offset
         )
         if excel_file is None:
             return jsonify({'error': 'Ошибка создания Excel файла'}), 500

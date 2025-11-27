@@ -3382,6 +3382,12 @@
                     e.stopPropagation();
                     console.log('Клик на вкладку "С фаворитом"');
                     switchTab('fav');
+                    // Обновляем ссылку экспорта после переключения вкладки
+                    setTimeout(function() {
+                        if (window.updateExportLink) {
+                            window.updateExportLink();
+                        }
+                    }, 100);
                 }, true);  // Используем capture для перехвата до Bootstrap
                 
                 allTab.addEventListener('click', function(e) {
@@ -3389,6 +3395,12 @@
                     e.stopPropagation();
                     console.log('Клик на вкладку "Все матчи"');
                     switchTab('all');
+                    // Обновляем ссылку экспорта после переключения вкладки
+                    setTimeout(function() {
+                        if (window.updateExportLink) {
+                            window.updateExportLink();
+                        }
+                    }, 100);
                 }, true);  // Используем capture для перехвата до Bootstrap
             } else {
                 console.log('Элементы вкладок не найдены, повторяем через 100ms');
@@ -3514,29 +3526,64 @@
             // Периодически проверяем подписку (каждые 5 секунд)
             setInterval(checkFootballSubscription, 5000);
             
-            // Функция для обновления ссылки экспорта в Excel
-            function updateExportLink() {
-                const exportBtn = document.getElementById('exportExcelBtn');
-                if (exportBtn && window.isAdmin) {
-                    let url = '/api/football/export-excel?admin=true';
-                    url += '&date_filter=' + encodeURIComponent(currentDateFilterFav);
-                    if (currentDateFilterFav === 'range' && dateRangeFav.from && dateRangeFav.to) {
-                        url += '&date_from=' + encodeURIComponent(dateRangeFav.from);
-                        url += '&date_to=' + encodeURIComponent(dateRangeFav.to);
-                    }
-                    exportBtn.href = url;
+            // Функция для определения активной вкладки
+            function getActiveTab() {
+                const favTab = document.getElementById('fav-tab');
+                const allTab = document.getElementById('all-tab');
+                if (favTab && favTab.classList.contains('active')) {
+                    return 'fav';
+                } else if (allTab && allTab.classList.contains('active')) {
+                    return 'all';
                 }
+                // По умолчанию возвращаем 'fav'
+                return 'fav';
             }
             
+            // Функция для получения смещения часового пояса пользователя (в минутах)
+            function getTimezoneOffset() {
+                return new Date().getTimezoneOffset() * -1; // Инвертируем, так как getTimezoneOffset возвращает противоположное значение
+            }
+            
+            // Функция для обновления ссылки экспорта в Excel (делаем доступной глобально)
+            window.updateExportLink = function() {
+                const exportBtn = document.getElementById('exportExcelBtn');
+                if (exportBtn && window.isAdmin) {
+                    const activeTab = getActiveTab();
+                    let url = '/api/football/export-excel?admin=true';
+                    url += '&match_type=' + encodeURIComponent(activeTab);
+                    
+                    // Определяем текущий фильтр по дате в зависимости от активной вкладки
+                    let currentDateFilter, currentDateRange;
+                    if (activeTab === 'fav') {
+                        currentDateFilter = currentDateFilterFav;
+                        currentDateRange = dateRangeFav;
+                    } else {
+                        currentDateFilter = currentDateFilterAll;
+                        currentDateRange = dateRangeAll;
+                    }
+                    
+                    url += '&date_filter=' + encodeURIComponent(currentDateFilter);
+                    if (currentDateFilter === 'range' && currentDateRange.from && currentDateRange.to) {
+                        url += '&date_from=' + encodeURIComponent(currentDateRange.from);
+                        url += '&date_to=' + encodeURIComponent(currentDateRange.to);
+                    }
+                    
+                    // Добавляем смещение часового пояса
+                    url += '&timezone_offset=' + encodeURIComponent(getTimezoneOffset());
+                    
+                    exportBtn.href = url;
+                }
+            };
+            
             // Обновляем ссылку при загрузке
-            updateExportLink();
+            window.updateExportLink();
             
             // Обновляем ссылку при изменении фильтра по дате
             const originalSetDateFilter = setDateFilter;
             setDateFilter = function(table, filter) {
                 originalSetDateFilter(table, filter);
-                if (table === 'fav') {
-                    updateExportLink();
+                if (window.updateExportLink) {
+                    window.updateExportLink();
                 }
             };
             
@@ -3544,10 +3591,11 @@
             const originalApplyDateRangeFilter = applyDateRangeFilter;
             applyDateRangeFilter = function(table) {
                 originalApplyDateRangeFilter(table);
-                if (table === 'fav') {
-                    updateExportLink();
+                if (window.updateExportLink) {
+                    window.updateExportLink();
                 }
             };
+            
         });
         
         // Останавливаем автообновление при закрытии страницы
