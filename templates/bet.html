@@ -3513,6 +3513,12 @@
             
             // Периодически проверяем подписку (каждые 5 секунд)
             setInterval(checkFootballSubscription, 5000);
+            
+            // Обновляем ссылку экспорта в Excel с учетом параметра admin
+            const exportBtn = document.getElementById('exportExcelBtn');
+            if (exportBtn && window.isAdmin) {
+                exportBtn.href = '/api/football/export-excel?admin=true';
+            }
         });
         
         // Останавливаем автообновление при закрытии страницы
@@ -3531,6 +3537,11 @@
         <a href="https://t.me/aitube_notification_bot?start=football_unsub" target="_blank" id="tgSubscribedBtn" class="btn btn-success" style="display: none;">
             Отписаться от уведомлений
         </a>
+        {% if admin %}
+        <a href="/api/football/export-excel?admin=true" id="exportExcelBtn" class="btn btn-info ms-2" style="display: inline-block;">
+            <i class="fas fa-file-excel"></i> Экспорт в Excel
+        </a>
+        {% endif %}
     </div>
 </body>
 </html>

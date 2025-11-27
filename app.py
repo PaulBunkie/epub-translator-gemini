@@ -2811,6 +2811,35 @@ def api_check_football_subscription():
         print(f"[Football API] Ошибка проверки подписки: {e}")
         return jsonify({'subscribed': False, 'error': str(e)}), 500
 
+@app.route('/api/football/export-excel', methods=['GET'])
+def api_export_football_excel():
+    """API эндпойнт для экспорта всех матчей в Excel (только для админа)."""
+    # Проверяем, что это админ
+    admin = request.args.get('admin') == 'true' or session.get('admin', False)
+    if not admin:
+        return jsonify({'error': 'Доступ запрещен'}), 403
+    
+    try:
+        excel_file = football.export_matches_to_excel()
+        if excel_file is None:
+            return jsonify({'error': 'Ошибка создания Excel файла'}), 500
+        
+        # Генерируем имя файла с текущей датой
+        from datetime import datetime
+        filename = f"football_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return send_file(
+            excel_file,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        print(f"[Football API] Ошибка экспорта в Excel: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': f'Ошибка экспорта: {str(e)}'}), 500
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     # Проверяем среду запуска

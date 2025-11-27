@@ -8,6 +8,18 @@ from typing import Optional, Dict, Any, List, Tuple
 import os
 import re
 from dotenv import load_dotenv
+from io import BytesIO
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    OPENPYXL_AVAILABLE = True
+except ImportError as e:
+    OPENPYXL_AVAILABLE = False
+    import sys
+    print(f"[Football] openpyxl не доступен для экспорта в Excel")
+    print(f"[Football] Python: {sys.executable}")
+    print(f"[Football] Ошибка импорта: {e}")
+    print(f"[Football] Путь Python: {sys.path[:3]}")
 
 
 
@@ -5432,4 +5444,148 @@ def get_api_limits() -> Dict[str, Any]:
             'requests_used': None,
             'requests_last_cost': None
         }
+
+
+def export_matches_to_excel() -> Optional[BytesIO]:
+    """
+    Экспортирует все матчи из базы данных в Excel файл.
+    
+    Returns:
+        BytesIO объект с Excel файлом или None в случае ошибки
+    """
+    if not OPENPYXL_AVAILABLE:
+        print("[Football ERROR] openpyxl не установлен, экспорт в Excel недоступен")
+        return None
+    
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем все матчи (без stats_60min - сырой статистики)
+        cursor.execute("""
+            SELECT 
+                fixture_id,
+                sofascore_event_id,
+                home_team,
+                away_team,
+                fav,
+                fav_team_id,
+                match_date,
+                match_time,
+                initial_odds,
+                last_odds,
+                live_odds,
+                live_odds_1,
+                live_odds_x,
+                live_odds_2,
+                status,
+                bet,
+                final_score_home,
+                final_score_away,
+                fav_won,
+                sport_key,
+                created_at,
+                updated_at
+            FROM matches
+            ORDER BY match_date DESC, match_time DESC
+        """)
+        
+        rows = cursor.fetchall()
+        
+        # Создаем Excel файл
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Матчи"
+        
+        # Заголовки
+        headers = [
+            "ID матча",
+            "SofaScore ID",
+            "Домашняя команда",
+            "Гостевая команда",
+            "Фаворит",
+            "ID фаворита",
+            "Дата",
+            "Время",
+            "Начальные коэффициенты",
+            "Последние коэффициенты",
+            "Текущие коэффициенты",
+            "Коэф. 1",
+            "Коэф. X",
+            "Коэф. 2",
+            "Статус",
+            "Ставка",
+            "Финальный счет (дома)",
+            "Финальный счет (гости)",
+            "Фаворит выиграл",
+            "Спорт",
+            "Создан",
+            "Обновлен"
+        ]
+        
+        # Стили для заголовков
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Записываем заголовки
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+        
+        # Записываем данные
+        for row_num, row in enumerate(rows, 2):
+            row_data = list(row)
+            # Преобразуем fav_team_id для читаемости (1=Дома, 0=Гости)
+            if row_data[5] is not None:  # fav_team_id (индекс 5)
+                row_data[5] = "Дома" if row_data[5] == 1 else "Гости" if row_data[5] == 0 else row_data[5]
+            # Преобразуем fav_won для читаемости (1=Да, 0=Нет)
+            # После удаления stats_60min, fav_won теперь на индексе 18 (было 19)
+            if row_data[18] is not None:  # fav_won (индекс 18)
+                row_data[18] = "Да" if row_data[18] == 1 else "Нет" if row_data[18] == 0 else row_data[18]
+            
+            for col_num, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_num, column=col_num)
+                if value is None:
+                    cell.value = ""
+                else:
+                    cell.value = value
+                cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        
+        # Автоматическая ширина колонок
+        for col in ws.columns:
+            max_length = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[col_letter].width = adjusted_width
+        
+        # Сохраняем в BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        
+        print(f"[Football] Экспортировано {len(rows)} матчей в Excel")
+        return output
+        
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка экспорта в Excel (SQLite): {e}")
+        return None
+    except Exception as e:
+        print(f"[Football ERROR] Ошибка экспорта в Excel: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+    finally:
+        if conn:
+            conn.close()
 
