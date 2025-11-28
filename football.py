@@ -5672,44 +5672,57 @@ def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over
         Пересчитанный коэффициент (пессимистично)
     """
     if over_under == 'Б':
+        # Для Over: нужно чтобы total_goals > threshold
+        # Если уже прошло (total_goals > threshold) - минимальный коэффициент
+        if total_goals > threshold:
+            return 1.03  # Ставка уже прошла
+        # Сколько голов нужно для прохода (нужно чтобы было > threshold)
         goals_needed = threshold - total_goals + 0.5
-        # Прогноз голов за оставшиеся 30 минут (пессимистично - уменьшаем темп на 20%)
-        predicted_goals_remaining = goals_per_minute * 30 * 0.8
-    else:  # М
+    else:  # М (Under)
+        # Для Under: нужно чтобы total_goals < threshold
+        # Если уже не прошло (total_goals >= threshold) - максимальный коэффициент
+        if total_goals >= threshold:
+            return 2.50  # Ставка уже не пройдет
+        # Сколько голов уже "лишних" (насколько близко к провалу)
         goals_needed = total_goals - threshold + 0.5
-        # Для Under - чем больше голов уже забито, тем выше коэффициент
-        predicted_goals_remaining = goals_per_minute * 30 * 1.2  # Пессимистично - увеличиваем темп
     
-    # Базовый коэффициент на основе разницы
+    # Базовый коэффициент на основе разницы (пессимистично - верхние границы)
     if goals_needed <= 0:
-        base_odds = 1.03
+        base_odds = 1.03  # Уже прошло или почти прошло
     elif goals_needed <= 0.5:
-        base_odds = 1.20  # Пессимистично - ближе к верхней границе
+        # Нужен 1 гол - пессимистично (верхняя граница диапазона 1.10-1.25)
+        base_odds = 1.25
     elif goals_needed <= 1.0:
-        base_odds = 1.45
+        # Нужно 1-1.5 гола - пессимистично (верхняя граница диапазона 1.25-1.50)
+        base_odds = 1.50
     elif goals_needed <= 1.5:
-        base_odds = 1.70
+        # Нужно 1.5-2 гола - пессимистично (верхняя граница диапазона 1.50-1.80)
+        base_odds = 1.80
     elif goals_needed <= 2.0:
-        base_odds = 2.10
+        # Нужно 2-2.5 гола - пессимистично (верхняя граница диапазона 1.80-2.20)
+        base_odds = 2.20
     else:
-        base_odds = 2.80
+        # Нужно 3+ гола - пессимистично (верхняя граница диапазона 2.20-3.00)
+        base_odds = 3.00
     
     # Корректировка на темп игры (пессимистично)
-    if over_under == 'Б':
-        # Если темп низкий - еще больше завышаем коэффициент
+    # Только если ставка еще не прошла/не провалилась
+    # Для Over: если темп низкий - еще больше завышаем, но не слишком сильно
+    if over_under == 'Б' and goals_needed > 0:
+        # Если темп очень низкий - немного завышаем
         if goals_per_minute < 0.05:  # Меньше 3 голов за 60 минут
-            base_odds *= 1.15
+            base_odds *= 1.03  # Минимальная корректировка
         elif goals_per_minute < 0.08:  # Меньше 5 голов за 60 минут
-            base_odds *= 1.08
-        # Если темп высокий - немного снижаем, но пессимистично
+            base_odds *= 1.02
+        # Если темп высокий - немного снижаем
         elif goals_per_minute > 0.15:  # Больше 9 голов за 60 минут
-            base_odds *= 0.95
-    else:  # М (Under)
+            base_odds *= 0.97
+    elif over_under == 'М' and goals_needed < 0:
         # Для Under - чем выше темп, тем выше коэффициент (больше шанс, что забьют еще)
         if goals_per_minute > 0.15:
-            base_odds *= 1.20
+            base_odds *= 1.15
         elif goals_per_minute > 0.10:
-            base_odds *= 1.10
+            base_odds *= 1.08
     
     # Ограничиваем диапазон
     return max(1.01, min(3.00, round(base_odds, 2)))
