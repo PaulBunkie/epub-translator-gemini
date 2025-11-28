@@ -2811,6 +2811,31 @@ def api_check_football_subscription():
         print(f"[Football API] Ошибка проверки подписки: {e}")
         return jsonify({'subscribed': False, 'error': str(e)}), 500
 
+@app.route('/api/football/recalculate-alt-odds', methods=['GET', 'POST'])
+def api_recalculate_alt_odds():
+    """API эндпойнт для пересчета коэффициентов альтернативных ставок (тоталы) (только для админа)."""
+    # Проверяем, что это админ
+    admin = request.args.get('admin') == 'true' or session.get('admin', False)
+    if not admin:
+        return jsonify({'error': 'Доступ запрещен'}), 403
+    
+    try:
+        result = football.recalculate_alt_bet_odds_for_totals()
+        if result is None:
+            return jsonify({'error': 'Ошибка пересчета коэффициентов'}), 500
+        
+        return jsonify({
+            'success': True,
+            'updated': result['updated'],
+            'reset': result['reset'],
+            'total_processed': result['total_processed']
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка пересчета коэффициентов: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': f'Ошибка пересчета: {str(e)}'}), 500
+
 @app.route('/api/football/export-excel', methods=['GET'])
 def api_export_football_excel():
     """API эндпойнт для экспорта всех матчей в Excel (только для админа)."""

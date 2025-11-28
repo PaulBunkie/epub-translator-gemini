@@ -5547,13 +5547,9 @@ def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int)
                 try:
                     threshold = float(threshold_str)
                     if over_under == 'Б':
-                        result = total_goals > threshold
-                        print(f"[DEBUG] Тотал Б: code={code}, threshold={threshold}, total_goals={total_goals}, {total_goals} > {threshold} = {result}")
-                        return result
+                        return total_goals > threshold
                     else:  # М
-                        result = total_goals < threshold
-                        print(f"[DEBUG] Тотал М: code={code}, threshold={threshold}, total_goals={total_goals}, {total_goals} < {threshold} = {result}")
-                        return result
+                        return total_goals < threshold
                 except ValueError as e:
                     print(f"[Football ERROR] Ошибка парсинга числа в тотале: {code}, threshold_str={threshold_str}, {e}")
         except Exception as e:
@@ -5581,6 +5577,259 @@ def _is_alternative_bet_win(bet_alt_code: str, home_score: int, away_score: int)
                     return total_goals < threshold
     
     return False
+
+
+def _parse_total_bet_code(bet_alt_code: str) -> Optional[Tuple[float, str]]:
+    """
+    Парсит код тотала и возвращает (threshold, over_under).
+    
+    Args:
+        bet_alt_code: Код ставки (например, "T2.5Б", "Т4.5М")
+    
+    Returns:
+        Tuple (threshold, over_under) где over_under = 'Б' или 'М', или None если не тотал
+    """
+    if not bet_alt_code:
+        return None
+    
+    code = bet_alt_code.strip().upper()
+    
+    # Проверяем формат с префиксом T (латинская) или Т (кириллическая)
+    if code.startswith('T') or code.startswith('Т'):
+        rest = code[1:]
+        if rest.endswith('Б') or rest.endswith('М'):
+            over_under = rest[-1]
+            threshold_str = rest[:-1]
+            try:
+                threshold = float(threshold_str)
+                return (threshold, over_under)
+            except ValueError:
+                return None
+    
+    # Старый формат без префикса T
+    if code.startswith('Б') or code.startswith('М'):
+        over_under = code[0]
+        threshold_str = code[1:]
+        try:
+            threshold = float(threshold_str)
+            return (threshold, over_under)
+        except ValueError:
+            return None
+    
+    return None
+
+
+def _calculate_expected_odds_range(total_goals: int, threshold: float, over_under: str) -> Tuple[float, float]:
+    """
+    Определяет ожидаемый диапазон коэффициента на основе разницы голов.
+    Пессимистичный подход - возвращает верхние границы диапазонов.
+    
+    Args:
+        total_goals: Текущее количество голов на 60-й минуте
+        threshold: Линия тотала
+        over_under: 'Б' (больше) или 'М' (меньше)
+    
+    Returns:
+        Tuple (min_odds, max_odds) - ожидаемый диапазон коэффициента
+    """
+    if over_under == 'Б':
+        goals_needed = threshold - total_goals + 0.5  # Сколько голов нужно для прохода
+    else:  # М
+        goals_needed = total_goals - threshold + 0.5  # Сколько голов уже "лишних"
+    
+    # Пессимистичные диапазоны (верхние границы)
+    if goals_needed <= 0:
+        # Ставка уже прошла или почти прошла
+        return (1.01, 1.05)
+    elif goals_needed <= 0.5:
+        # Нужен 1 гол
+        return (1.10, 1.25)
+    elif goals_needed <= 1.0:
+        # Нужно 1-1.5 гола
+        return (1.25, 1.50)
+    elif goals_needed <= 1.5:
+        # Нужно 1.5-2 гола
+        return (1.50, 1.80)
+    elif goals_needed <= 2.0:
+        # Нужно 2-2.5 гола
+        return (1.80, 2.20)
+    else:
+        # Нужно 3+ гола
+        return (2.20, 3.00)
+
+
+def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over_under: str, goals_per_minute: float) -> float:
+    """
+    Пересчитывает коэффициент для тотала пессимистично на основе счета и темпа.
+    
+    Args:
+        total_goals: Текущее количество голов на 60-й минуте
+        threshold: Линия тотала
+        over_under: 'Б' (больше) или 'М' (меньше)
+        goals_per_minute: Темп игры (голы в минуту)
+    
+    Returns:
+        Пересчитанный коэффициент (пессимистично)
+    """
+    if over_under == 'Б':
+        goals_needed = threshold - total_goals + 0.5
+        # Прогноз голов за оставшиеся 30 минут (пессимистично - уменьшаем темп на 20%)
+        predicted_goals_remaining = goals_per_minute * 30 * 0.8
+    else:  # М
+        goals_needed = total_goals - threshold + 0.5
+        # Для Under - чем больше голов уже забито, тем выше коэффициент
+        predicted_goals_remaining = goals_per_minute * 30 * 1.2  # Пессимистично - увеличиваем темп
+    
+    # Базовый коэффициент на основе разницы
+    if goals_needed <= 0:
+        base_odds = 1.03
+    elif goals_needed <= 0.5:
+        base_odds = 1.20  # Пессимистично - ближе к верхней границе
+    elif goals_needed <= 1.0:
+        base_odds = 1.45
+    elif goals_needed <= 1.5:
+        base_odds = 1.70
+    elif goals_needed <= 2.0:
+        base_odds = 2.10
+    else:
+        base_odds = 2.80
+    
+    # Корректировка на темп игры (пессимистично)
+    if over_under == 'Б':
+        # Если темп низкий - еще больше завышаем коэффициент
+        if goals_per_minute < 0.05:  # Меньше 3 голов за 60 минут
+            base_odds *= 1.15
+        elif goals_per_minute < 0.08:  # Меньше 5 голов за 60 минут
+            base_odds *= 1.08
+        # Если темп высокий - немного снижаем, но пессимистично
+        elif goals_per_minute > 0.15:  # Больше 9 голов за 60 минут
+            base_odds *= 0.95
+    else:  # М (Under)
+        # Для Under - чем выше темп, тем выше коэффициент (больше шанс, что забьют еще)
+        if goals_per_minute > 0.15:
+            base_odds *= 1.20
+        elif goals_per_minute > 0.10:
+            base_odds *= 1.10
+    
+    # Ограничиваем диапазон
+    return max(1.01, min(3.00, round(base_odds, 2)))
+
+
+def recalculate_alt_bet_odds_for_totals():
+    """
+    Пересчитывает коэффициенты для альтернативных ставок (тоталы) на основе статистики 60-й минуты.
+    Обновляет только те матчи, где текущий коэффициент явно не соответствует ожидаемому диапазону.
+    Пессимистичный подход - завышает риски.
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        # Находим все матчи с stats_60min и bet_alt_code
+        cursor.execute("""
+            SELECT id, fixture_id, bet_alt_code, bet_alt_odds, stats_60min
+            FROM matches
+            WHERE stats_60min IS NOT NULL 
+              AND stats_60min != ''
+              AND bet_alt_code IS NOT NULL
+              AND bet_alt_code != ''
+        """)
+        
+        rows = cursor.fetchall()
+        updated_count = 0
+        reset_count = 0
+        
+        for row in rows:
+            match_id = row['id']
+            fixture_id = row['fixture_id']
+            bet_alt_code = row['bet_alt_code']
+            current_odds = row['bet_alt_odds']
+            stats_60min_str = row['stats_60min']
+            
+            # Парсим код тотала
+            total_info = _parse_total_bet_code(bet_alt_code)
+            if not total_info:
+                continue  # Не тотал, пропускаем
+            
+            threshold, over_under = total_info
+            
+            # Парсим статистику
+            try:
+                stats = json.loads(stats_60min_str) if isinstance(stats_60min_str, str) else stats_60min_str
+            except Exception:
+                # Не удалось распарсить - сбрасываем в 1
+                cursor.execute("""
+                    UPDATE matches SET bet_alt_odds = 1.0 WHERE id = ?
+                """, (match_id,))
+                conn.commit()
+                reset_count += 1
+                continue
+            
+            # Извлекаем счет
+            if not stats or 'score' not in stats:
+                # Нет счета - сбрасываем в 1
+                cursor.execute("""
+                    UPDATE matches SET bet_alt_odds = 1.0 WHERE id = ?
+                """, (match_id,))
+                conn.commit()
+                reset_count += 1
+                continue
+            
+            score = stats.get('score', {})
+            home_score = score.get('home')
+            away_score = score.get('away')
+            
+            if home_score is None or away_score is None:
+                # Нет счета - сбрасываем в 1
+                cursor.execute("""
+                    UPDATE matches SET bet_alt_odds = 1.0 WHERE id = ?
+                """, (match_id,))
+                conn.commit()
+                reset_count += 1
+                continue
+            
+            total_goals = int(home_score) + int(away_score)
+            
+            # Вычисляем темп игры (голы в минуту)
+            goals_per_minute = total_goals / 60.0
+            
+            # Определяем ожидаемый диапазон коэффициента
+            min_odds, max_odds = _calculate_expected_odds_range(total_goals, threshold, over_under)
+            
+            # Проверяем, соответствует ли текущий коэффициент диапазону
+            if current_odds is None:
+                needs_update = True
+            elif current_odds < min_odds or current_odds > max_odds:
+                needs_update = True
+            else:
+                needs_update = False
+            
+            if needs_update:
+                # Пересчитываем коэффициент пессимистично
+                new_odds = _recalculate_total_odds_pessimistic(total_goals, threshold, over_under, goals_per_minute)
+                
+                # Обновляем в БД
+                cursor.execute("""
+                    UPDATE matches SET bet_alt_odds = ? WHERE id = ?
+                """, (new_odds, match_id))
+                conn.commit()
+                updated_count += 1
+        
+        return {
+            'updated': updated_count,
+            'reset': reset_count,
+            'total_processed': len(rows)
+        }
+        
+    except Exception as e:
+        print(f"[Football ERROR] Ошибка пересчета коэффициентов: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+    finally:
+        if conn:
+            conn.close()
 
 
 def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, 
@@ -5761,9 +6010,6 @@ def export_matches_to_excel(date_filter: Optional[str] = None, date_from: Option
                     home_score = int(final_score_home)
                     away_score = int(final_score_away)
                     result = _is_alternative_bet_win(bet_alt_code, home_score, away_score)
-                    # Отладочный вывод для проблемных случаев
-                    if bet_alt_code.upper().startswith('T') and (home_score + away_score) > 2:
-                        print(f"[DEBUG] Тотал: code={bet_alt_code}, home={home_score}, away={away_score}, total={home_score + away_score}, result={result}")
                     if result:
                         bet_alt_result = "Выиграл"
                     else:
