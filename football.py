@@ -5752,48 +5752,54 @@ def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over
             else:
                 base_odds = 2.30
     else:  # М (Under)
-        # Для Under: если прогноз <= разрешенного количества - низкий коэффициент
-        # Если прогноз > разрешенного - высокий коэффициент
+        # Для Under: риск выше - достаточно одного гола, чтобы провалить ставку
+        # Даже при нулевом темпе вероятность забить гол есть (команды могут начать атаковать)
+        # Коэффициенты должны быть выше, чем для Over
         if predicted_goals_30min <= goals_remaining_allowed:
-            # Прогноз в пределах разрешенного - низкий коэффициент
-            # Чем больше "запас", тем ниже коэффициент
-            # Но учитываем темп: при нулевом темпе вероятность выше, но не гарантирована
+            # Прогноз в пределах разрешенного - но риск все равно есть
+            # Чем больше "запас", тем ниже коэффициент, но не слишком низко
             if goals_remaining_allowed >= 1.5:
                 # Большой запас (можно забить 1.5+ гола)
                 if goals_per_minute == 0:
-                    base_odds = 1.20  # Нулевой темп - выше коэффициент
+                    base_odds = 1.35  # Нулевой темп - но риск есть
                 elif goals_per_minute < 0.05:
-                    base_odds = 1.18
-                else:
-                    base_odds = 1.15
-            elif goals_remaining_allowed >= 1.0:
-                # Средний запас (можно забить 1 гол)
-                if goals_per_minute == 0:
-                    base_odds = 1.30  # Нулевой темп - выше коэффициент
-                elif goals_per_minute < 0.05:
-                    base_odds = 1.28
-                else:
+                    base_odds = 1.30
+                elif goals_per_minute < 0.067:
                     base_odds = 1.25
-            elif goals_remaining_allowed >= 0.5:
-                # Маленький запас (можно забить 0.5 гола)
-                if goals_per_minute == 0:
-                    base_odds = 1.45
-                elif goals_per_minute < 0.05:
-                    base_odds = 1.42
                 else:
+                    base_odds = 1.20
+            elif goals_remaining_allowed >= 1.0:
+                # Средний запас (можно забить 1 гол) - риск высокий!
+                if goals_per_minute == 0:
+                    base_odds = 1.50  # Нулевой темп - но один гол может быть забит
+                elif goals_per_minute < 0.05:
+                    base_odds = 1.45
+                elif goals_per_minute < 0.067:
                     base_odds = 1.40
+                else:
+                    base_odds = 1.35
+            elif goals_remaining_allowed >= 0.5:
+                # Маленький запас (можно забить 0.5 гола) - очень высокий риск!
+                if goals_per_minute == 0:
+                    base_odds = 1.70
+                elif goals_per_minute < 0.05:
+                    base_odds = 1.65
+                elif goals_per_minute < 0.067:
+                    base_odds = 1.60
+                else:
+                    base_odds = 1.55
             else:
-                # Очень маленький запас
-                base_odds = 1.60
+                # Очень маленький запас - критический риск
+                base_odds = 1.90
         else:
-            # Прогноз превышает разрешенное - ставка под угрозой, высокий коэффициент
+            # Прогноз превышает разрешенное - ставка под угрозой, очень высокий коэффициент
             excess = predicted_goals_30min - goals_remaining_allowed
             if excess <= 0.5:
-                base_odds = 1.80
+                base_odds = 2.00
             elif excess <= 1.0:
-                base_odds = 2.20
+                base_odds = 2.40
             else:
-                base_odds = 2.60
+                base_odds = 2.80
     
     # Ограничиваем диапазон
     return max(1.01, min(3.00, round(base_odds, 2)))
