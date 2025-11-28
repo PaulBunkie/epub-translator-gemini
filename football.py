@@ -5851,10 +5851,10 @@ def recalculate_alt_bet_odds_for_totals():
             current_odds = row['bet_alt_odds']
             stats_60min_str = row['stats_60min']
             
-            # Парсим код тотала
+            # Парсим код тотала - ВАЖНО: пересчитываем ТОЛЬКО тоталы, гандикапы и другие типы ставок пропускаем
             total_info = _parse_total_bet_code(bet_alt_code)
             if not total_info:
-                continue  # Не тотал, пропускаем
+                continue  # Не тотал (гандикап, 1X2 и т.д.), пропускаем
             
             threshold, over_under = total_info
             
@@ -5898,27 +5898,16 @@ def recalculate_alt_bet_odds_for_totals():
             # Вычисляем темп игры (голы в минуту)
             goals_per_minute = total_goals / 60.0
             
-            # Определяем ожидаемый диапазон коэффициента
-            min_odds, max_odds = _calculate_expected_odds_range(total_goals, threshold, over_under)
+            # Пересчитываем ВСЕ коэффициенты, независимо от того, находятся ли они в диапазоне или нет
+            # Потому что новая логика расчета может дать более точные значения
+            new_odds = _recalculate_total_odds_pessimistic(total_goals, threshold, over_under, goals_per_minute)
             
-            # Проверяем, соответствует ли текущий коэффициент диапазону
-            if current_odds is None:
-                needs_update = True
-            elif current_odds < min_odds or current_odds > max_odds:
-                needs_update = True
-            else:
-                needs_update = False
-            
-            if needs_update:
-                # Пересчитываем коэффициент пессимистично
-                new_odds = _recalculate_total_odds_pessimistic(total_goals, threshold, over_under, goals_per_minute)
-                
-                # Обновляем в БД
-                cursor.execute("""
-                    UPDATE matches SET bet_alt_odds = ? WHERE id = ?
-                """, (new_odds, match_id))
-                conn.commit()
-                updated_count += 1
+            # Обновляем в БД
+            cursor.execute("""
+                UPDATE matches SET bet_alt_odds = ? WHERE id = ?
+            """, (new_odds, match_id))
+            conn.commit()
+            updated_count += 1
         
         return {
             'updated': updated_count,
