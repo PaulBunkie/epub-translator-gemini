@@ -5779,7 +5779,8 @@ def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over
                     base_odds = 1.10
             elif safety_margin >= 1.0:
                 # Средний запас (прогноз на 1+ гол ниже) - средний коэффициент
-                if goals_per_minute == 0:
+                # При нулевом темпе и запасе 1.0 (0 голов, линия 1.5) - коэффициент 1.25
+                if goals_per_minute == 0 or goals_per_minute < 0.001:
                     base_odds = 1.25
                 elif goals_per_minute < 0.05:
                     base_odds = 1.22
