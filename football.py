@@ -5661,6 +5661,7 @@ def _calculate_expected_odds_range(total_goals: int, threshold: float, over_unde
 def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over_under: str, goals_per_minute: float) -> float:
     """
     Пересчитывает коэффициент для тотала пессимистично на основе счета и темпа.
+    Учитывает, что при высоком темпе вероятность забить несколько голов выше.
     
     Args:
         total_goals: Текущее количество голов на 60-й минуте
@@ -5686,50 +5687,53 @@ def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over
         # Сколько голов уже "лишних" (насколько близко к провалу)
         goals_needed = total_goals - threshold + 0.5
     
-    # Базовый коэффициент на основе разницы (пессимистично - верхние границы)
-    if goals_needed <= 0:
-        base_odds = 1.03  # Уже прошло или почти прошло
-    elif goals_needed <= 0.5:
-        # Нужен 1 гол - базовый коэффициент (будет скорректирован темпом)
-        base_odds = 1.20  # Среднее значение диапазона 1.10-1.25
-    elif goals_needed <= 1.0:
-        # Нужно 1-1.5 гола
-        base_odds = 1.40  # Среднее значение диапазона 1.25-1.50
-    elif goals_needed <= 1.5:
-        # Нужно 1.5-2 гола
-        base_odds = 1.65  # Среднее значение диапазона 1.50-1.80
-    elif goals_needed <= 2.0:
-        # Нужно 2-2.5 гола
-        base_odds = 2.00  # Среднее значение диапазона 1.80-2.20
-    else:
-        # Нужно 3+ гола
-        base_odds = 2.60  # Среднее значение диапазона 2.20-3.00
+    # Прогнозируем количество голов за оставшиеся 30 минут на основе темпа
+    # Пессимистично: уменьшаем темп на 20% (учитываем усталость, тактику)
+    predicted_goals_30min = goals_per_minute * 30 * 0.80
     
-    # Корректировка на темп игры (пессимистично, но с учетом реального темпа)
-    # Только если ставка еще не прошла/не провалилась
-    if over_under == 'Б' and goals_needed > 0:
-        # Высокий темп → высокая вероятность → СНИЖАЕМ коэффициент значительно
-        if goals_per_minute >= 0.10:  # 6+ голов за 60 минут - очень высокий темп
-            # При таком темпе 1 гол за 30 минут почти гарантирован
-            base_odds *= 0.75  # Значительно снижаем
-        elif goals_per_minute >= 0.083:  # 5+ голов за 60 минут - высокий темп
-            base_odds *= 0.80  # Сильно снижаем
-        elif goals_per_minute >= 0.067:  # 4+ голов за 60 минут - средний-высокий темп
-            # При темпе 4 гола/60 мин вероятность 1 гола за 30 мин очень высокая
-            base_odds *= 0.85  # Значительно снижаем
-        elif goals_per_minute >= 0.05:  # 3+ голов за 60 минут - средний темп
-            base_odds *= 0.90  # Снижаем
-        # Низкий темп → низкая вероятность → ЗАВЫШАЕМ коэффициент (пессимистично)
-        elif goals_per_minute < 0.033:  # Меньше 2 голов за 60 минут - очень низкий темп
-            base_odds *= 1.20  # Значительно завышаем
-        elif goals_per_minute < 0.05:  # Меньше 3 голов за 60 минут - низкий темп
-            base_odds *= 1.15  # Завышаем
-    elif over_under == 'М' and goals_needed < 0:
-        # Для Under - чем выше темп, тем выше коэффициент (больше шанс, что забьют еще)
-        if goals_per_minute > 0.15:
-            base_odds *= 1.15
-        elif goals_per_minute > 0.10:
-            base_odds *= 1.08
+    # Базовый коэффициент на основе прогноза и нужного количества голов
+    if over_under == 'Б':
+        # Для Over: если прогноз >= нужного количества - очень низкий коэффициент
+        if predicted_goals_30min >= goals_needed:
+            # Прогноз покрывает нужное количество - очень низкий коэффициент
+            if goals_needed <= 0.5:
+                # Нужен 1 гол, прогноз его покрывает
+                base_odds = 1.08 if goals_per_minute >= 0.067 else 1.12
+            elif goals_needed <= 1.0:
+                # Нужно 1-1.5 гола, прогноз покрывает
+                base_odds = 1.15 if goals_per_minute >= 0.083 else 1.22
+            elif goals_needed <= 1.5:
+                # Нужно 1.5-2 гола, прогноз покрывает
+                base_odds = 1.25 if goals_per_minute >= 0.10 else 1.35
+            elif goals_needed <= 2.0:
+                # Нужно 2-2.5 гола, прогноз покрывает
+                base_odds = 1.35 if goals_per_minute >= 0.10 else 1.50
+            else:
+                # Нужно 3+ гола, прогноз покрывает
+                base_odds = 1.60 if goals_per_minute >= 0.12 else 1.90
+        else:
+            # Прогноз не покрывает - коэффициент выше, но не слишком
+            deficit = goals_needed - predicted_goals_30min
+            if deficit <= 0.5:
+                base_odds = 1.25
+            elif deficit <= 1.0:
+                base_odds = 1.50
+            elif deficit <= 1.5:
+                base_odds = 1.85
+            else:
+                base_odds = 2.30
+    else:  # М (Under)
+        # Для Under - обратная логика
+        if predicted_goals_30min <= goals_needed:
+            base_odds = 1.20
+        else:
+            excess = predicted_goals_30min - goals_needed
+            if excess <= 0.5:
+                base_odds = 1.50
+            elif excess <= 1.0:
+                base_odds = 1.90
+            else:
+                base_odds = 2.30
     
     # Ограничиваем диапазон
     return max(1.01, min(3.00, round(base_odds, 2)))
