@@ -3365,6 +3365,52 @@
                 targetTab.classList.add('active');
                 targetTab.setAttribute('aria-selected', 'true');
                 console.log('Вкладка переключена успешно');
+                
+                // ВАЖНО: Применяем соответствующий фильтр по дате для выбранной вкладки
+                // Обновляем визуальное состояние кнопок фильтра
+                if (tabName === 'fav') {
+                    // Обновляем кнопки фильтра для вкладки "С фаворитом"
+                    document.querySelectorAll('.date-filter-btn').forEach(btn => {
+                        btn.classList.remove('active');
+                        if (btn.getAttribute('data-filter') === currentDateFilterFav) {
+                            btn.classList.add('active');
+                        }
+                    });
+                    // Показываем/скрываем выбор диапазона дат
+                    const rangePicker = document.getElementById('date-range-picker-fav');
+                    if (rangePicker) {
+                        if (currentDateFilterFav === 'range') {
+                            rangePicker.style.display = 'flex';
+                            rangePicker.classList.remove('d-none');
+                        } else {
+                            rangePicker.style.display = 'none';
+                            rangePicker.classList.add('d-none');
+                        }
+                    }
+                    // Применяем фильтр
+                    applyDateFilter('fav');
+                } else {
+                    // Обновляем кнопки фильтра для вкладки "Все матчи"
+                    document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
+                        btn.classList.remove('active');
+                        if (btn.getAttribute('data-filter') === currentDateFilterAll) {
+                            btn.classList.add('active');
+                        }
+                    });
+                    // Показываем/скрываем выбор диапазона дат
+                    const rangePicker = document.getElementById('date-range-picker-all');
+                    if (rangePicker) {
+                        if (currentDateFilterAll === 'range') {
+                            rangePicker.style.display = 'flex';
+                            rangePicker.classList.remove('d-none');
+                        } else {
+                            rangePicker.style.display = 'none';
+                            rangePicker.classList.add('d-none');
+                        }
+                    }
+                    // Применяем фильтр
+                    applyDateFilter('all');
+                }
             } else {
                 console.error('Не найдены элементы для переключения вкладки');
             }
