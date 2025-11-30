@@ -37,9 +37,21 @@ except ImportError:
 load_dotenv()
 
 FOOTBALL_DATABASE_FILE = str(FOOTBALL_DB_FILE)
-ODDS_API_KEY = os.getenv("ODDS_API_KEY")
+# Список ключей Odds API для ротации
+ODDS_API_KEYS = [
+    os.getenv("ODDS_API_KEY_1"),
+    os.getenv("ODDS_API_KEY_2"),
+    os.getenv("ODDS_API_KEY_3"),
+    os.getenv("ODDS_API_KEY_4"),
+]
+# Фильтруем None значения
+ODDS_API_KEYS = [key for key in ODDS_API_KEYS if key]
+# Для обратной совместимости
+ODDS_API_KEY = ODDS_API_KEYS[0] if ODDS_API_KEYS else os.getenv("ODDS_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 ODDS_API_URL = "https://api.the-odds-api.com/v4"
+# Порог для переключения на следующий ключ (осталось запросов)
+ODDS_API_SWITCH_THRESHOLD = 10
 SOFASCORE_API_URL = "https://api.sofascore1.com/api/v1"
 
 # Список User-Agent'ов для SofaScore (случайный выбор, чтобы уменьшить шанс бана)
@@ -467,10 +479,21 @@ class FootballManager:
     """
 
     def __init__(self):
-        if not ODDS_API_KEY:
-            raise ValueError("Не установлена переменная окружения ODDS_API_KEY")
+        if not ODDS_API_KEYS:
+            # Попытка использовать старый формат для обратной совместимости
+            old_key = os.getenv("ODDS_API_KEY")
+            if old_key:
+                ODDS_API_KEYS.append(old_key)
+            else:
+                raise ValueError("Не установлены переменные окружения ODDS_API_KEY_1, ODDS_API_KEY_2, ODDS_API_KEY_3, ODDS_API_KEY_4 или ODDS_API_KEY")
         
-        self.api_key = ODDS_API_KEY
+        # Инициализация ротации ключей
+        self.api_keys = ODDS_API_KEYS.copy()
+        self.current_key_index = 0
+        self.api_key = self.api_keys[self.current_key_index]
+        
+        # Словарь для отслеживания лимитов каждого ключа: {key_index: {'remaining': int, 'used': int}}
+        self.key_limits = {i: {'remaining': None, 'used': None} for i in range(len(self.api_keys))}
         # Внешний провайдер для текущих счетов (TheSportsDB)
         self.thesportsdb_api_key = os.getenv("THESPORTSDB_API_KEY", "123")
         
@@ -884,6 +907,7 @@ class FootballManager:
     def _extract_api_limits_from_headers(self, response: requests.Response):
         """
         Извлекает лимиты API из заголовков ответа и обновляет переменные класса.
+        Проверяет остаток запросов и переключается на следующий ключ при необходимости.
         
         Args:
             response: Объект ответа от requests
@@ -894,53 +918,133 @@ class FootballManager:
             used = response.headers.get('x-requests-used')
             last_cost = response.headers.get('x-requests-last')
             
+            remaining_int = None
+            used_int = None
+            last_cost_int = None
+            
             if remaining is not None:
                 try:
-                    self.requests_remaining = int(remaining)
+                    remaining_int = int(remaining)
+                    self.requests_remaining = remaining_int
                 except (ValueError, TypeError):
                     pass
             
             if used is not None:
                 try:
-                    self.requests_used = int(used)
+                    used_int = int(used)
+                    self.requests_used = used_int
                 except (ValueError, TypeError):
                     pass
             
             if last_cost is not None:
                 try:
-                    self.requests_last_cost = int(last_cost)
+                    last_cost_int = int(last_cost)
+                    self.requests_last_cost = last_cost_int
                 except (ValueError, TypeError):
                     pass
             
+            # Обновляем лимиты для текущего ключа
+            if remaining_int is not None:
+                self.key_limits[self.current_key_index]['remaining'] = remaining_int
+            if used_int is not None:
+                self.key_limits[self.current_key_index]['used'] = used_int
+            
             # Логируем текущие значения лимитов
             if self.requests_remaining is not None:
-                print(f"[Football API Limits] Осталось запросов: {self.requests_remaining}, Использовано: {self.requests_used}, Стоимость последнего: {self.requests_last_cost}")
+                print(f"[Football API Limits] Ключ #{self.current_key_index + 1}: Осталось запросов: {self.requests_remaining}, Использовано: {self.requests_used}, Стоимость последнего: {self.requests_last_cost}")
                 
-                # Предупреждение при низком лимите
-                if self.requests_remaining < 50:
-                    print(f"[Football WARNING] Критически низкий лимит запросов: {self.requests_remaining}")
+                # Проверяем, нужно ли переключиться на следующий ключ
+                if self.requests_remaining <= ODDS_API_SWITCH_THRESHOLD:
+                    print(f"[Football WARNING] Ключ #{self.current_key_index + 1} приближается к лимиту ({self.requests_remaining} запросов). Переключение на следующий ключ...")
+                    self._switch_to_next_key()
+                elif self.requests_remaining < 50:
+                    print(f"[Football WARNING] Критически низкий лимит запросов для ключа #{self.current_key_index + 1}: {self.requests_remaining}")
                 elif self.requests_remaining < 100:
-                    print(f"[Football WARNING] Низкий лимит запросов: {self.requests_remaining}")
+                    print(f"[Football WARNING] Низкий лимит запросов для ключа #{self.current_key_index + 1}: {self.requests_remaining}")
                     
         except Exception as e:
             print(f"[Football ERROR] Ошибка извлечения лимитов из заголовков: {e}")
+    
+    def _switch_to_next_key(self):
+        """
+        Переключается на следующий доступный ключ API.
+        """
+        if len(self.api_keys) <= 1:
+            print(f"[Football WARNING] Только один ключ доступен, переключение невозможно")
+            return
+        
+        # Находим следующий ключ с достаточным лимитом
+        start_index = self.current_key_index
+        switched = False
+        
+        for attempt in range(len(self.api_keys)):
+            # Переходим к следующему ключу (циклически)
+            self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+            
+            # Проверяем лимит этого ключа
+            key_limit = self.key_limits[self.current_key_index]
+            remaining = key_limit.get('remaining')
+            
+            # Если лимит неизвестен или достаточен - используем этот ключ
+            if remaining is None or remaining > ODDS_API_SWITCH_THRESHOLD:
+                self.api_key = self.api_keys[self.current_key_index]
+                print(f"[Football] Переключено на ключ #{self.current_key_index + 1} (осталось запросов: {remaining if remaining is not None else 'неизвестно'})")
+                switched = True
+                break
+        
+        if not switched:
+            # Если все ключи исчерпаны, используем первый доступный
+            self.current_key_index = 0
+            self.api_key = self.api_keys[0]
+            print(f"[Football WARNING] Все ключи близки к лимиту, используем ключ #{self.current_key_index + 1}")
 
     def _initialize_api_limits(self):
         """
-        Инициализирует начальные значения лимитов API через запрос к /sports.
+        Инициализирует начальные значения лимитов API через запрос к /sports для всех ключей.
         Вызывается при старте приложения.
         """
         try:
-            print("[Football] Получение начальных значений лимитов API через запрос к /sports...")
-            params = {'apiKey': self.api_key}
+            print(f"[Football] Получение начальных значений лимитов API для {len(self.api_keys)} ключей...")
             
-            url = f"{ODDS_API_URL}/sports"
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            # Инициализируем лимиты для всех ключей
+            for i, key in enumerate(self.api_keys):
+                try:
+                    print(f"[Football] Инициализация лимитов для ключа #{i + 1}...")
+                    params = {'apiKey': key}
+                    url = f"{ODDS_API_URL}/sports"
+                    response = requests.get(url, params=params, timeout=30)
+                    response.raise_for_status()
+                    
+                    # Временно переключаемся на этот ключ для извлечения лимитов
+                    old_index = self.current_key_index
+                    old_key = self.api_key
+                    self.current_key_index = i
+                    self.api_key = key
+                    
+                    # Извлекаем лимиты из заголовков
+                    self._extract_api_limits_from_headers(response)
+                    
+                    # Возвращаемся к исходному ключу
+                    self.current_key_index = old_index
+                    self.api_key = old_key
+                    
+                    print(f"[Football] Ключ #{i + 1}: осталось={self.key_limits[i].get('remaining', 'неизвестно')}, использовано={self.key_limits[i].get('used', 'неизвестно')}")
+                    
+                except Exception as e:
+                    print(f"[Football ERROR] Ошибка инициализации лимитов для ключа #{i + 1}: {e}")
             
-            # Извлекаем лимиты из заголовков
-            self._extract_api_limits_from_headers(response)
+            # Устанавливаем текущий ключ на тот, у которого больше всего запросов
+            best_key_index = 0
+            best_remaining = self.key_limits[0].get('remaining', 0) or 0
+            for i in range(1, len(self.api_keys)):
+                remaining = self.key_limits[i].get('remaining', 0) or 0
+                if remaining > best_remaining:
+                    best_remaining = remaining
+                    best_key_index = i
             
+            self.current_key_index = best_key_index
+            self.api_key = self.api_keys[best_key_index]
+            print(f"[Football] Выбран ключ #{best_key_index + 1} с наибольшим остатком запросов: {best_remaining}")
             print(f"[Football] Начальные лимиты API установлены: осталось={self.requests_remaining}, использовано={self.requests_used}")
             
         except Exception as e:
@@ -966,6 +1070,16 @@ class FootballManager:
             params['apiKey'] = self.api_key
             
             response = requests.get(url, params=params, timeout=30)
+            
+            # Проверяем статус ответа
+            if response.status_code == 429:
+                # Too Many Requests - переключаемся на следующий ключ
+                print(f"[Football WARNING] Получен 429 (Too Many Requests) для ключа #{self.current_key_index + 1}. Переключение на следующий ключ...")
+                self._switch_to_next_key()
+                # Повторяем запрос с новым ключом
+                params['apiKey'] = self.api_key
+                response = requests.get(url, params=params, timeout=30)
+            
             response.raise_for_status()
             
             # Извлекаем и обновляем лимиты из заголовков ответа
@@ -978,6 +1092,11 @@ class FootballManager:
             
         except requests.exceptions.RequestException as e:
             print(f"[Football ERROR] Ошибка запроса к API: {e}")
+            # Если это ошибка 429 и есть другие ключи, пробуем переключиться
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                if len(self.api_keys) > 1:
+                    print(f"[Football] Пробуем переключиться на следующий ключ после ошибки 429...")
+                    self._switch_to_next_key()
             return None
         except json.JSONDecodeError as e:
             print(f"[Football ERROR] Ошибка парсинга JSON: {e}")
