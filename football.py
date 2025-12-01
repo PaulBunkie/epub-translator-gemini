@@ -2745,8 +2745,9 @@ class FootballManager:
 
             # Матчи с фаворитом, еще не обработанные (bet IS NULL)
             # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Но включаем sofascore_event_id и sport_key, так как они нужны для _collect_60min_stats
             cursor.execute("""
-                SELECT id, fixture_id, match_date, match_time, status
+                SELECT id, fixture_id, sofascore_event_id, sport_key, match_date, match_time, status
                 FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                   AND bet IS NULL
@@ -2757,8 +2758,9 @@ class FootballManager:
 
             # Матчи без фаворита, еще не обработанные (bet IS NULL)
             # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Но включаем sofascore_event_id и sport_key, так как они нужны для _collect_60min_stats_without_fav
             cursor.execute("""
-            SELECT id, fixture_id, match_date, match_time, status
+            SELECT id, fixture_id, sofascore_event_id, sport_key, match_date, match_time, status
                 FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                   AND bet IS NULL
