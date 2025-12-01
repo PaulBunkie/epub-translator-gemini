@@ -930,6 +930,13 @@
             // Обработчики для фильтров по датам (первая таблица)
             document.querySelectorAll('.date-filter-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
+                    // Проверяем, что вкладка "С фаворитом" активна
+                    const favTab = document.getElementById('fav-tab');
+                    const favPane = document.getElementById('fav-matches');
+                    if (!favTab || !favPane || !favTab.classList.contains('active') || !favPane.classList.contains('active')) {
+                        console.log('[Filter] Вкладка "С фаворитом" не активна, игнорируем клик на фильтр');
+                        return;
+                    }
                     const filter = this.getAttribute('data-filter');
                     setDateFilter('fav', filter);
                 });
@@ -938,6 +945,13 @@
             // Обработчики для фильтров по датам (вторая таблица)
             document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
                 btn.addEventListener('click', function() {
+                    // Проверяем, что вкладка "Все матчи" активна
+                    const allTab = document.getElementById('all-tab');
+                    const allPane = document.getElementById('all-matches');
+                    if (!allTab || !allPane || !allTab.classList.contains('active') || !allPane.classList.contains('active')) {
+                        console.log('[Filter] Вкладка "Все матчи" не активна, игнорируем клик на фильтр');
+                        return;
+                    }
                     const filter = this.getAttribute('data-filter');
                     setDateFilter('all', filter);
                 });
@@ -974,16 +988,21 @@
         
         // Функция для установки фильтра по датам
         function setDateFilter(table, filter) {
+            // ВАЖНО: Изменяем фильтр ТОЛЬКО для указанной таблицы, не трогая другую
             if (table === 'fav') {
+                // Обновляем фильтр только для вкладки "С фаворитом"
                 currentDateFilterFav = filter;
-                // Обновляем активную кнопку
+                console.log(`[Filter] Установлен фильтр для "С фаворитом": ${filter}`);
+                
+                // Обновляем активную кнопку ТОЛЬКО для вкладки "С фаворитом"
                 document.querySelectorAll('.date-filter-btn').forEach(btn => {
                     btn.classList.remove('active');
                     if (btn.getAttribute('data-filter') === filter) {
                         btn.classList.add('active');
                     }
                 });
-                // Показываем/скрываем выбор диапазона дат
+                
+                // Показываем/скрываем выбор диапазона дат ТОЛЬКО для вкладки "С фаворитом"
                 const rangePicker = document.getElementById('date-range-picker-fav');
                 if (rangePicker) {
                     if (filter === 'range') {
@@ -995,23 +1014,33 @@
                         dateRangeFav = { from: null, to: null };
                     }
                 }
-                // СНАЧАЛА очищаем таблицу, потом применяем фильтр
-                const tbody = document.getElementById('matches-table-body');
-                if (tbody) {
-                    tbody.innerHTML = '';
+                
+                // Применяем фильтр ТОЛЬКО если вкладка активна
+                const favTab = document.getElementById('fav-tab');
+                const favPane = document.getElementById('fav-matches');
+                if (favTab && favPane && favTab.classList.contains('active') && favPane.classList.contains('active')) {
+                    // СНАЧАЛА очищаем таблицу, потом применяем фильтр
+                    const tbody = document.getElementById('matches-table-body');
+                    if (tbody) {
+                        tbody.innerHTML = '';
+                    }
+                    // Применяем фильтр и перерисовываем таблицу
+                    applyDateFilter('fav');
                 }
-                // Применяем фильтр и перерисовываем таблицу
-                applyDateFilter('fav');
             } else if (table === 'all') {
+                // Обновляем фильтр только для вкладки "Все матчи"
                 currentDateFilterAll = filter;
-                // Обновляем активную кнопку
+                console.log(`[Filter] Установлен фильтр для "Все матчи": ${filter}`);
+                
+                // Обновляем активную кнопку ТОЛЬКО для вкладки "Все матчи"
                 document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
                     btn.classList.remove('active');
                     if (btn.getAttribute('data-filter') === filter) {
                         btn.classList.add('active');
                     }
                 });
-                // Показываем/скрываем выбор диапазона дат
+                
+                // Показываем/скрываем выбор диапазона дат ТОЛЬКО для вкладки "Все матчи"
                 const rangePicker = document.getElementById('date-range-picker-all');
                 if (rangePicker) {
                     if (filter === 'range') {
@@ -1023,13 +1052,19 @@
                         dateRangeAll = { from: null, to: null };
                     }
                 }
-                // СНАЧАЛА очищаем таблицу, потом применяем фильтр
-                const tbody = document.getElementById('all-matches-table-body');
-                if (tbody) {
-                    tbody.innerHTML = '';
+                
+                // Применяем фильтр ТОЛЬКО если вкладка активна
+                const allTab = document.getElementById('all-tab');
+                const allPane = document.getElementById('all-matches');
+                if (allTab && allPane && allTab.classList.contains('active') && allPane.classList.contains('active')) {
+                    // СНАЧАЛА очищаем таблицу, потом применяем фильтр
+                    const tbody = document.getElementById('all-matches-table-body');
+                    if (tbody) {
+                        tbody.innerHTML = '';
+                    }
+                    // Применяем фильтр и перерисовываем таблицу
+                    applyDateFilter('all');
                 }
-                // Применяем фильтр и перерисовываем таблицу
-                applyDateFilter('all');
             }
         }
         
@@ -3455,19 +3490,27 @@
             }
         })();
         
-        // Устанавливаем активную кнопку "Сегодня" для обеих таблиц при загрузке
-        document.querySelectorAll('.date-filter-btn').forEach(btn => {
-            btn.classList.remove('active');
-            if (btn.getAttribute('data-filter') === 'today') {
-                btn.classList.add('active');
-            }
-        });
-        document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
-            btn.classList.remove('active');
-            if (btn.getAttribute('data-filter') === 'today') {
-                btn.classList.add('active');
-            }
-        });
+        // Устанавливаем активную кнопку в соответствии с текущими фильтрами (не принудительно "Сегодня")
+        // Это происходит после загрузки данных, чтобы не перезаписывать сохраненные фильтры
+        function updateDateFilterButtons() {
+            // Обновляем кнопки для вкладки "С фаворитом"
+            document.querySelectorAll('.date-filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.getAttribute('data-filter') === currentDateFilterFav) {
+                    btn.classList.add('active');
+                }
+            });
+            // Обновляем кнопки для вкладки "Все матчи"
+            document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.getAttribute('data-filter') === currentDateFilterAll) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+        
+        // Вызываем после загрузки данных
+        setTimeout(updateDateFilterButtons, 100);
         
         // Загружаем матчи при загрузке страницы
         loadMatches();
