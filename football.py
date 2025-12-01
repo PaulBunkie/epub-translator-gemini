@@ -3748,16 +3748,42 @@ class FootballManager:
                 else:
                     print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для fixture {fixture_id}")
                 
-                # Проверяем условие для отправки уведомления: bet_ai IS NOT NULL И bet_ai_odds > 1.30
+                # Проверяем условие для отправки уведомления: bet_ai IS NOT NULL И bet_ai_odds > 1.50 И K60 > K1
                 # Читаем данные из БД после сохранения bet_ai
                 try:
                     conn = get_football_db_connection()
                     cursor = conn.cursor()
-                    cursor.execute("SELECT bet_ai, bet_ai_odds FROM matches WHERE id = ?", (match['id'],))
+                    cursor.execute("SELECT bet_ai, bet_ai_odds, live_odds, last_odds FROM matches WHERE id = ?", (match['id'],))
                     db_row = cursor.fetchone()
                     conn.close()
                     
-                    if db_row and db_row['bet_ai'] and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.30:
+                    # Проверяем условия: bet_ai_odds > 1.50 И K60 > K1
+                    if (db_row and db_row['bet_ai'] and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.50):
+                        # Проверяем условие K60 > K1
+                        live_odds = db_row['live_odds'] if db_row['live_odds'] is not None else None
+                        last_odds = db_row['last_odds'] if db_row['last_odds'] is not None else None
+                        
+                        # K60 > K1 означает, что live_odds > last_odds (коэффициент вырос)
+                        k60_greater_than_k1 = False
+                        if live_odds is not None and last_odds is not None:
+                            k60_greater_than_k1 = live_odds > last_odds
+                        elif live_odds is not None and last_odds is None:
+                            # Если K1 нет, но K60 есть - считаем что условие выполнено
+                            k60_greater_than_k1 = True
+                        
+                        if k60_greater_than_k1:
+                            # Читаем полные данные матча из БД для уведомления
+                            conn = get_football_db_connection()
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT * FROM matches WHERE id = ?", (match['id'],))
+                            match_for_notification = cursor.fetchone()
+                            conn.close()
+                            
+                            if match_for_notification:
+                                try:
+                                    self._send_match_notification(match_for_notification, stats)
+                                except Exception as notify_error:
+                                    print(f"[Football ERROR] Ошибка отправки уведомления для фаворита: {notify_error}")
                         # Читаем полные данные матча из БД для уведомления
                         conn = get_football_db_connection()
                         cursor = conn.cursor()
@@ -4029,8 +4055,8 @@ class FootballManager:
                                     conn.close()
                                     print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                     
-                                    # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.30 И bet_alt_confirm = 1
-                                    if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.30 and bet_alt_confirm == 1:
+                                    # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
+                                    if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
                                         # Читаем полные данные матча из БД для уведомления
                                         conn = get_football_db_connection()
                                         cursor = conn.cursor()
