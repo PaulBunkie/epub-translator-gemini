@@ -3004,10 +3004,8 @@ class FootballManager:
                 "Для Handicap используй стороны Home/Away и ТОЛЬКО половинные линии (…,-2.5,-2.0,-1.5,-1.0,-0.5,0,+0.5,+1.0,+1.5,+2.0,+2.5,…); никаких четвертных (0.25/0.75). "
                 "Для Total используй Over/Under с ТОЛЬКО половинными линиями (0, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5 …). Размер линий не ограничивай. "
                 "Если точного коэффициента нет, оцени приблизительно на основе темпа/статистики и live_odds_1/x/2, округли до двух знаков и проставь odds_estimated=true. "
-                "Дополнительно оцени рискованность ставки. Если для этого матча неопределенность слишком высока, установи confirm=0. "
-                "Если ты уверен, что ставка имеет приемлемый уровень риска и хорошие шансы на успех, установи confirm=1. "
                 "Верни СТРОГО JSON (без текста вокруг) формата: "
-                "{\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number,\"odds_estimated\":boolean,\"confirm\":0|1,\"reason\":str}."
+                "{\"market\":\"1X2|DoubleChance|Handicap|Total\",\"pick\":\"1|X|2|1X|X2|Home|Away|Over|Under\",\"line\":number|null,\"odds\":number,\"odds_estimated\":boolean,\"reason\":str}."
             )
             
             prompt = f"{system_instruction}\n\nДанные:\n{context_json}"
@@ -3080,17 +3078,25 @@ class FootballManager:
                                 pick = parsed.get('pick')
                                 line = parsed.get('line')
                                 odds = parsed.get('odds')
-                                confirm = parsed.get('confirm')
                                 reason = parsed.get('reason', '')
                                 
                                 if market and pick and odds:
                                     # Преобразуем в кодировку
                                     bet_alt_code = self._encode_alternative_bet(market, pick, line)
                                     bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
-                                    # Умно преобразуем confirm в 0 или 1
-                                    bet_alt_confirm = self._parse_confirm_value(confirm)
                                     # Получаем reason или пустую строку
                                     bet_alt_reason = str(reason).strip() if reason else ''
+                                    
+                                    # Вычисляем bet_alt_confirm по алгоритму:
+                                    # Если bet_alt_odds <= bet_ai_odds и bet_alt_odds > 1.10, то bet_alt_confirm=1, иначе 0
+                                    bet_ai_odds = match['bet_ai_odds'] if 'bet_ai_odds' in match.keys() and match['bet_ai_odds'] is not None else None
+                                    if bet_alt_odds is not None:
+                                        if bet_ai_odds is not None and bet_alt_odds <= bet_ai_odds and bet_alt_odds > 1.10:
+                                            bet_alt_confirm = 1
+                                        else:
+                                            bet_alt_confirm = 0
+                                    else:
+                                        bet_alt_confirm = 0
                                     
                                     if bet_alt_code and bet_alt_odds is not None:
                                         print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
@@ -5962,6 +5968,65 @@ def _recalculate_total_odds_pessimistic(total_goals: int, threshold: float, over
     
     # Ограничиваем диапазон
     return max(1.01, min(3.00, round(base_odds, 2)))
+
+
+def recalculate_alt_bet_confirm():
+    """
+    Пересчитывает bet_alt_confirm для всех матчей по алгоритму:
+    Если bet_alt_odds <= bet_ai_odds и bet_alt_odds > 1.10, то bet_alt_confirm=1, иначе 0
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        
+        # Находим все матчи с bet_alt_code и bet_alt_odds
+        cursor.execute("""
+            SELECT id, fixture_id, bet_alt_code, bet_alt_odds, bet_ai_odds
+            FROM matches
+            WHERE bet_alt_code IS NOT NULL 
+              AND bet_alt_code != ''
+              AND bet_alt_odds IS NOT NULL
+        """)
+        
+        rows = cursor.fetchall()
+        updated_count = 0
+        
+        for row in rows:
+            match_id = row['id']
+            fixture_id = row['fixture_id']
+            bet_alt_odds = row['bet_alt_odds']
+            bet_ai_odds = row['bet_ai_odds']
+            
+            # Вычисляем bet_alt_confirm по алгоритму
+            if bet_ai_odds is not None and bet_alt_odds <= bet_ai_odds and bet_alt_odds > 1.10:
+                new_confirm = 1
+            else:
+                new_confirm = 0
+            
+            # Обновляем bet_alt_confirm
+            cursor.execute("""
+                UPDATE matches 
+                SET bet_alt_confirm = ?
+                WHERE id = ?
+            """, (new_confirm, match_id))
+            
+            updated_count += 1
+        
+        conn.commit()
+        print(f"[Football] Пересчет bet_alt_confirm завершен. Обновлено матчей: {updated_count}")
+        return {'updated': updated_count}
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"[Football ERROR] Ошибка пересчета bet_alt_confirm: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'error': str(e)}
+    finally:
+        if conn:
+            conn.close()
 
 
 def recalculate_alt_bet_odds_for_totals():

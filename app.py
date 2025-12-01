@@ -2811,6 +2811,31 @@ def api_check_football_subscription():
         print(f"[Football API] Ошибка проверки подписки: {e}")
         return jsonify({'subscribed': False, 'error': str(e)}), 500
 
+@app.route('/api/football/recalculate-alt-confirm', methods=['GET', 'POST'])
+def api_recalculate_alt_confirm():
+    """API эндпойнт для пересчета bet_alt_confirm для всех матчей."""
+    # Проверяем режим администратора
+    admin = request.args.get('admin', 'false').lower() == 'true'
+    if not admin:
+        return jsonify({'error': 'Доступ запрещен. Используйте ?admin=true'}), 403
+    
+    try:
+        result = football.recalculate_alt_bet_confirm()
+        if result and 'error' not in result:
+            return jsonify({
+                'success': True,
+                'message': 'Пересчет bet_alt_confirm завершен',
+                'result': result
+            }), 200
+        else:
+            error_msg = result.get('error', 'Неизвестная ошибка') if result else 'Неизвестная ошибка'
+            return jsonify({'error': f'Ошибка пересчета bet_alt_confirm: {error_msg}'}), 500
+    except Exception as e:
+        print(f"[Football API] Ошибка пересчета bet_alt_confirm: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Ошибка пересчета bet_alt_confirm: {str(e)}'}), 500
+
 @app.route('/api/football/recalculate-alt-odds', methods=['GET', 'POST'])
 def api_recalculate_alt_odds():
     """API эндпойнт для пересчета коэффициентов альтернативных ставок (тоталы) (только для админа)."""
