@@ -893,11 +893,9 @@
         let currentSortFieldAll = null;
         let currentSortDirectionAll = 'asc';
         
-        // Переменные для фильтрации по датам
-        let currentDateFilterFav = 'today';
-        let currentDateFilterAll = 'today';
-        let dateRangeFav = { from: null, to: null };
-        let dateRangeAll = { from: null, to: null };
+        // Переменные для фильтрации по датам - ОДИН общий фильтр для обеих вкладок
+        let currentDateFilter = 'today';
+        let dateRange = { from: null, to: null };
         
         // Переменные для модальных окон
         let sofascoreModalInstance = null;
@@ -970,14 +968,14 @@
             }
             
             // Применяем текущий фильтр при загрузке, чтобы скрыть поля, если нужно
-            if (currentDateFilterFav !== 'range') {
+            if (currentDateFilter !== 'range') {
                 const pickerFav = document.getElementById('date-range-picker-fav');
                 if (pickerFav) {
                     pickerFav.style.display = 'none';
                     pickerFav.classList.add('d-none');
                 }
             }
-            if (currentDateFilterAll !== 'range') {
+            if (currentDateFilter !== 'range') {
                 const pickerAll = document.getElementById('date-range-picker-all');
                 if (pickerAll) {
                     pickerAll.style.display = 'none';
@@ -986,85 +984,63 @@
             }
         });
         
-        // Функция для установки фильтра по датам
+        // Функция для установки фильтра по датам - ОДИН общий фильтр для обеих вкладок
         function setDateFilter(table, filter) {
-            // ВАЖНО: Изменяем фильтр ТОЛЬКО для указанной таблицы, не трогая другую
-            if (table === 'fav') {
-                // Обновляем фильтр только для вкладки "С фаворитом"
-                currentDateFilterFav = filter;
-                console.log(`[Filter] Установлен фильтр для "С фаворитом": ${filter}`);
-                
-                // Обновляем активную кнопку ТОЛЬКО для вкладки "С фаворитом"
-                document.querySelectorAll('.date-filter-btn').forEach(btn => {
-                    btn.classList.remove('active');
-                    if (btn.getAttribute('data-filter') === filter) {
-                        btn.classList.add('active');
-                    }
-                });
-                
-                // Показываем/скрываем выбор диапазона дат ТОЛЬКО для вкладки "С фаворитом"
-                const rangePicker = document.getElementById('date-range-picker-fav');
-                if (rangePicker) {
-                    if (filter === 'range') {
-                        rangePicker.style.display = 'flex';
-                        rangePicker.classList.remove('d-none');
-                    } else {
-                        rangePicker.style.display = 'none';
-                        rangePicker.classList.add('d-none');
-                        dateRangeFav = { from: null, to: null };
-                    }
+            // Обновляем ОБЩИЙ фильтр - он применяется к обеим вкладкам
+            currentDateFilter = filter;
+            console.log(`[Filter] Установлен общий фильтр: ${filter}`);
+            
+            // Обновляем активные кнопки на ОБЕИХ вкладках
+            document.querySelectorAll('.date-filter-btn, .date-filter-btn-all').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.getAttribute('data-filter') === filter) {
+                    btn.classList.add('active');
                 }
-                
-                // Применяем фильтр ТОЛЬКО если вкладка активна
-                const favTab = document.getElementById('fav-tab');
-                const favPane = document.getElementById('fav-matches');
-                if (favTab && favPane && favTab.classList.contains('active') && favPane.classList.contains('active')) {
-                    // СНАЧАЛА очищаем таблицу, потом применяем фильтр
-                    const tbody = document.getElementById('matches-table-body');
-                    if (tbody) {
-                        tbody.innerHTML = '';
-                    }
-                    // Применяем фильтр и перерисовываем таблицу
-                    applyDateFilter('fav');
+            });
+            
+            // Показываем/скрываем выбор диапазона дат на ОБЕИХ вкладках
+            const rangePickerFav = document.getElementById('date-range-picker-fav');
+            const rangePickerAll = document.getElementById('date-range-picker-all');
+            
+            if (filter === 'range') {
+                if (rangePickerFav) {
+                    rangePickerFav.style.display = 'flex';
+                    rangePickerFav.classList.remove('d-none');
                 }
-            } else if (table === 'all') {
-                // Обновляем фильтр только для вкладки "Все матчи"
-                currentDateFilterAll = filter;
-                console.log(`[Filter] Установлен фильтр для "Все матчи": ${filter}`);
-                
-                // Обновляем активную кнопку ТОЛЬКО для вкладки "Все матчи"
-                document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
-                    btn.classList.remove('active');
-                    if (btn.getAttribute('data-filter') === filter) {
-                        btn.classList.add('active');
-                    }
-                });
-                
-                // Показываем/скрываем выбор диапазона дат ТОЛЬКО для вкладки "Все матчи"
-                const rangePicker = document.getElementById('date-range-picker-all');
-                if (rangePicker) {
-                    if (filter === 'range') {
-                        rangePicker.style.display = 'flex';
-                        rangePicker.classList.remove('d-none');
-                    } else {
-                        rangePicker.style.display = 'none';
-                        rangePicker.classList.add('d-none');
-                        dateRangeAll = { from: null, to: null };
-                    }
+                if (rangePickerAll) {
+                    rangePickerAll.style.display = 'flex';
+                    rangePickerAll.classList.remove('d-none');
                 }
-                
-                // Применяем фильтр ТОЛЬКО если вкладка активна
-                const allTab = document.getElementById('all-tab');
-                const allPane = document.getElementById('all-matches');
-                if (allTab && allPane && allTab.classList.contains('active') && allPane.classList.contains('active')) {
-                    // СНАЧАЛА очищаем таблицу, потом применяем фильтр
-                    const tbody = document.getElementById('all-matches-table-body');
-                    if (tbody) {
-                        tbody.innerHTML = '';
-                    }
-                    // Применяем фильтр и перерисовываем таблицу
-                    applyDateFilter('all');
+            } else {
+                if (rangePickerFav) {
+                    rangePickerFav.style.display = 'none';
+                    rangePickerFav.classList.add('d-none');
                 }
+                if (rangePickerAll) {
+                    rangePickerAll.style.display = 'none';
+                    rangePickerAll.classList.add('d-none');
+                }
+                dateRange = { from: null, to: null };
+            }
+            
+            // Применяем фильтр к активной вкладке
+            const favTab = document.getElementById('fav-tab');
+            const favPane = document.getElementById('fav-matches');
+            const allTab = document.getElementById('all-tab');
+            const allPane = document.getElementById('all-matches');
+            
+            if (favTab && favPane && favTab.classList.contains('active') && favPane.classList.contains('active')) {
+                const tbody = document.getElementById('matches-table-body');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                }
+                applyDateFilter('fav');
+            } else if (allTab && allPane && allTab.classList.contains('active') && allPane.classList.contains('active')) {
+                const tbody = document.getElementById('all-matches-table-body');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                }
+                applyDateFilter('all');
             }
         }
         
@@ -1074,16 +1050,16 @@
                 const fromInput = document.getElementById('date-from-fav');
                 const toInput = document.getElementById('date-to-fav');
                 if (fromInput && toInput) {
-                    dateRangeFav.from = fromInput.value;
-                    dateRangeFav.to = toInput.value;
+                    dateRange.from = fromInput.value;
+                    dateRange.to = toInput.value;
                     applyDateFilter('fav');
                 }
             } else if (table === 'all') {
                 const fromInput = document.getElementById('date-from-all');
                 const toInput = document.getElementById('date-to-all');
                 if (fromInput && toInput) {
-                    dateRangeAll.from = fromInput.value;
-                    dateRangeAll.to = toInput.value;
+                    dateRange.from = fromInput.value;
+                    dateRange.to = toInput.value;
                     applyDateFilter('all');
                 }
             }
@@ -1183,12 +1159,13 @@
         
         // Функция для применения фильтра и перерисовки таблицы
         function applyDateFilter(table) {
+            // Используем ОДИН общий фильтр для обеих вкладок
             if (table === 'fav') {
                 // Убеждаемся, что allMatches инициализирован
                 if (!allMatches) {
                     allMatches = [];
                 }
-                const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
+                const filtered = filterMatchesByDate(allMatches, currentDateFilter, dateRange);
                 // Явно очищаем таблицу перед применением фильтра
                 const tbody = document.getElementById('matches-table-body');
                 if (tbody) {
@@ -1209,7 +1186,7 @@
                 if (!allMatchesData) {
                     allMatchesData = [];
                 }
-                const filtered = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
+                const filtered = filterMatchesByDate(allMatchesData, currentDateFilter, dateRange);
                 // Явно очищаем таблицу перед применением фильтра
                 const tbody = document.getElementById('all-matches-table-body');
                 if (tbody) {
@@ -1351,7 +1328,7 @@
             // Используем переданные матчи или применяем фильтр к allMatches
             let matches = matchesToSort;
             if (!matches) {
-                matches = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
+                matches = filterMatchesByDate(allMatches, currentDateFilter, dateRange);
             }
             
             if (!matches || matches.length === 0) {
@@ -1541,7 +1518,7 @@
         function applyCurrentSort(preserveDirection = true) {
             // Применяем сортировку для первой таблицы
             if (currentSortField) {
-                const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
+                const filtered = filterMatchesByDate(allMatches, currentDateFilter, dateRange);
                 if (filtered && filtered.length > 0) {
                     // Временно сохраняем направление, чтобы не менять его
                     const savedDirection = currentSortDirection;
@@ -1601,7 +1578,7 @@
             
             // Применяем сортировку для второй таблицы
             if (currentSortFieldAll) {
-                const filtered = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
+                const filtered = filterMatchesByDate(allMatchesData, currentDateFilter, dateRange);
                 if (filtered && filtered.length > 0) {
                     const savedDirectionAll = currentSortDirectionAll;
                     sortTableAll(currentSortFieldAll, filtered);
@@ -1659,7 +1636,7 @@
             // Используем переданные матчи или применяем фильтр к allMatchesData
             let matches = matchesToSort;
             if (!matches) {
-                matches = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
+                matches = filterMatchesByDate(allMatchesData, currentDateFilter, dateRange);
             }
             
             if (!matches || matches.length === 0) {
@@ -1886,7 +1863,7 @@
                         }
                         
                         // Применяем фильтр и сортировку
-                        const filtered = filterMatchesByDate(allMatches, currentDateFilterFav, dateRangeFav);
+                        const filtered = filterMatchesByDate(allMatches, currentDateFilter, dateRange);
                         if (!currentSortField) {
                             currentSortField = 'match_date';
                             currentSortDirection = 'asc';
@@ -1896,7 +1873,7 @@
                     } else {
                         allMatches = [];
                         // Применяем фильтр даже для пустого массива, чтобы очистить таблицу
-                        const filtered = filterMatchesByDate([], currentDateFilterFav, dateRangeFav);
+                        const filtered = filterMatchesByDate([], currentDateFilter, dateRange);
                         displayMatches(filtered);
                     }
                     
@@ -1904,7 +1881,7 @@
                     if (allData.success && allData.matches && allData.matches.length > 0) {
                         allMatchesData = allData.matches;
                         // Применяем фильтр и сортировку
-                        const filtered = filterMatchesByDate(allMatchesData, currentDateFilterAll, dateRangeAll);
+                        const filtered = filterMatchesByDate(allMatchesData, currentDateFilter, dateRange);
                         // Сортировка по умолчанию: дата и время (по возрастанию)
                         if (!currentSortFieldAll) {
                             currentSortFieldAll = 'match_date';
@@ -1915,7 +1892,7 @@
                     } else {
                         allMatchesData = [];
                         // Применяем фильтр даже для пустого массива, чтобы очистить таблицу
-                        const filtered = filterMatchesByDate([], currentDateFilterAll, dateRangeAll);
+                        const filtered = filterMatchesByDate([], currentDateFilter, dateRange);
                         displayAllMatches(filtered);
                     }
                     
@@ -3401,49 +3378,42 @@
                 targetTab.setAttribute('aria-selected', 'true');
                 console.log('Вкладка переключена успешно');
                 
-                // ВАЖНО: Применяем соответствующий фильтр по дате для выбранной вкладки
-                // Обновляем визуальное состояние кнопок фильтра
-                if (tabName === 'fav') {
-                    // Обновляем кнопки фильтра для вкладки "С фаворитом"
-                    document.querySelectorAll('.date-filter-btn').forEach(btn => {
-                        btn.classList.remove('active');
-                        if (btn.getAttribute('data-filter') === currentDateFilterFav) {
-                            btn.classList.add('active');
-                        }
-                    });
-                    // Показываем/скрываем выбор диапазона дат
-                    const rangePicker = document.getElementById('date-range-picker-fav');
-                    if (rangePicker) {
-                        if (currentDateFilterFav === 'range') {
-                            rangePicker.style.display = 'flex';
-                            rangePicker.classList.remove('d-none');
-                        } else {
-                            rangePicker.style.display = 'none';
-                            rangePicker.classList.add('d-none');
-                        }
+                // ВАЖНО: Применяем ОБЩИЙ фильтр по дате для выбранной вкладки
+                // Обновляем визуальное состояние кнопок фильтра на ОБЕИХ вкладках
+                document.querySelectorAll('.date-filter-btn, .date-filter-btn-all').forEach(btn => {
+                    btn.classList.remove('active');
+                    if (btn.getAttribute('data-filter') === currentDateFilter) {
+                        btn.classList.add('active');
                     }
-                    // Применяем фильтр
+                });
+                
+                // Показываем/скрываем выбор диапазона дат на ОБЕИХ вкладках
+                const rangePickerFav = document.getElementById('date-range-picker-fav');
+                const rangePickerAll = document.getElementById('date-range-picker-all');
+                if (currentDateFilter === 'range') {
+                    if (rangePickerFav) {
+                        rangePickerFav.style.display = 'flex';
+                        rangePickerFav.classList.remove('d-none');
+                    }
+                    if (rangePickerAll) {
+                        rangePickerAll.style.display = 'flex';
+                        rangePickerAll.classList.remove('d-none');
+                    }
+                } else {
+                    if (rangePickerFav) {
+                        rangePickerFav.style.display = 'none';
+                        rangePickerFav.classList.add('d-none');
+                    }
+                    if (rangePickerAll) {
+                        rangePickerAll.style.display = 'none';
+                        rangePickerAll.classList.add('d-none');
+                    }
+                }
+                
+                // Применяем фильтр к активной вкладке
+                if (tabName === 'fav') {
                     applyDateFilter('fav');
                 } else {
-                    // Обновляем кнопки фильтра для вкладки "Все матчи"
-                    document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
-                        btn.classList.remove('active');
-                        if (btn.getAttribute('data-filter') === currentDateFilterAll) {
-                            btn.classList.add('active');
-                        }
-                    });
-                    // Показываем/скрываем выбор диапазона дат
-                    const rangePicker = document.getElementById('date-range-picker-all');
-                    if (rangePicker) {
-                        if (currentDateFilterAll === 'range') {
-                            rangePicker.style.display = 'flex';
-                            rangePicker.classList.remove('d-none');
-                        } else {
-                            rangePicker.style.display = 'none';
-                            rangePicker.classList.add('d-none');
-                        }
-                    }
-                    // Применяем фильтр
                     applyDateFilter('all');
                 }
             } else {
@@ -3496,14 +3466,14 @@
             // Обновляем кнопки для вкладки "С фаворитом"
             document.querySelectorAll('.date-filter-btn').forEach(btn => {
                 btn.classList.remove('active');
-                if (btn.getAttribute('data-filter') === currentDateFilterFav) {
+                if (btn.getAttribute('data-filter') === currentDateFilter) {
                     btn.classList.add('active');
                 }
             });
             // Обновляем кнопки для вкладки "Все матчи"
             document.querySelectorAll('.date-filter-btn-all').forEach(btn => {
                 btn.classList.remove('active');
-                if (btn.getAttribute('data-filter') === currentDateFilterAll) {
+                if (btn.getAttribute('data-filter') === currentDateFilter) {
                     btn.classList.add('active');
                 }
             });
@@ -3641,16 +3611,7 @@
                     let url = '/api/football/export-excel?admin=true';
                     url += '&match_type=' + encodeURIComponent(activeTab);
                     
-                    // Определяем текущий фильтр по дате в зависимости от активной вкладки
-                    let currentDateFilter, currentDateRange;
-                    if (activeTab === 'fav') {
-                        currentDateFilter = currentDateFilterFav;
-                        currentDateRange = dateRangeFav;
-                    } else {
-                        currentDateFilter = currentDateFilterAll;
-                        currentDateRange = dateRangeAll;
-                    }
-                    
+                    // Используем общий фильтр для обеих вкладок
                     url += '&date_filter=' + encodeURIComponent(currentDateFilter);
                     if (currentDateFilter === 'range' && currentDateRange.from && currentDateRange.to) {
                         url += '&date_from=' + encodeURIComponent(currentDateRange.from);
