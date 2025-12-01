@@ -5624,15 +5624,29 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
+        # Исключаем большие поля: bet_ai_full_response, bet_ai_reason (не используются в шаблоне)
+        # Оставляем stats_60min, так как он используется для tooltip
         if filter_fav:
             cursor.execute("""
-                SELECT * FROM matches
+                SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
+                       match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
+                       status, stats_60min, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
+                       bet_alt_code, bet_alt_odds, bet_alt_confirm,
+                       final_score_home, final_score_away, fav_won, sport_key,
+                       created_at, updated_at
+                FROM matches
                 WHERE fav != 'NONE'
                 ORDER BY match_date DESC, match_time DESC
             """)
         else:
             cursor.execute("""
-                SELECT * FROM matches
+                SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
+                       match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
+                       status, stats_60min, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
+                       bet_alt_code, bet_alt_odds, bet_alt_confirm,
+                       final_score_home, final_score_away, fav_won, sport_key,
+                       created_at, updated_at
+                FROM matches
                 ORDER BY match_date DESC, match_time DESC
             """)
 
