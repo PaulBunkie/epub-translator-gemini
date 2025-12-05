@@ -2746,9 +2746,9 @@ class FootballManager:
 
             # Матчи с фаворитом, еще не обработанные (bet IS NULL)
             # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
-            # Но включаем поля, которые нужны для _collect_60min_stats и _calculate_bet
+            # Но включаем поля, которые нужны для _collect_60min_stats, _calculate_bet, _get_bet_ai_decision, _get_ai_prediction
             cursor.execute("""
-                SELECT id, fixture_id, sofascore_event_id, sport_key, fav, last_odds, home_team, away_team, match_date, match_time, status
+                SELECT id, fixture_id, sofascore_event_id, sport_key, fav, initial_odds, last_odds, home_team, away_team, match_date, match_time, status
                 FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                   AND bet IS NULL
@@ -2851,8 +2851,10 @@ class FootballManager:
             # Проверяем матчи с stats_60min, но без bet_alt_code (для запроса альтернативной ставки)
             # Только для матчей в процессе, не для завершенных!
             # Включаем stats_60min, но исключаем bet_ai_full_response
+            # Но включаем поля, которые нужны для _get_alternative_bet
             cursor.execute("""
-                SELECT id, fixture_id, match_date, match_time, stats_60min, bet_alt_code
+                SELECT id, fixture_id, home_team, away_team, match_date, match_time, stats_60min, bet_alt_code,
+                       live_odds_1, live_odds_x, live_odds_2, bet_ai_odds
                 FROM matches
                 WHERE stats_60min IS NOT NULL
                   AND (bet_alt_code IS NULL OR bet_alt_code = '')
