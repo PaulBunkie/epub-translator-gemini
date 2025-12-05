@@ -2652,8 +2652,9 @@ class FootballManager:
 
             # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
             # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Но включаем fav_team_id, так как он нужен для _collect_final_result
             cursor.execute("""
-                SELECT id, fixture_id, sofascore_event_id, match_date, match_time, status
+                SELECT id, fixture_id, sofascore_event_id, fav_team_id, match_date, match_time, status
                 FROM matches
                 WHERE status = 'in_progress'
                 ORDER BY match_date, match_time
@@ -2745,9 +2746,9 @@ class FootballManager:
 
             # Матчи с фаворитом, еще не обработанные (bet IS NULL)
             # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
-            # Но включаем sofascore_event_id и sport_key, так как они нужны для _collect_60min_stats
+            # Но включаем поля, которые нужны для _collect_60min_stats и _calculate_bet
             cursor.execute("""
-                SELECT id, fixture_id, sofascore_event_id, sport_key, match_date, match_time, status
+                SELECT id, fixture_id, sofascore_event_id, sport_key, fav, last_odds, home_team, away_team, match_date, match_time, status
                 FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                   AND bet IS NULL
@@ -2758,9 +2759,9 @@ class FootballManager:
 
             # Матчи без фаворита, еще не обработанные (bet IS NULL)
             # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
-            # Но включаем sofascore_event_id и sport_key, так как они нужны для _collect_60min_stats_without_fav
+            # Но включаем поля, которые нужны для _collect_60min_stats_without_fav и _get_ai_prediction_without_fav
             cursor.execute("""
-            SELECT id, fixture_id, sofascore_event_id, sport_key, match_date, match_time, status
+            SELECT id, fixture_id, sofascore_event_id, sport_key, home_team, away_team, match_date, match_time, status
                 FROM matches
                 WHERE status IN ('scheduled', 'in_progress')
                   AND bet IS NULL
@@ -3807,7 +3808,7 @@ class FootballManager:
                             cursor = conn.cursor()
                             cursor.execute("""
                                 SELECT id, fixture_id, home_team, away_team, fav, bet_ai, bet_ai_odds, 
-                                       bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm
+                                       bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm, live_odds
                                 FROM matches WHERE id = ?
                             """, (match['id'],))
                             match_for_notification = cursor.fetchone()
@@ -3823,7 +3824,7 @@ class FootballManager:
                         cursor = conn.cursor()
                         cursor.execute("""
                             SELECT id, fixture_id, home_team, away_team, fav, bet_ai, bet_ai_odds, 
-                                   bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm
+                                   bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm, live_odds
                             FROM matches WHERE id = ?
                         """, (match['id'],))
                         match_for_notification = cursor.fetchone()
@@ -4026,46 +4027,47 @@ class FootballManager:
             print(f"[Football] Запрашиваем ИИ-прогноз для матча без фаворита {fixture_id}...")
             bet_ai, bet_ai_reason, bet_recommendation, bet_ai_model_name = self._get_ai_prediction_without_fav(match, stats) 
 
-            # Устанавливаем bet на основе рекомендации
+            # Устанавливаем bet на основе рекомендации (если рекомендация None, ставим 0)
             bet_value = 1 if bet_recommendation else 0
 
-            if bet_ai or bet_ai_reason:
-                # Получаем коэффициент на прогнозированный исход из БД
-                bet_ai_odds = None
-                if bet_ai:
-                    print(f"[Football] Получаем коэффициент для прогноза ИИ '{bet_ai}' для fixture {fixture_id}...")
-                    bet_ai_odds = self._get_ai_prediction_odds(fixture_id, bet_ai)
-                    if bet_ai_odds:
-                        print(f"[Football] Получен коэффициент {bet_ai_odds} для прогноза ИИ '{bet_ai}'")
-                    else:
-                        print(f"[Football] Не удалось получить коэффициент для прогноза ИИ '{bet_ai}'")
-                
-                # Сохраняем результат ИИ в БД
-                conn = get_football_db_connection()
-                cursor = conn.cursor()
-
-                cursor.execute("""
-                    UPDATE matches
-                    SET bet_ai = ?,
-                        bet_ai_reason = ?,
-                        bet_ai_full_response = ?,
-                        bet_ai_model_name = ?,
-                        bet_ai_odds = ?,
-                        bet = ?,
-                        bet_approve = NULL,
-                        bet_approve_reason = NULL,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (bet_ai, bet_ai_reason, bet_ai_reason, bet_ai_model_name, bet_ai_odds, bet_value, match['id']))
-
-                conn.commit()
-                conn.close()
-
-                recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
-                if bet_ai:
-                    print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}, рекомендация: {recommendation_text}, bet: {bet_value}")
+            # Получаем коэффициент на прогнозированный исход из БД (если есть прогноз)
+            bet_ai_odds = None
+            if bet_ai:
+                print(f"[Football] Получаем коэффициент для прогноза ИИ '{bet_ai}' для fixture {fixture_id}...")
+                bet_ai_odds = self._get_ai_prediction_odds(fixture_id, bet_ai)
+                if bet_ai_odds:
+                    print(f"[Football] Получен коэффициент {bet_ai_odds} для прогноза ИИ '{bet_ai}'")
                 else:
-                    print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}, bet: {bet_value}")
+                    print(f"[Football] Не удалось получить коэффициент для прогноза ИИ '{bet_ai}'")
+            
+            # ВСЕГДА сохраняем результат в БД (даже если ИИ не вернул ответ, чтобы bet не оставался NULL)
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE matches
+                SET bet_ai = ?,
+                    bet_ai_reason = ?,
+                    bet_ai_full_response = ?,
+                    bet_ai_model_name = ?,
+                    bet_ai_odds = ?,
+                    bet = ?,
+                    bet_approve = NULL,
+                    bet_approve_reason = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (bet_ai, bet_ai_reason, bet_ai_reason, bet_ai_model_name, bet_ai_odds, bet_value, match['id']))
+
+            conn.commit()
+            conn.close()
+
+            recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
+            if bet_ai:
+                print(f"[Football] ИИ-прогноз сохранен для матча без фаворита {fixture_id}: {bet_ai}, коэффициент: {bet_ai_odds}, рекомендация: {recommendation_text}, bet: {bet_value}")
+            elif bet_ai_reason:
+                print(f"[Football] ИИ-прогноз не распознан, но ответ сохранен для матча без фаворита {fixture_id}, bet: {bet_value}")
+            else:
+                print(f"[Football] ИИ-прогноз не получен для матча без фаворита {fixture_id}, bet установлен в {bet_value}")
                 
                 # Получаем альтернативную ставку ОДИН РАЗ для каждого матча (если есть stats_60min и нет bet_alt_code)
                 if stats:
@@ -4122,7 +4124,7 @@ class FootballManager:
                                         cursor = conn_alt.cursor()
                                         cursor.execute("""
                                             SELECT id, fixture_id, home_team, away_team, fav, bet_ai, bet_ai_odds, 
-                                                   bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm
+                                                   bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm, live_odds
                                             FROM matches WHERE id = ?
                                         """, (match['id'],))
                                         match_for_notification = cursor.fetchone()
@@ -4146,31 +4148,6 @@ class FootballManager:
                                 conn_alt.close()
                             except:
                                 pass
-                
-            else:
-                # Если прогноз не получен, все равно обновляем bet = 0
-                conn_else = None
-                try:
-                    conn_else = get_football_db_connection()
-                    cursor = conn_else.cursor()
-                    cursor.execute("""
-                        UPDATE matches
-                        SET bet = ?,
-                            bet_approve = NULL,
-                            bet_approve_reason = NULL,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (bet_value, match['id']))
-                    conn_else.commit()
-                    print(f"[Football] ИИ-прогноз не получен для матча без фаворита {fixture_id}, установлен bet: {bet_value}")
-                except Exception as e:
-                    print(f"[Football ERROR] Ошибка обновления bet для матча без фаворита {fixture_id}: {e}")
-                finally:
-                    if conn_else:
-                        try:
-                            conn_else.close()
-                        except:
-                            pass
 
         except Exception as e:
             print(f"[Football ERROR] Ошибка сбора статистики 60min для матча без фаворита: {e}")
