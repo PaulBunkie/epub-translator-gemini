@@ -3804,6 +3804,8 @@ class FootballManager:
                             # Если K1 нет, но K60 есть - считаем что условие выполнено
                             k60_greater_than_k1 = True
                         
+                        print(f"[Football Notify] Проверка условий для уведомления (фаворит): bet_ai_odds={db_row['bet_ai_odds']}, live_odds={live_odds}, last_odds={last_odds}, k60_greater_than_k1={k60_greater_than_k1}")
+                        
                         if k60_greater_than_k1:
                             # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
                             conn = get_football_db_connection()
@@ -3821,22 +3823,6 @@ class FootballManager:
                                     self._send_match_notification(match_for_notification, stats)
                                 except Exception as notify_error:
                                     print(f"[Football ERROR] Ошибка отправки уведомления для фаворита: {notify_error}")
-                        # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
-                        conn = get_football_db_connection()
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            SELECT id, fixture_id, home_team, away_team, fav, bet_ai, bet_ai_odds, 
-                                   bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm, live_odds
-                            FROM matches WHERE id = ?
-                        """, (match['id'],))
-                        match_for_notification = cursor.fetchone()
-                        conn.close()
-                        
-                        if match_for_notification:
-                            try:
-                                self._send_match_notification(match_for_notification, stats)
-                            except Exception as notify_error:
-                                print(f"[Football ERROR] Ошибка отправки уведомления для фаворита: {notify_error}")
                 except Exception as fav_check_error:
                     print(f"[Football ERROR] Ошибка проверки условий для уведомления (фаворит): {fav_check_error}")
             
@@ -4120,6 +4106,7 @@ class FootballManager:
                                     print(f"[Football] Альтернативная ставка сохранена для матча без фаворита {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                     
                                     # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
+                                    print(f"[Football Notify] Проверка условий для уведомления (без фаворита): bet_alt_code={bet_alt_code}, bet_alt_odds={bet_alt_odds}, bet_alt_confirm={bet_alt_confirm}")
                                     if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
                                         # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
                                         conn_alt = get_football_db_connection()
