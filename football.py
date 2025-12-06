@@ -5599,13 +5599,13 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
-        # Исключаем большие поля: bet_ai_reason (не используется в шаблоне)
-        # Оставляем stats_60min, так как он используется для tooltip
+        # Исключаем большие поля: bet_ai_reason, stats_60min (не используются в шаблоне напрямую)
+        # stats_60min можно загружать отдельно по требованию для конкретного матча
         if filter_fav:
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
                        match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
-                       status, stats_60min, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
+                       status, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
                        bet_alt_code, bet_alt_odds, bet_alt_confirm,
                        final_score_home, final_score_away, fav_won, sport_key,
                        created_at, updated_at
@@ -5617,7 +5617,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
                        match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
-                       status, stats_60min, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
+                       status, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
                        bet_alt_code, bet_alt_odds, bet_alt_confirm,
                        final_score_home, final_score_away, fav_won, sport_key,
                        created_at, updated_at
