@@ -2879,6 +2879,34 @@ class FootballManager:
                             """, (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason if bet_alt_reason else None, match['id']))
                             conn.commit()
                             print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
+                            
+                            # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
+                            print(f"[Football Notify] Проверка условий для уведомления (альт. ставка, периодическая задача): bet_alt_code={bet_alt_code}, bet_alt_odds={bet_alt_odds}, bet_alt_confirm={bet_alt_confirm}")
+                            if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
+                                # Читаем данные матча из БД для уведомления
+                                conn_notify = get_football_db_connection()
+                                cursor_notify = conn_notify.cursor()
+                                cursor_notify.execute("""
+                                    SELECT id, fixture_id, home_team, away_team, fav, bet_ai, bet_ai_odds, 
+                                           bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm, live_odds
+                                    FROM matches WHERE id = ?
+                                """, (match['id'],))
+                                match_for_notification = cursor_notify.fetchone()
+                                conn_notify.close()
+                                
+                                if match_for_notification:
+                                    try:
+                                        self._send_match_notification(match_for_notification, stats)
+                                        print(f"[Football Notify] ✅ Уведомление отправлено для альтернативной ставки (периодическая задача) {match_for_notification['fixture_id']}")
+                                    except Exception as notify_error:
+                                        print(f"[Football ERROR] Ошибка отправки уведомления для альтернативной ставки (периодическая задача): {notify_error}")
+                            else:
+                                reason = []
+                                if not bet_alt_code: reason.append("нет bet_alt_code")
+                                if not bet_alt_odds: reason.append("нет bet_alt_odds")
+                                elif bet_alt_odds <= 1.75: reason.append(f"bet_alt_odds={bet_alt_odds} <= 1.75")
+                                if bet_alt_confirm != 1: reason.append(f"bet_alt_confirm={bet_alt_confirm} != 1")
+                                print(f"[Football Notify] ❌ Уведомление НЕ отправлено для альтернативной ставки (периодическая задача) {fixture_id}: {', '.join(reason)}")
                         else:
                             print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                     except Exception as e:
@@ -3779,6 +3807,7 @@ class FootballManager:
                     conn.close()
                     
                     # Проверяем условия: bet_ai_odds > 1.50 И K60 > K1
+                    print(f"[Football Notify] Проверка условий для уведомления (фаворит, bet_ai): bet_ai={bet_ai}, bet_ai_odds={bet_ai_odds if bet_ai_odds else 'None'}")
                     if (db_row and db_row['bet_ai'] and db_row['bet_ai_odds'] and db_row['bet_ai_odds'] > 1.50):
                         # Проверяем условие K60 > K1
                         live_odds = db_row['live_odds'] if db_row['live_odds'] is not None else None
@@ -3815,7 +3844,12 @@ class FootballManager:
                         else:
                             print(f"[Football Notify] ❌ Уведомление НЕ отправлено для матча с фаворитом {match['fixture_id']}: условие K60 > K1 не выполнено")
                     else:
-                        print(f"[Football Notify] ❌ Уведомление НЕ отправлено для матча с фаворитом {match['fixture_id']}: bet_ai_odds <= 1.50 или bet_ai отсутствует")
+                        reason = []
+                        if not db_row: reason.append("нет данных в БД")
+                        elif not db_row['bet_ai']: reason.append("нет bet_ai")
+                        elif not db_row['bet_ai_odds']: reason.append("нет bet_ai_odds")
+                        elif db_row['bet_ai_odds'] <= 1.50: reason.append(f"bet_ai_odds={db_row['bet_ai_odds']} <= 1.50")
+                        print(f"[Football Notify] ❌ Уведомление НЕ отправлено для матча с фаворитом {match['fixture_id']}: {', '.join(reason) if reason else 'условия не выполнены'}")
                 except Exception as fav_check_error:
                     print(f"[Football ERROR] Ошибка проверки условий для уведомления (фаворит): {fav_check_error}")
             
