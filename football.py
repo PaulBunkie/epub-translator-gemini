@@ -3873,6 +3873,26 @@ class FootballManager:
                                 conn_alt.close()
                                 conn_alt = None
                                 print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
+                                
+                                # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
+                                if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
+                                    # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
+                                    conn_alt = get_football_db_connection()
+                                    cursor = conn_alt.cursor()
+                                    cursor.execute("""
+                                        SELECT id, fixture_id, home_team, away_team, fav, bet_ai, bet_ai_odds, 
+                                               bet_ai_reason, bet_alt_code, bet_alt_odds, bet_alt_confirm, live_odds
+                                        FROM matches WHERE id = ?
+                                    """, (match['id'],))
+                                    match_for_notification = cursor.fetchone()
+                                    conn_alt.close()
+                                    conn_alt = None
+                                    
+                                    if match_for_notification:
+                                        try:
+                                            self._send_match_notification(match_for_notification, stats)
+                                        except Exception as notify_error:
+                                            print(f"[Football ERROR] Ошибка отправки уведомления для альтернативной ставки (фаворит): {notify_error}")
                             else:
                                 print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                 except Exception as alt_error:
