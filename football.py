@@ -288,17 +288,6 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'bet_ai_reason' already exists.")
         
-        # --- Проверка и добавление поля bet_ai_full_response ---
-        cursor.execute("PRAGMA table_info(matches)")
-        columns = [row[1] for row in cursor.fetchall()]
-        if 'bet_ai_full_response' not in columns:
-            print("[FootballDB] Adding 'bet_ai_full_response' column to 'matches' table...")
-            cursor.execute("ALTER TABLE matches ADD COLUMN bet_ai_full_response TEXT")
-            conn.commit()
-            print("[FootballDB] Column 'bet_ai_full_response' added successfully.")
-        else:
-            print("[FootballDB] Column 'bet_ai_full_response' already exists.")
-        
         # --- Проверка и добавление поля bet_ai_model_name ---
         cursor.execute("PRAGMA table_info(matches)")
         columns = [row[1] for row in cursor.fetchall()]
@@ -1692,7 +1681,7 @@ class FootballManager:
                     stats['dates_processed'] += 1
                     
                     # Получаем все матчи на эту дату без sofascore_event_id
-                    # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+                    # Исключаем большие поля: bet_ai_reason, stats_60min
                     cursor.execute("""
                         SELECT id, fixture_id, home_team, away_team, match_date, match_time, sofascore_event_id, status
                         FROM matches 
@@ -2599,7 +2588,7 @@ class FootballManager:
             cursor = conn.cursor()
 
             # ===== ЧАСТЬ 1.5: Обновление live_odds для уже обработанных матчей без live_odds =====
-            # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Исключаем большие поля: bet_ai_reason, stats_60min
             cursor.execute("""
                 SELECT id, fixture_id, match_date, match_time, sport_key
                 FROM matches
@@ -2651,7 +2640,7 @@ class FootballManager:
             #     print(traceback.format_exc())
 
             # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
-            # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Исключаем большие поля: bet_ai_reason, stats_60min
             # Но включаем fav_team_id, так как он нужен для _collect_final_result
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, fav_team_id, match_date, match_time, status
@@ -2745,7 +2734,7 @@ class FootballManager:
             cursor = conn.cursor()
 
             # Матчи с фаворитом, еще не обработанные (bet IS NULL)
-            # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Исключаем большие поля: bet_ai_reason, stats_60min
             # Но включаем поля, которые нужны для _collect_60min_stats, _calculate_bet, _get_bet_ai_decision, _get_ai_prediction
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, sport_key, fav, initial_odds, last_odds, home_team, away_team, match_date, match_time, status
@@ -2758,7 +2747,7 @@ class FootballManager:
             matches_with_fav = cursor.fetchall()
 
             # Матчи без фаворита, еще не обработанные (bet IS NULL)
-            # Исключаем большие поля: bet_ai_full_response, bet_ai_reason, stats_60min
+            # Исключаем большие поля: bet_ai_reason, stats_60min
             # Но включаем поля, которые нужны для _collect_60min_stats_without_fav и _get_ai_prediction_without_fav
             cursor.execute("""
             SELECT id, fixture_id, sofascore_event_id, sport_key, home_team, away_team, match_date, match_time, status
@@ -2850,7 +2839,7 @@ class FootballManager:
 
             # Проверяем матчи с stats_60min, но без bet_alt_code (для запроса альтернативной ставки)
             # Только для матчей в процессе, не для завершенных!
-            # Включаем stats_60min, но исключаем bet_ai_full_response
+            # Включаем stats_60min
             # Но включаем поля, которые нужны для _get_alternative_bet
             cursor.execute("""
                 SELECT id, fixture_id, home_team, away_team, match_date, match_time, stats_60min, bet_alt_code,
@@ -3766,12 +3755,11 @@ class FootballManager:
                     UPDATE matches
                     SET bet_ai = ?,
                         bet_ai_reason = ?,
-                        bet_ai_full_response = ?,
                         bet_ai_model_name = ?,
                         bet_ai_odds = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
-                """, (bet_ai, bet_ai_reason, bet_ai_reason, bet_ai_model_name, bet_ai_odds, match['id']))
+                """, (bet_ai, bet_ai_reason, bet_ai_model_name, bet_ai_odds, match['id']))
 
                 conn.commit()
                 conn.close()
@@ -3807,7 +3795,7 @@ class FootballManager:
                         print(f"[Football Notify] Проверка условий для уведомления (фаворит): bet_ai_odds={db_row['bet_ai_odds']}, live_odds={live_odds}, last_odds={last_odds}, k60_greater_than_k1={k60_greater_than_k1}")
                         
                         if k60_greater_than_k1:
-                            # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
+                            # Читаем данные матча из БД для уведомления
                             conn = get_football_db_connection()
                             cursor = conn.cursor()
                             cursor.execute("""
@@ -3840,7 +3828,7 @@ class FootballManager:
                     
                     if db_row and not db_row['bet_alt_code']:
                         print(f"[Football] Запрашиваем альтернативную ставку для fixture {fixture_id} (есть stats_60min, нет bet_alt_code)")
-                        # Получаем актуальные данные матча из БД для альтернативной ставки (исключаем bet_ai_full_response)
+                        # Получаем актуальные данные матча из БД для альтернативной ставки
                         conn_alt = get_football_db_connection()
                         cursor = conn_alt.cursor()
                         cursor.execute("""
@@ -3876,7 +3864,7 @@ class FootballManager:
                                 
                                 # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
                                 if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
-                                    # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
+                                    # Читаем данные матча из БД для уведомления
                                     conn_alt = get_football_db_connection()
                                     cursor = conn_alt.cursor()
                                     cursor.execute("""
@@ -4056,7 +4044,6 @@ class FootballManager:
                 UPDATE matches
                 SET bet_ai = ?,
                     bet_ai_reason = ?,
-                    bet_ai_full_response = ?,
                     bet_ai_model_name = ?,
                     bet_ai_odds = ?,
                     bet = ?,
@@ -4064,7 +4051,7 @@ class FootballManager:
                     bet_approve_reason = NULL,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            """, (bet_ai, bet_ai_reason, bet_ai_reason, bet_ai_model_name, bet_ai_odds, bet_value, match['id']))
+            """, (bet_ai, bet_ai_reason, bet_ai_model_name, bet_ai_odds, bet_value, match['id']))
 
             conn.commit()
             conn.close()
@@ -4091,7 +4078,7 @@ class FootballManager:
                         
                         if db_row and not db_row['bet_alt_code']:
                             print(f"[Football] Запрашиваем альтернативную ставку для матча без фаворита {fixture_id} (есть stats_60min, нет bet_alt_code)")
-                            # Получаем актуальные данные матча из БД для альтернативной ставки (исключаем bet_ai_full_response)
+                            # Получаем актуальные данные матча из БД для альтернативной ставки
                             conn_alt = get_football_db_connection()
                             cursor = conn_alt.cursor()
                             cursor.execute("""
@@ -4128,7 +4115,7 @@ class FootballManager:
                                     # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
                                     print(f"[Football Notify] Проверка условий для уведомления (без фаворита): bet_alt_code={bet_alt_code}, bet_alt_odds={bet_alt_odds}, bet_alt_confirm={bet_alt_confirm}")
                                     if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
-                                        # Читаем данные матча из БД для уведомления (исключаем bet_ai_full_response)
+                                        # Читаем данные матча из БД для уведомления
                                         conn_alt = get_football_db_connection()
                                         cursor = conn_alt.cursor()
                                         cursor.execute("""
@@ -4359,7 +4346,7 @@ X2 ИГНОРИРУЕМ
             # Парсим статистику
             stats = json.loads(stats_json) if isinstance(stats_json, str) else stats_json
             
-            # Получаем информацию о матче из БД (исключаем bet_ai_full_response)
+            # Получаем информацию о матче из БД
             conn = get_football_db_connection()
             cursor = conn.cursor()
             cursor.execute("""
@@ -5612,7 +5599,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
-        # Исключаем большие поля: bet_ai_full_response, bet_ai_reason (не используются в шаблоне)
+        # Исключаем большие поля: bet_ai_reason (не используется в шаблоне)
         # Оставляем stats_60min, так как он используется для tooltip
         if filter_fav:
             cursor.execute("""
