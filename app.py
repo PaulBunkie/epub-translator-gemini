@@ -2353,6 +2353,49 @@ def api_get_all_football_matches():
         print(f"[Football API] Ошибка получения всех матчей: {e}")
         return jsonify({'error': f'Ошибка получения всех матчей: {str(e)}'}), 500
 
+@app.route('/api/football/match-stats', methods=['GET'])
+def api_get_match_stats():
+    """API эндпойнт для получения stats_60min и счета в перерыве для конкретного матча."""
+    try:
+        fixture_id = request.args.get('fixture_id')
+        if not fixture_id:
+            return jsonify({'error': 'Не указан fixture_id'}), 400
+        
+        from football import get_football_db_connection
+        import json
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT stats_60min FROM matches WHERE fixture_id = ?", (fixture_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        stats_60min = None
+        halftime_score = None
+        
+        if row and row['stats_60min']:
+            stats_60min = row['stats_60min']
+            # Извлекаем счет из статистики
+            try:
+                stats = json.loads(stats_60min) if isinstance(stats_60min, str) else stats_60min
+                if stats and 'score' in stats:
+                    halftime_score = {
+                        'home': stats['score'].get('home', 0),
+                        'away': stats['score'].get('away', 0)
+                    }
+            except Exception:
+                pass
+        
+        return jsonify({
+            'success': True,
+            'stats_60min': stats_60min,
+            'halftime_score': halftime_score
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка получения статистики матча: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Ошибка получения статистики: {str(e)}'}), 500
+
 @app.route('/api/football/limits', methods=['GET'])
 def api_get_football_limits():
     """API эндпойнт для получения лимитов API."""

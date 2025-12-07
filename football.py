@@ -5658,6 +5658,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
 
         # Исключаем большие поля: bet_ai_reason, stats_60min (не используются в шаблоне напрямую)
         # stats_60min можно загружать отдельно по требованию для конкретного матча
+        # Добавляем флаг has_stats_60min для проверки наличия статистики без загрузки содержимого
         if filter_fav:
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
@@ -5665,6 +5666,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
                        status, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
                        bet_alt_code, bet_alt_odds, bet_alt_confirm,
                        final_score_home, final_score_away, fav_won, sport_key,
+                       CASE WHEN stats_60min IS NOT NULL AND stats_60min != '' THEN 1 ELSE 0 END AS has_stats_60min,
                        created_at, updated_at
                 FROM matches
                 WHERE fav != 'NONE'
@@ -5677,6 +5679,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
                        status, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
                        bet_alt_code, bet_alt_odds, bet_alt_confirm,
                        final_score_home, final_score_away, fav_won, sport_key,
+                       CASE WHEN stats_60min IS NOT NULL AND stats_60min != '' THEN 1 ELSE 0 END AS has_stats_60min,
                        created_at, updated_at
                 FROM matches
                 ORDER BY match_date DESC, match_time DESC

@@ -2548,7 +2548,9 @@
                     }
                 }
                 
-                const statsFormatted = formatStats(match.stats_60min);
+                // Формируем содержимое для tooltip (если есть stats_60min в match, форматируем сразу)
+                const statsFormatted = match.stats_60min ? formatStats(match.stats_60min) : null;
+                const hasStats = match.has_stats_60min === 1;
                 
                 // Формируем содержимое для колонки Прогноза ИИ (с подсветкой результата)
                 let betAICell = '-';
@@ -2588,17 +2590,29 @@
                         betAIInner = `${betAIContent} <small class="odds">(${formattedBetAiOdds})</small>`;
                     }
                     
-                    const clickableContent = `<span class="bet-ai-clickable" data-match-type="fav" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIInner}</span>`;
-                    
-                    if (statsFormatted) {
-                        betAICell = `
-                            <span class="stats-tooltip" data-tooltip-position="">
-                                ${clickableContent}
-                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
-                            </span>
-                        `;
+                    // Показываем ссылку на анализ риска только если есть статистика (проверяем через has_stats_60min)
+                    if (hasStats) {
+                        const clickableContent = `<span class="bet-ai-clickable" data-match-type="fav" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIInner}</span>`;
+                        if (statsFormatted) {
+                            // Статистика уже загружена - показываем tooltip сразу
+                            betAICell = `
+                                <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}" data-stats-loaded="true">
+                                    ${clickableContent}
+                                    <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                                </span>
+                            `;
+                        } else {
+                            // Статистика есть, но не загружена - загрузим при наведении
+                            betAICell = `
+                                <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}" data-stats-loaded="false">
+                                    ${clickableContent}
+                                    <span class="tooltip-content">Загрузка статистики...</span>
+                                </span>
+                            `;
+                        }
                     } else {
-                        betAICell = clickableContent;
+                        // Нет статистики - просто показываем прогноз без ссылки
+                        betAICell = betAIInner;
                     }
                 }
                 
@@ -2612,7 +2626,7 @@
                     if (hasLiveOdds) {
                         // Есть и коэффициент, и статистика
                         k60Cell = `
-                            <span class="stats-tooltip" data-tooltip-position="">
+                            <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}">
                                 <span class="odds">${formattedLiveOdds}</span>
                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
                             </span>
@@ -2620,22 +2634,31 @@
                     } else {
                         // Нет коэффициента, но есть статистика - показываем иконку информации
                         k60Cell = `
-                            <span class="stats-tooltip" data-tooltip-position="">
+                            <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}">
                                 <i class="fas fa-info-circle info-icon"></i>
                                 <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
                             </span>
                         `;
                     }
                 } else {
-                    // Нет статистики - просто показываем коэффициент или "-"
-                    k60Cell = `<span class="odds">${formattedLiveOdds}</span>`;
+                    // Нет статистики - загружаем при наведении через API
+                    if (hasLiveOdds) {
+                        k60Cell = `
+                            <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}" data-stats-loaded="false">
+                                <span class="odds">${formattedLiveOdds}</span>
+                                <span class="tooltip-content">Загрузка статистики...</span>
+                            </span>
+                        `;
+                    } else {
+                        k60Cell = `<span class="odds">${formattedLiveOdds}</span>`;
+                    }
                 }
                 
                 // Конвертируем UTC время в локальное время браузера
                 const localDateTime = convertUTCToLocal(match.match_date, match.match_time);
                  
                 const addSelectedClass = selectedParlayFixtures.has(String(match.fixture_id)) ? ' text-success' : '';
-                const hasStatsForParlay = !!(match.stats_60min && String(match.stats_60min).trim().length > 0);
+                const hasStatsForParlay = match.has_stats_60min === 1;
                 const plusCellHtml = hasStatsForParlay
                     ? `<span class="add-to-parlay${addSelectedClass}" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span>`
                     : '';
@@ -2795,7 +2818,9 @@
                 
                 // Формируем ячейку прогноза ИИ с tooltip и подсветкой
                 let betAICell = '';
-                const statsFormatted = formatStats(match.stats_60min);
+                // Формируем содержимое для tooltip (если есть stats_60min в match, форматируем сразу)
+                const statsFormatted = match.stats_60min ? formatStats(match.stats_60min) : null;
+                const hasStats = match.has_stats_60min === 1;
                 const hasBetAI = match.bet_ai && match.bet_ai !== null && match.bet_ai !== undefined;
                 
                 // Определяем фактический результат для подсветки
@@ -2839,20 +2864,29 @@
                 if (hasBetAI) {
                     const betAIContent = betAIClass ? `<span class="${betAIClass}">${match.bet_ai}</span>` : match.bet_ai;
                     
-                    // Делаем прогноз кликабельным для анализа риска
-                    const betAIWithClick = `<span class="bet-ai-clickable" data-match-type="all" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIContent}</span>`;
-                    
-                    if (statsFormatted) {
-                        // Есть статистика - показываем tooltip
-                        betAICell = `
-                            <span class="stats-tooltip" data-tooltip-position="">
-                                ${betAIWithClick}
-                                <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
-                            </span>
-                        `;
+                    // Показываем ссылку на анализ риска только если есть статистика (проверяем через has_stats_60min)
+                    if (hasStats) {
+                        const betAIWithClick = `<span class="bet-ai-clickable" data-match-type="all" data-match-index="${index}" style="cursor: pointer;" title="Нажмите для анализа риска">${betAIContent}</span>`;
+                        if (statsFormatted) {
+                            // Статистика уже загружена - показываем tooltip сразу
+                            betAICell = `
+                                <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}" data-stats-loaded="true">
+                                    ${betAIWithClick}
+                                    <span class="tooltip-content">${statsFormatted.replace(/\n/g, '<br>')}</span>
+                                </span>
+                            `;
+                        } else {
+                            // Статистика есть, но не загружена - загрузим при наведении
+                            betAICell = `
+                                <span class="stats-tooltip" data-tooltip-position="" data-fixture-id="${match.fixture_id}" data-stats-loaded="false">
+                                    ${betAIWithClick}
+                                    <span class="tooltip-content">Загрузка статистики...</span>
+                                </span>
+                            `;
+                        }
                     } else {
-                        // Нет статистики - просто показываем прогноз
-                        betAICell = betAIWithClick;
+                        // Нет статистики - просто показываем прогноз без ссылки
+                        betAICell = betAIContent;
                     }
                 } else {
                     betAICell = '-';
@@ -2862,7 +2896,7 @@
                 const localDateTime = convertUTCToLocal(match.match_date, match.match_time);
                 
                 const addSelectedClassAll = selectedParlayFixtures.has(String(match.fixture_id)) ? ' text-success' : '';
-                const hasStatsForParlayAll = !!(match.stats_60min && String(match.stats_60min).trim().length > 0);
+                const hasStatsForParlayAll = match.has_stats_60min === 1;
                 const plusCellHtmlAll = hasStatsForParlayAll
                     ? `<span class="add-to-parlay${addSelectedClassAll}" data-fixture-id="${match.fixture_id}" title="Добавить в экспресс" style="cursor:pointer;"><i class="fas fa-plus-circle"></i></span>`
                     : '';
@@ -3064,12 +3098,33 @@
                 
                 if (matchesArray && matchIndex >= 0 && matchIndex < matchesArray.length) {
                     const match = matchesArray[matchIndex];
-                    if (match && match.fixture_id && match.bet_ai && match.bet_ai_odds && match.stats_60min) {
-                        // Преобразуем stats_60min в JSON строку, если это объект
-                        const statsJson = typeof match.stats_60min === 'string' 
-                            ? match.stats_60min 
-                            : JSON.stringify(match.stats_60min);
-                        showRiskAnalysis(match.fixture_id, match.bet_ai, parseFloat(match.bet_ai_odds), statsJson);
+                    if (match && match.fixture_id && match.bet_ai && match.bet_ai_odds) {
+                        // Загружаем stats_60min отдельно, если его нет в match
+                        if (match.stats_60min) {
+                            const statsJson = typeof match.stats_60min === 'string' 
+                                ? match.stats_60min 
+                                : JSON.stringify(match.stats_60min);
+                            showRiskAnalysis(match.fixture_id, match.bet_ai, parseFloat(match.bet_ai_odds), statsJson);
+                        } else {
+                            // Загружаем stats_60min из API
+                            fetch(`/api/football/match-stats?fixture_id=${match.fixture_id}`)
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.success && data.stats_60min) {
+                                        const statsJson = typeof data.stats_60min === 'string' 
+                                            ? data.stats_60min 
+                                            : JSON.stringify(data.stats_60min);
+                                        showRiskAnalysis(match.fixture_id, match.bet_ai, parseFloat(match.bet_ai_odds), statsJson);
+                                    } else {
+                                        // Если статистики нет - не показываем анализ
+                                        alert('Статистика недоступна для анализа риска');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Ошибка загрузки статистики:', error);
+                                    alert('Ошибка загрузки статистики для анализа риска');
+                                });
+                        }
                     }
                 }
             });
@@ -3328,16 +3383,47 @@
                  const tooltipContent = tooltip.querySelector('.tooltip-content');
                  if (!tooltipContent) return;
                  
-                 // Добавляем обработчик для динамического определения позиции при наведении
-                 tooltip.addEventListener('mouseenter', function(e) {
-                     updateTooltipPosition(this);
-                 });
-                 
-                 // Обновляем позицию при движении мыши, если tooltip видим
-                 let isTooltipVisible = false;
-                 tooltip.addEventListener('mouseenter', function() {
-                     isTooltipVisible = true;
-                 });
+                // Добавляем обработчик для динамического определения позиции при наведении и загрузки статистики
+                tooltip.addEventListener('mouseenter', function(e) {
+                    updateTooltipPosition(this);
+                    
+                    // Загружаем статистику через API, если она не загружена
+                    const fixtureId = this.getAttribute('data-fixture-id');
+                    const statsLoaded = this.getAttribute('data-stats-loaded');
+                    const tooltipContent = this.querySelector('.tooltip-content');
+                    
+                    if (fixtureId && statsLoaded === 'false' && tooltipContent && tooltipContent.textContent === 'Загрузка статистики...') {
+                        this.setAttribute('data-stats-loaded', 'loading');
+                        fetch(`/api/football/match-stats?fixture_id=${fixtureId}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success && data.stats_60min) {
+                                    const statsFormatted = formatStats(data.stats_60min);
+                                    if (statsFormatted) {
+                                        tooltipContent.innerHTML = statsFormatted.replace(/\n/g, '<br>');
+                                        this.setAttribute('data-stats-loaded', 'true');
+                                    } else {
+                                        tooltipContent.textContent = 'Статистика недоступна';
+                                        this.setAttribute('data-stats-loaded', 'true');
+                                    }
+                                } else {
+                                    tooltipContent.textContent = 'Статистика недоступна';
+                                    this.setAttribute('data-stats-loaded', 'true');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Ошибка загрузки статистики для tooltip:', error);
+                                tooltipContent.textContent = 'Ошибка загрузки статистики';
+                                this.setAttribute('data-stats-loaded', 'true');
+                            });
+                    }
+                });
+                
+                // Обновляем позицию при движении мыши, если tooltip видим
+                let isTooltipVisible = false;
+                tooltip.addEventListener('mouseenter', function() {
+                    isTooltipVisible = true;
+                });
                  tooltip.addEventListener('mouseleave', function() {
                      isTooltipVisible = false;
                  });
