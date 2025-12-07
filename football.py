@@ -1845,11 +1845,6 @@ class FootballManager:
                         print(f"[Football] Ошибка парсинга времени матча: {e}")     
                         continue
 
-                    # Пропускаем матчи в прошлом
-                    if match_dt < now:
-                        stats['skipped_past'] += 1
-                        continue
-
                     # Извлекаем коэффициенты 1, X, 2 для всех матчей
                     odds_1_x_2 = self._extract_odds_1_x_2(match_data)
                     
@@ -1858,6 +1853,12 @@ class FootballManager:
                     
                     # Проверяем, существует ли матч в БД
                     match_exists = self._match_exists(fixture_id)
+                    
+                    # Пропускаем матчи в прошлом ТОЛЬКО если они уже существуют в БД
+                    # Новые матчи добавляем независимо от времени (могут быть идущие матчи, которые еще не были добавлены)
+                    if match_exists and match_dt < now:
+                        stats['skipped_past'] += 1
+                        continue
                     
                     # Определяем, есть ли фаворит с кэфом <= 1.30
                     has_favorite = fav_info is not None and fav_info['odds'] <= 1.50
