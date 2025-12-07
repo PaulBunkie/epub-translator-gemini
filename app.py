@@ -189,12 +189,12 @@ if True:  # is_fly_io:
     scheduler.add_job(
         football.collect_tomorrow_matches_task,
         trigger='interval',
-        days=3,  # Каждые 3 дня
+        days=1,  # Каждый день
         id='collect_football_matches_job',
         replace_existing=True,
-        misfire_grace_time=4320  # 3 дня grace time (в минутах)
+        misfire_grace_time=1440  # 1 день grace time (в минутах)
     )
-    print("[Scheduler] ✅ Задание 'collect_football_matches_job' добавлено (сбор матчей каждые 3 дня)")
+    print("[Scheduler] ✅ Задание 'collect_football_matches_job' добавлено (сбор матчей каждый день)")
 
     scheduler.add_job(
         football.check_matches_60min_task,
