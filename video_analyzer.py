@@ -24,6 +24,7 @@ class VideoAnalyzer:
         # Модели для анализа из конфигурации
         self.primary_model = get_model_for_operation('video_analyze', 'primary')
         self.fallback_model = get_model_for_operation('video_analyze', 'fallback_level1')
+        self.fallback_model2 = get_model_for_operation('video_analyze', 'fallback_level2')
         
         # Модели для перевода заголовков
         self.title_translate_primary = get_model_for_operation('title_translate', 'primary')
@@ -487,8 +488,10 @@ class VideoAnalyzer:
                 "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
             }
             
-            # Список моделей для попыток (основная + резервная)
-            models_to_try = [self.primary_model, self.fallback_model]
+            # Список моделей для попыток (основная + две резервные)
+            models_to_try = [self.primary_model, self.fallback_model, self.fallback_model2]
+            # Фильтруем None значения на случай, если какая-то модель не настроена
+            models_to_try = [m for m in models_to_try if m]
             
             for model in models_to_try:
                 print(f"[VideoAnalyzer] Пробуем модель: {model}")
@@ -540,9 +543,9 @@ class VideoAnalyzer:
                                 error_details = response.json()
                                 print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
                                 
-                                # Если это ошибка 503 "No instances available", сразу переходим к следующей модели
-                                if response.status_code == 503 and "No instances available" in str(error_details):
-                                    print(f"[VideoAnalyzer] Модель {model} недоступна (503), переходим к следующей")
+                                # Если это ошибка 404 (модель не найдена) или 503 (No instances available), сразу переходим к следующей модели
+                                if response.status_code == 404 or (response.status_code == 503 and "No instances available" in str(error_details)):
+                                    print(f"[VideoAnalyzer] Модель {model} недоступна ({response.status_code}), переходим к следующей")
                                     break  # Выходим из цикла max_tokens и переходим к следующей модели
                                     
                             except:
@@ -712,8 +715,10 @@ class VideoAnalyzer:
                 "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
             }
             
-            # Список моделей для попыток (основная + резервная)
-            models_to_try = [self.primary_model, self.fallback_model]
+            # Список моделей для попыток (основная + две резервные)
+            models_to_try = [self.primary_model, self.fallback_model, self.fallback_model2]
+            # Фильтруем None значения на случай, если какая-то модель не настроена
+            models_to_try = [m for m in models_to_try if m]
             
             for model in models_to_try:
                 print(f"[VideoAnalyzer] Генерируем краткую версию с моделью: {model}")
