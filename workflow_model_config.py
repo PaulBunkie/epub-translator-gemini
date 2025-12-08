@@ -10,14 +10,14 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'amazon/nova-2-lite-v1:free'
     },
     'translate': {
-        'primary': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level1': 'microsoft/mai-ds-r1:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'amazon/nova-2-lite-v1:free'
     },
     'reduce': {
         'primary': 'meta-llama/llama-3.1-405b-instruct:free',
@@ -25,35 +25,35 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
-        'primary': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level1': 'microsoft/mai-ds-r1:free',
+        'primary': 'amazon/nova-2-lite-v1:free',
+        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'video_analyze': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'amazon/nova-2-lite-v1:free',
+        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'video_chat': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
+        'primary': 'amazon/nova-2-lite-v1:free',
+        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'title_translate': {
-        'primary': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level1': 'microsoft/mai-ds-r1:free',
-        'fallback_level2': 'google/gemma-3-27b-it:free'
+        'primary': 'amazon/nova-2-lite-v1:free',
+        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'football_predict': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'amazon/nova-2-lite-v1:free',
         'fallback_level3': 'openai/gpt-5.1'
     },
     'bet_risk_analysis': {
-        'primary': 'microsoft/mai-ds-r1:free',
-        'fallback_level1': 'deepseek/deepseek-chat-v3-0324:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'amazon/nova-2-lite-v1:free',
         'fallback_level3': 'openai/gpt-5.1'
     }
 }
