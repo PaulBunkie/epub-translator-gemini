@@ -3663,6 +3663,19 @@ class FootballManager:
         """
         try:
             fixture_id = match['fixture_id']
+            
+            # ЗАЩИТА: Проверяем, не обработан ли уже этот матч (bet IS NOT NULL)
+            # Это предотвращает повторную обработку и перезапись bet_ai
+            conn_check = get_football_db_connection()
+            cursor_check = conn_check.cursor()
+            cursor_check.execute("SELECT bet, bet_ai FROM matches WHERE id = ?", (match['id'],))
+            check_row = cursor_check.fetchone()
+            conn_check.close()
+            
+            if check_row and check_row['bet'] is not None:
+                print(f"[Football] Матч {fixture_id} уже обработан (bet={check_row['bet']}, bet_ai={check_row['bet_ai']}), пропускаем повторную обработку")
+                return
+            
             sofascore_event_id = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() else None
 
             if not sofascore_event_id:
@@ -4997,10 +5010,11 @@ X2 ИГНОРИРУЕМ
                 bet_ai_odds = match['bet_ai_odds'] if 'bet_ai_odds' in match.keys() else None
                 live_odds = match['live_odds'] if 'live_odds' in match.keys() else None
                 
+                # Проверяем, что bet_ai существует и не пустой
                 if not bet_ai:
-                    print(f"[Football Notify] skip: bet_ai is NULL for fixture {match['fixture_id']}")
                     return False
                 
+                # ВАЖНО: Для матчей с фаворитом показываем ТОЛЬКО bet_ai, НЕ bet_alt_code
                 message = f"""
 ⚽ <b>Футбольная аналитика - уведомление</b>
 
