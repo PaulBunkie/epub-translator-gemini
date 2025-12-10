@@ -15,9 +15,9 @@ MODEL_CONFIG = {
         'fallback_level2': 'amazon/nova-2-lite-v1:free'
     },
     'translate': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
+        'primary': 'models/gemini-3-pro-preview',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'amazon/nova-2-lite-v1:free'
+        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
     },
     'reduce': {
         'primary': 'meta-llama/llama-3.1-405b-instruct:free',
@@ -25,7 +25,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
-        'primary': 'amazon/nova-2-lite-v1:free',
+        'primary': 'models/gemini-flash-latest',
         'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
