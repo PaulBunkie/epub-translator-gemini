@@ -719,7 +719,7 @@ class WorkflowTranslator:
 
             # Добавляем max_tokens только для перевода
             if operation_type == 'translate':
-                data["max_tokens"] = final_output_token_limit
+                data["max_tokens"] = final_output_token_limit-5000 # Оставляем 5000 токенов для буфера
 
             current_delay = retry_delay_seconds
             for attempt in range(max_retries):
