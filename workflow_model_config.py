@@ -15,7 +15,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'models/gemini-3-pro-preview'
     },
     'translate': {
-        'primary': 'tngtech/deepseek-r1t-chimera:free',
+        'primary': 'nex-agi/deepseek-v3.1-nex-n1:free', #'tngtech/deepseek-r1t-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'models/gemini-3-pro-preview'
     },
