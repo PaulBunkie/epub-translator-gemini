@@ -5,14 +5,14 @@
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'qwen/qwen-2.5-72b-instruct:free',
-        'fallback_level1': 'amazon/nova-2-lite-v1:free',
-        'fallback_level2': 'google/gemma-3-27b-it:free'
+        'primary': 'amazon/nova-2-lite-v1:free',
+        'fallback_level1': 'google/gemma-3-27b-it:free',
+        'fallback_level2': 'meta-llama/llama-3.3-70b-instruct:free'
     },
     'analyze': {
-        'primary': 'models/gemini-3-pro-preview',
+        'primary': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
+        'fallback_level2': 'models/gemini-3-pro-preview'
     },
     'translate': {
         'primary': 'tngtech/deepseek-r1t-chimera:free',
