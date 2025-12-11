@@ -25,9 +25,9 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
-        'primary': 'models/gemini-flash-latest',
-        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'models/gemini-flash-latest'
     },
     'video_analyze': {
         'primary': 'amazon/nova-2-lite-v1:free',
