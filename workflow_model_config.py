@@ -5,7 +5,7 @@
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'amazon/nova-2-lite-v1:free',
+        'primary': 'xiaomi/mimo-v2-flash:free',
         'fallback_level1': 'google/gemma-3-27b-it:free',
         'fallback_level2': 'meta-llama/llama-3.3-70b-instruct:free'
     },
@@ -30,17 +30,17 @@ MODEL_CONFIG = {
         'fallback_level2': 'models/gemini-flash-latest'
     },
     'video_analyze': {
-        'primary': 'amazon/nova-2-lite-v1:free',
+        'primary': 'xiaomi/mimo-v2-flash:free',
         'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'video_chat': {
-        'primary': 'amazon/nova-2-lite-v1:free',
+        'primary': 'xiaomi/mimo-v2-flash:free',
         'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'title_translate': {
-        'primary': 'amazon/nova-2-lite-v1:free',
+        'primary': 'xiaomi/mimo-v2-flash:free',
         'fallback_level1': 'tngtech/tng-r1t-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
