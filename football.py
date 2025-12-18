@@ -137,7 +137,7 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
     "soccer_africa_cup_of_nations",
     "soccer_england_efl_cup",
     "soccer_fifa_world_cup",
-    "soccer_uefa_champs_league_women",
+    "soccer_uefa_champs_league_women"
 
 ]
 
@@ -196,7 +196,7 @@ DEFAULT_FOOTBALL_LEAGUES = [
     "soccer_africa_cup_of_nations",
     "soccer_england_efl_cup",
     "soccer_fifa_world_cup",
-    "soccer_uefa_champs_league_women",
+    "soccer_uefa_champs_league_women"
 ]
 
 # Глобальный экземпляр менеджера
