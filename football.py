@@ -133,6 +133,12 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
     
     # --- Океания ---
     "soccer_australia_aleague",      # A-League (Австралия)
+
+    "soccer_africa_cup_of_nations",
+    "soccer_england_efl_cup",
+    "soccer_fifa_world_cup",
+    "soccer_uefa_champs_league_women",
+
 ]
 
 # Список лиг для сбора матчей (можно переопределить через FOOTBALL_LEAGUES в .env)
@@ -186,6 +192,11 @@ DEFAULT_FOOTBALL_LEAGUES = [
     # "soccer_korea_kleague1",         # K League 1 (Корея)
     # "soccer_china_superleague",      # Суперлига (Китай)
     # "soccer_australia_aleague",      # A-League (Австралия)
+
+    "soccer_africa_cup_of_nations",
+    "soccer_england_efl_cup",
+    "soccer_fifa_world_cup",
+    "soccer_uefa_champs_league_women",
 ]
 
 # Глобальный экземпляр менеджера
