@@ -65,7 +65,7 @@ class VideoAnalyzer:
             'cookie': f'yandex_csyr={yandex_csyr}; Session_id={self.session_id}',
         }
         
-        # Для тестирования
+        # Для тестирования (ЧОТ Я НЕ ПОНЯЛ, А САМ SESSION_ID НЕЛЬЗЯ ИЗВЛЕЧЬ? НА ХУЯ МЫ ЕГО ХРАНИМ В ПЕРЕМЕННОЙ? ИЛИ НАДО И CSYR ХРАНИТЬ ВЫДРАННЫЙ ИЗ КУКОВ! ИЛИ ДОЛБИТЬСЯ С АВТОРИЗАЦИЕЙ И ВЫТАСКИВАТЬ ВСЁ ИЗ КУКОВ!)
         yandex_csyr = "1743368049"        
     
     def get_sharing_url_official(self, video_url: str) -> Optional[str]:
