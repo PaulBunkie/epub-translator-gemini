@@ -89,6 +89,12 @@ The result must retain as much information as possible in half the length. Bulle
 
 Your response must consist of TWO SEPARATE MARKDOWN TABLES, one after the other, without any additional commentary.
 
+CRITICAL — OUTPUT FORMAT ONLY:
+- Do NOT output any reasoning, chain-of-thought, step-by-step thinking, or introductory phrases (e.g. "Alright, let's...", "First, I need to...", "Starting with...").
+- Your first line of output MUST be the header of the first table: | Term | Proposed Translation | Rationale |
+- Then the table rows, then the second table (| Name | Recommended Translation | Gender (m/f) | Declension Rule & Notes |) and its rows.
+- No text before the first table. No commentary between or after the tables. Tables only.
+
 Overarching Translation & Adaptation Policy
 Before performing any tasks, you must adhere to the following global principles:
 
@@ -139,7 +145,7 @@ The Gender column must use m for masculine or f for feminine only.
 The Declension Rule & Notes column must indicate how the name should decline (if at all) and explain the gender assignment clearly (e.g., derived from context, inferred from usage, defaulted by rule).
 
 Final Instruction:
-Now, execute both tasks on the text below. Begin with the table for Task 1.
+Now, execute both tasks on the text below. Begin with the table for Task 1. Reply with the two tables only — no reasoning, no preamble, no concluding remarks.
 
 {{prompt_ext_section}}"""
     },
@@ -177,7 +183,8 @@ Text to Reduce:
 {{text}}"""
     },
     'analyze': {
-        'user': f"""Your response must start directly with the analysis.
+        'user': f"""Output ONLY the two markdown tables. Do not write any reasoning, explanation, or text before or after the tables. Start your response with the first table header line.
+
 Text to Analyze:
 {{text}}"""
     },
