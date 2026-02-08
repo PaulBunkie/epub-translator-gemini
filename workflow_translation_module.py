@@ -1,11 +1,15 @@
 import os
 import re
 import traceback
+import base64
 from typing import Optional, List, Dict, Any
 import requests # Импорт для выполнения HTTP запросов
 import json # Импорт для работы с JSON
 import time # Импорт для задержки при ретраях
 import google.generativeai as genai # Импорт для Google API
+import google.auth
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part, FinishReason, SafetySetting, HarmCategory, HarmBlockThreshold
 
 # Константа для обозначения ошибки лимита контекста
 # TODO: Возможно, стоит перенести в класс или конфиг
@@ -215,7 +219,44 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] ОШИБКА при получении OPENROUTER_API_KEY: {e}")
             self.openrouter_api_key = None
         
-        # Инициализация Google API ключа
+        # Инициализация Vertex AI (Google Cloud)
+        try:
+            self.vertex_available = False
+            gcp_creds_raw = os.getenv("GCP_CREDENTIALS")
+            if gcp_creds_raw:
+                try:
+                    # Пытаемся определить: это Base64 или сырой JSON
+                    creds_info = None
+                    try:
+                        # Если это Base64, декодируем
+                        decoded = base64.b64decode(gcp_creds_raw).decode("utf-8")
+                        creds_info = json.loads(decoded)
+                    except Exception:
+                        # Если не Base64, пробуем парсить как сырой JSON
+                        creds_info = json.loads(gcp_creds_raw)
+                    
+                    # Используем универсальный загрузчик credentials из словаря
+                    credentials, project_id = google.auth.load_credentials_from_dict(creds_info)
+                    
+                    # Если проект не определился из ключа, берем из переменной или ищем в словаре
+                    project_id = project_id or os.getenv("GCP_PROJECT_ID") or creds_info.get("project_id")
+                    
+                    if not project_id:
+                        print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: project_id не найден. Vertex AI может работать некорректно.")
+
+                    vertexai.init(project=project_id, location="global", credentials=credentials)
+                    
+                    self.vertex_available = True
+                    print(f"[WorkflowTranslator] Vertex AI успешно инициализирован (Project: {project_id}).")
+                except Exception as ve:
+                    print(f"[WorkflowTranslator] ОШИБКА при инициализации Vertex AI из GCP_CREDENTIALS: {ve}")
+            else:
+                print("[WorkflowTranslator] GCP_CREDENTIALS не найдены, Vertex AI недоступен.")
+        except Exception as e:
+            print(f"[WorkflowTranslator] ОШИБКА в блоке инициализации Vertex AI: {e}")
+            self.vertex_available = False
+
+        # Инициализация Google Generative AI (API Key)
         try:
             self.google_api_key = os.getenv("GOOGLE_API_KEY")
             if self.google_api_key:
@@ -250,6 +291,11 @@ class WorkflowTranslator:
                 next_model = models.get('fallback_level2')
                 if next_model and next_model != current_model:
                     print(f"[WorkflowTranslator] Переключение на fallback_level2: {next_model}")
+                    return next_model
+            elif current_model == models.get('fallback_level2'):
+                next_model = models.get('fallback_level3')
+                if next_model and next_model != current_model:
+                    print(f"[WorkflowTranslator] Переключение на fallback_level3: {next_model}")
                     return next_model
             
             return None
@@ -598,7 +644,12 @@ class WorkflowTranslator:
         """
         Определяет тип API на основе имени модели.
         """
-        if model_name and model_name.startswith('models/'):
+        if not model_name:
+            return "openrouter"
+            
+        if model_name.startswith('vertex/'):
+            return "vertex"
+        elif model_name.startswith('models/'):
             return "google"
         else:
             return "openrouter"
@@ -611,6 +662,7 @@ class WorkflowTranslator:
         chunk_text: str = None,
         section_id: int = None,
         book_id: str = None,
+        admin: bool = False,
         #temperature: float = 0.3,
         max_retries: int = 3, # Количество попыток
         retry_delay_seconds: int = 5 # Начальная задержка
@@ -633,7 +685,63 @@ class WorkflowTranslator:
         api_type = self._determine_api_type(model_name)
         print(f"[WorkflowTranslator] Определен тип API: {api_type} для модели: {model_name}")
 
-        if api_type == "google":
+        if api_type == "vertex":
+            if not self.vertex_available:
+                print("[WorkflowTranslator] ОШИБКА: Vertex AI не инициализирован (нет GCP_CREDENTIALS).")
+                return None
+
+            # Убираем префикс vertex/ для вызова API
+            actual_model_name = model_name.replace('vertex/', '')
+            
+            # Преобразуем messages в формат Vertex AI
+            prompt = ""
+            for message in messages:
+                if message.get('role') == 'user':
+                    prompt += message.get('content', '') + "\n"
+                elif message.get('role') == 'system':
+                    prompt = message.get('content', '') + "\n" + prompt
+
+            try:
+                print(f"[WorkflowTranslator] Отправка запроса к Vertex AI (модель: {actual_model_name})...")
+                model = GenerativeModel(actual_model_name)
+                
+                # Настройки безопасности для Vertex AI (используем Enums)
+                safety_settings = [
+                    SafetySetting(
+                        category=HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                        threshold=HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    SafetySetting(
+                        category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    SafetySetting(
+                        category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                        threshold=HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                    SafetySetting(
+                        category=HarmCategory.HARM_CATEGORY_HARASSMENT,
+                        threshold=HarmBlockThreshold.BLOCK_NONE,
+                    ),
+                ]
+                
+                response = model.generate_content(prompt, safety_settings=safety_settings)
+                
+                if not response.text:
+                    print("[WorkflowTranslator] Vertex AI вернул пустой ответ.")
+                    return None
+                
+                print(f"[WorkflowTranslator] Vertex AI ответ получен успешно.")
+                return response.text
+
+            except Exception as e:
+                print(f"[WorkflowTranslator] ОШИБКА при вызове Vertex AI: {e}")
+                error_str = str(e).lower()
+                if "context window" in error_str:
+                    return CONTEXT_LIMIT_ERROR
+                return None
+
+        elif api_type == "google":
             if not self.google_api_key:
                 print("[WorkflowTranslator] ОШИБКА: GOOGLE_API_KEY не установлен.")
                 return None
@@ -650,7 +758,7 @@ class WorkflowTranslator:
                 print(f"[WorkflowTranslator] Отправка запроса к Google API (модель: {model_name})...")
                 model = genai.GenerativeModel(model_name)
                 
-                # Настройки безопасности для Google API
+                # Настройки безопасности для Google API (строковые значения для legacy API)
                 safety_settings = {
                     'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'block_none',
                     'HARM_CATEGORY_HATE_SPEECH': 'block_none',
@@ -837,7 +945,7 @@ class WorkflowTranslator:
                                     print("[OpenRouterTranslator] Обнаружена ошибка недоступности модели. Немедленное переключение на резервную.")
                                     fallback_model = self._get_fallback_model(operation_type, model_name)
                                     if fallback_model:
-                                        return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1)
+                                        return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1, admin=admin)
                                     return None
                             
                             # Проверка на ошибку контекстного лимита по содержимому ответа
@@ -904,13 +1012,23 @@ class WorkflowTranslator:
         prompt_ext: Optional[str] = None,
         dict_data: dict | None = None,
         section_id: int = None,
-        book_id: str = None
+        book_id: str = None,
+        admin: bool = False
     ) -> str | None:
         """
         Ф1 - Перевод сегмента: определяет лимит для модели, разбивает на чанки, переводит каждый.
         """
-        print(f"[WorkflowTranslator] Перевод сегмента с моделью {model_name}")
+        print(f"[WorkflowTranslator] Перевод сегмента с моделью {model_name} (admin: {admin})")
         
+        # --- ПРОВЕРКА ADMIN И VERTEX ---
+        if model_name and model_name.startswith('vertex/'):
+            if not admin:
+                print(f"[WorkflowTranslator] Доступ к модели Vertex '{model_name}' отклонен: не admin. Ищем fallback.")
+                return None
+            if not self.vertex_available:
+                print(f"[WorkflowTranslator] Модель Vertex '{model_name}' недоступна: Vertex не инициализирован. Ищем fallback.")
+                return None
+
         # Определяем лимит чанка для ЭТОЙ модели
         chunk_limit = self._get_chunk_limit_for_operation(operation_type, model_name)
         
@@ -938,7 +1056,8 @@ class WorkflowTranslator:
                 prompt_ext,
                 dict_data,
                 section_id,
-                book_id
+                book_id,
+                admin=admin
             )
             
             if not result:
@@ -961,7 +1080,8 @@ class WorkflowTranslator:
         prompt_ext: Optional[str] = None,
         dict_data: dict | None = None,
         section_id: int = None,
-        book_id: str = None
+        book_id: str = None,
+        admin: bool = False
     ) -> str | None:
         """
         Ф2 - Перевод чанка: просто вызывает API с ретраями.
@@ -978,7 +1098,7 @@ class WorkflowTranslator:
         # Пытаемся обработать чанк с ретраями
         max_retries = 2
         for attempt in range(max_retries + 1):
-            result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id)
+            result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id, admin=admin)
             if result is not None and result != CONTEXT_LIMIT_ERROR:
                 return result
             
@@ -1029,7 +1149,8 @@ class WorkflowTranslator:
         dict_data: dict | None = None,
         book_id: str = None,
         section_id: int = None,
-        return_model: bool = False
+        return_model: bool = False,
+        admin: bool = False
     ) -> str | None | tuple[str | None, str | None]:
         """
         Ф3 - Fallback контроллер: пытается с тремя уровнями моделей.
@@ -1059,7 +1180,8 @@ class WorkflowTranslator:
             prompt_ext,
             dict_data,
             section_id,
-            book_id
+            book_id,
+            admin=admin
         )
         if result:
             # Сохраняем модель для book-level операций (когда section_id=None)
@@ -1081,7 +1203,8 @@ class WorkflowTranslator:
                 prompt_ext,
                 dict_data,
                 section_id,
-                book_id
+                book_id,
+                admin=admin
             )
             if result:
                 # Сохраняем модель для book-level операций (когда section_id=None)
@@ -1103,7 +1226,8 @@ class WorkflowTranslator:
                     prompt_ext,
                     dict_data,
                     section_id,
-                    book_id
+                    book_id,
+                    admin=admin
                 )
                 if result:
                     # Сохраняем модель для book-level операций (когда section_id=None)
@@ -1114,7 +1238,30 @@ class WorkflowTranslator:
                         return result, fallback_model2
                     return result
         
-        print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех трех уровнях")
+            # Уровень 4: Пытаемся с fallback_level3
+            fallback_model3 = self._get_fallback_model(operation_type, fallback_model2)
+            if fallback_model3:
+                result = self._translate_segment(
+                    text_to_translate,
+                    target_language,
+                    fallback_model3,
+                    operation_type,
+                    prompt_ext,
+                    dict_data,
+                    section_id,
+                    book_id,
+                    admin=admin
+                )
+                if result:
+                    # Сохраняем модель для book-level операций (когда section_id=None)
+                    if not section_id and book_id:
+                        self._save_model_to_db(book_id, section_id, operation_type, fallback_model3)
+                    # Для section-level операций модель будет сохранена в process_section_translate
+                    if return_model:
+                        return result, fallback_model3
+                    return result
+        
+        print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех четырех уровнях")
         if return_model:
             return None, None
         return None
@@ -1130,7 +1277,9 @@ class WorkflowTranslator:
         print(f"[WorkflowTranslator] Текст слишком большой для анализа ({len(text)} символов). Делаем дополнительную суммаризацию.")
         
         # Делаем суммаризацию с использованием translate_text для fallback логики
-        summarized_text = self.translate_text(text, target_language, model_name, prompt_ext, 'reduce')
+        # Передаем admin=True для суммаризации при подготовке к анализу,
+        # так как это внутренняя техническая операция
+        summarized_text = self.translate_text(text, target_language, model_name, prompt_ext, 'reduce', admin=True)
         
         if not summarized_text:
             print(f"[WorkflowTranslator] Ошибка дополнительной суммаризации. Возвращаем исходный текст.")
@@ -1213,13 +1362,14 @@ def translate_text(
     dict_data: dict | None = None, # !!! ИЗМЕНЕНО: workflow_data -> dict_data !!!
     book_id: str = None,
     section_id: int = None,
-    return_model: bool = False
+    return_model: bool = False,
+    admin: bool = False
 ) -> str | None | tuple[str | None, str | None]:
     """
     Публичная точка входа для перевода/обработки в workflow.
     Создает экземпляр WorkflowTranslator и вызывает его метод translate_text.
     """
-    print(f"[WorkflowModule] Вызов публичной translate_text. Операция: '{operation_type}'")
+    print(f"[WorkflowModule] Вызов публичной translate_text. Операция: '{operation_type}' (admin: {admin})")
     translator = WorkflowTranslator()
     # Передаем новые параметры в метод класса
     return translator.translate_text(
@@ -1231,7 +1381,8 @@ def translate_text(
         dict_data=dict_data, # !!! Передаем dict_data дальше !!!
         book_id=book_id,
         section_id=section_id,
-        return_model=return_model
+        return_model=return_model,
+        admin=admin
     )
 
 # --- ПУБЛИЧНАЯ ФУНКЦИЯ ДЛЯ АНАЛИЗА С АВТОМАТИЧЕСКОЙ СУММАРИЗАЦИЕЙ ---
@@ -1243,7 +1394,8 @@ def analyze_with_summarization(
     dict_data: dict | None = None,
     summarization_model: str = None,
     book_id: str = None,
-    return_model: bool = False
+    return_model: bool = False,
+    admin: bool = False
 ) -> str | None | tuple[str | None, str | None]:
     """
     Анализирует текст с автоматической суммаризацией, если текст слишком большой.
@@ -1342,7 +1494,8 @@ def analyze_with_summarization(
         dict_data=dict_data,
         book_id=book_id,  # Передаем book_id для сохранения модели в БД
         section_id=None,  # Анализ выполняется на уровне книги, не секции
-        return_model=return_model
+        return_model=return_model,
+        admin=admin
     )
     
     if return_model and isinstance(result, tuple) and len(result) == 2:

@@ -77,7 +77,7 @@ def clean_toc_title(title):
     
     return title
 
-def translate_toc_titles_workflow(titles: List[str], target_language: str) -> List[str]:
+def translate_toc_titles_workflow(titles: List[str], target_language: str, admin: bool = False) -> List[str]:
     """
     Переводит заголовки оглавления с retry логикой для workflow.
     Использует отдельный operation_type 'translate_toc' с собственными моделями и промптами.
@@ -102,7 +102,8 @@ def translate_toc_titles_workflow(titles: List[str], target_language: str) -> Li
             prompt_ext=None,
             operation_type='translate_toc',
             book_id=None,  # TOC не привязан к конкретной секции
-            section_id=None
+            section_id=None,
+            admin=admin
         )
         
         if result and result != 'CONTEXT_LIMIT_ERROR':
@@ -124,7 +125,7 @@ def translate_toc_titles_workflow(titles: List[str], target_language: str) -> Li
     print("[WorkflowProcessor] Не удалось перевести TOC")
     return []
 
-def process_section_summarization(book_id: str, section_id: int):
+def process_section_summarization(book_id: str, section_id: int, admin: bool = False):
     """
     Процессит суммаризацию одной секции.
     Получает контент секции, вызывает модель суммаризации,
@@ -206,7 +207,8 @@ def process_section_summarization(book_id: str, section_id: int):
                     prompt_ext=prompt_ext,
                     book_id=book_id,
                     section_id=section_id,
-                    return_model=True
+                    return_model=True,
+                    admin=admin
                 )
                 
                 if isinstance(result, tuple):
@@ -602,9 +604,9 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
                 if section_stage_status in ['completed', 'completed_empty']:
                     continue
                 if stage_name == 'summarize':
-                    result = process_section_summarization(book_id, section_id)
+                    result = process_section_summarization(book_id, section_id, admin=admin)
                 elif stage_name == 'translate':
-                    result = process_section_translate(book_id, section_id)
+                    result = process_section_translate(book_id, section_id, admin=admin)
                 else:
                     result = True  # Для других этапов по умолчанию не останавливаем
                 # --- ОСТАНОВКА ПРИ КРИТИЧЕСКОЙ ОШИБКЕ ---
@@ -623,7 +625,7 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
             # Книжный этап (анализ, создание epub, сокращение и т.д.)
             result = True  # По умолчанию успех
             if stage_name == 'analyze':
-                result = process_book_analysis(book_id)
+                result = process_book_analysis(book_id, admin=admin)
                 # Проверяем флаг admin после завершения анализа
                 if result and admin:
                     print(f"[WorkflowProcessor] Анализ завершен. Флаг admin установлен. Останавливаем workflow для редактирования.")
@@ -631,7 +633,7 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
                     update_overall_workflow_book_status(book_id)
                     return True  # Возвращаем True, но workflow остановлен для редактирования
             elif stage_name == 'epub_creation':
-                result = process_book_epub_creation(book_id)
+                result = process_book_epub_creation(book_id, admin=admin)
             elif stage_name == 'reduce_text':
                 # Этап reduce_text больше не нужен - логика сокращения встроена в analyze_with_summarization
                 workflow_db_manager.update_book_stage_status_workflow(book_id, 'reduce_text', 'passed', error_message='Этап упразднен - сокращение встроено в анализ')
@@ -721,7 +723,7 @@ def collect_book_summary_text(book_id: str) -> str:
         return "" # Return empty string on error
 
 # --- New function for Book-level Analysis ---
-def process_book_analysis(book_id: str):
+def process_book_analysis(book_id: str, admin: bool = False):
     """
     Processes the analysis stage for the entire book.
     Collects summaries, calls the analysis model, saves the result, and updates book stage status.
@@ -773,7 +775,8 @@ def process_book_analysis(book_id: str):
                      dict_data=None, # dict_data не нужен для анализа
                      summarization_model=None, # Будет взята из workflow_model_config.py
                      book_id=book_id, # Передаем book_id для сохранения суммаризации в кэш
-                     return_model=True
+                     return_model=True,
+                     admin=admin
                  )
                  
                  # Получаем результат и модель
@@ -880,7 +883,7 @@ def process_book_analysis(book_id: str):
             print(f"[WorkflowProcessor] ОШИБКА при освобождении памяти после анализа книги {book_id}: {mem_err}")
 
 # --- New function for Section-level Translation ---
-def process_section_translate(book_id: str, section_id: int):
+def process_section_translate(book_id: str, section_id: int, admin: bool = False):
     """
     Процессит перевод одной секции.
     """
@@ -943,7 +946,8 @@ def process_section_translate(book_id: str, section_id: int):
             dict_data=dict_data,
             book_id=book_id,
             section_id=section_id,
-            return_model=True
+            return_model=True,
+            admin=admin
         )
         
         # Получаем результат и модель
@@ -1032,7 +1036,7 @@ def process_section_translate(book_id: str, section_id: int):
             print(f"[WorkflowProcessor] ОШИБКА при освобождении памяти после перевода секции {section_id}: {mem_err}")
 
 # --- New function for Book-level EPUB Creation ---
-def process_book_epub_creation(book_id: str):
+def process_book_epub_creation(book_id: str, admin: bool = False):
     """
     Процессит создание EPUB для всей книги.
     Собирает переведенные секции из кэша workflow и создает новый EPUB файл.
@@ -1074,7 +1078,7 @@ def process_book_epub_creation(book_id: str):
                 print(f"[WorkflowProcessor] Перевод {len(toc_titles_for_translation)} заголовков TOC...")
                 
                 # Используем новую функцию с правильными моделями и retry логикой
-                translated_titles = translate_toc_titles_workflow(toc_titles_for_translation, target_language)
+                translated_titles = translate_toc_titles_workflow(toc_titles_for_translation, target_language, admin=admin)
                 
                 if translated_titles and len(translated_titles) == len(toc_titles_for_translation):
                     for i, item in enumerate(toc_data):

@@ -10,17 +10,19 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
-        'primary': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'models/gemini-3-flash-preview'
+        'primary': 'vertex/gemini-3-flash-preview',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free',
+        'fallback_level3': 'models/gemini-3-flash-preview'
     },
     'translate': {
-        'primary': 'models/gemini-3-flash-preview',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
+        'primary': 'vertex/gemini-3-pro-preview',
+        'fallback_level1': 'models/gemini-3-flash-preview',
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level3': 'tngtech/deepseek-r1t-chimera:free'
     },
     'reduce': {
-        'primary': 'models/gemini-3-flash-preview',
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'models/gemma-3-27b-it:free',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
