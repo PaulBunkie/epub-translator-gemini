@@ -25,6 +25,7 @@ except ImportError as e:
 
 from config import FOOTBALL_DB_FILE
 from workflow_model_config import get_model_for_operation
+from workflow_translation_module import WorkflowTranslator
 
 # Попытка импортировать telegram_notifier (может отсутствовать)
 try:
@@ -498,8 +499,11 @@ class FootballManager:
         self.thesportsdb_api_key = os.getenv("THESPORTSDB_API_KEY", "123")
         
         # OpenRouter API для ИИ-прогнозов
-        self.openrouter_api_key = OPENROUTER_API_KEY
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY") # Изменено для использования переменной окружения
         self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        
+        # Инициализируем WorkflowTranslator для работы с разными API (Vertex, Google, OpenRouter)
+        self.workflow_translator = WorkflowTranslator()
         
         # Модели для футбольных прогнозов из конфигурации
         self.ai_primary_model = get_model_for_operation('football_predict', 'primary')
@@ -4428,66 +4432,42 @@ X2 ИГНОРИРУЕМ
                 print(f"[Football AI] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
                 
                 try:
-                    payload = {
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "max_tokens": 2000,
-                        "temperature": 0.3  # Низкая температура для более детерминированного ответа
-                    }
-                    
-                    print(f"[Football AI] Отправка запроса к OpenRouter API (модель: {model})")
+                    messages = [{"role": "user", "content": prompt}]
+                    print(f"[Football AI] Вызов API (модель: {model})")
 
-                    if model.startswith('vertex/'):
-                        payload['model'] = model.replace('vertex/', '')
-                    
-                    if model.startswith('vertex/'):
-                        payload['model'] = model.replace('vertex/', '')
-
-                    response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=60
+                    ai_response = self.workflow_translator._call_model_api(
+                        model_name=model,
+                        messages=messages,
+                        operation_type='analyze',
+                        admin=True
                     )
-                    
-                    if response.status_code == 200:
-                        try:
-                            data = response.json()
-                            if 'choices' in data and len(data['choices']) > 0:
-                                ai_response = data['choices'][0]['message']['content']
-                                print(f"[Football AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
-                                
-                                # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
-                                bet_ai = self._parse_ai_prediction(ai_response)
-                                # Парсим рекомендацию - ищем СТАВИМ/ИГНОРИРУЕМ
-                                bet_recommendation = self._parse_ai_recommendation(ai_response)
-                                
-                                if bet_ai:
-                                    recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
-                                    print(f"[Football AI] Успешно распознан прогноз: {bet_ai}, рекомендация: {recommendation_text}")
-                                    return bet_ai, ai_response, bet_recommendation, model
-                                else:
-                                    print(f"[Football AI] Не удалось распознать прогноз в ответе, пробуем следующую модель")
-                                    if model_idx < len(models_to_try) - 1:
-                                        continue
-                                    else:
-                                        # Последняя модель - возвращаем ответ даже если не распознан
-                                        print(f"[Football AI] Все модели испробованы, возвращаем ответ без распознанного прогноза")
-                                        return None, ai_response, None, model
-                        except json.JSONDecodeError as e:
-                            print(f"[Football AI ERROR] Ошибка парсинга JSON ответа: {e}")
-                            continue
+
+                    if ai_response and not ai_response.startswith("ОШИБКА:"):
+                        print(f"[Football AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                        
+                        # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
+                        bet_ai = self._parse_ai_prediction(ai_response)
+                        # Парсим рекомендацию - ищем СТАВИМ/ИГНОРИРУЕМ
+                        bet_recommendation = self._parse_ai_recommendation(ai_response)
+                        
+                        if bet_ai:
+                            recommendation_text = "СТАВИМ" if bet_recommendation else "ИГНОРИРУЕМ"
+                            print(f"[Football AI] Успешно распознан прогноз: {bet_ai}, рекомендация: {recommendation_text}")
+                            return bet_ai, ai_response, bet_recommendation, model
+                        else:
+                            print(f"[Football AI] Не удалось распознать прогноз в ответе, пробуем следующую модель")
+                            if model_idx < len(models_to_try) - 1:
+                                continue
+                            else:
+                                # Последняя модель - возвращаем ответ даже если не распознан
+                                print(f"[Football AI] Все модели испробованы, возвращаем ответ без распознанного прогноза")
+                                return None, ai_response, None, model
                     else:
-                        print(f"[Football AI ERROR] Ошибка API: {response.status_code} - {response.text}")
+                        print(f"[Football AI ERROR] Ошибка API (модель: {model})")
                         continue
                         
-                except requests.exceptions.RequestException as e:
-                    print(f"[Football AI ERROR] Ошибка запроса к OpenRouter: {e}")
+                except Exception as e:
+                    print(f"[Football AI ERROR] Ошибка запроса к модели {model}: {e}")
                     continue
             
             print(f"[Football AI] Не удалось получить прогноз от всех моделей")
@@ -4495,8 +4475,6 @@ X2 ИГНОРИРУЕМ
             
         except Exception as e:
             print(f"[Football AI ERROR] Ошибка получения ИИ-прогноза: {e}")
-            import traceback
-            print(traceback.format_exc())
             return None, None, None, None
 
     def analyze_bet_risk(self, fixture_id: str, bet_ai: str, bet_ai_odds: float, stats_json: str) -> Optional[str]:
@@ -5234,84 +5212,35 @@ X2 ИГНОРИРУЕМ
                 print(f"[Football AI] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
                 
                 try:
-                    payload = {
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "max_tokens": 2000,
-                        "temperature": 0.3  # Низкая температура для более детерминированного ответа
-                    }
-                    
-                    print(f"[Football AI] Отправка запроса к OpenRouter API (модель: {model})")
+                    messages = [{"role": "user", "content": prompt}]
+                    print(f"[Football AI] Вызов API (модель: {model})")
 
-                    # Проверка на Vertex модели - они требуют особого обращения или доступны только админам
-                    if model.startswith('vertex/'):
-                        # В football_predict мы пока разрешаем использование Vertex без явного флага admin,
-                        # так как этот процесс фоновый и управляется сервером.
-                        # Но убираем префикс для OpenRouter
-                        payload['model'] = model.replace('vertex/', '')
-                    
-                    if model.startswith('vertex/'):
-                        payload['model'] = model.replace('vertex/', '')
-
-                    response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=60
+                    ai_response = self.workflow_translator._call_model_api(
+                        model_name=model,
+                        messages=messages,
+                        operation_type='analyze',
+                        admin=True
                     )
-                    
-                    if response.status_code == 200:
-                        try:
-                            data = response.json()
-                            if 'choices' in data and len(data['choices']) > 0:
-                                ai_response = data['choices'][0]['message']['content']
-                                print(f"[Football AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
-                                
-                                # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
-                                bet_ai = self._parse_ai_prediction(ai_response)
-                                
-                                if bet_ai:
-                                    print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
-                                    return bet_ai, ai_response, model
-                                else:
-                                    # Даже если прогноз не распознан, возвращаем полный ответ для сохранения
-                                    print(f"[Football AI] Не удалось распознать валидный прогноз в ответе, но сохраняем полный ответ: {ai_response[:200]}...")
-                                    return None, ai_response, model
-                            else:
-                                print(f"[Football AI] Неверный формат ответа от OpenRouter API для модели {model}")
-                                continue
-                        except json.JSONDecodeError as e:
-                            print(f"[Football AI] Ошибка парсинга JSON для модели {model}: {e}")
-                            continue
+
+                    if ai_response and not ai_response.startswith("ОШИБКА:"):
+                        print(f"[Football AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                        
+                        # Парсим ответ - ищем один из вариантов: 1, 1X, X, X2, 2
+                        bet_ai = self._parse_ai_prediction(ai_response)
+                        
+                        if bet_ai:
+                            print(f"[Football AI] Успешно распознан прогноз: {bet_ai}")
+                            return bet_ai, ai_response, model
+                        else:
+                            # Даже если прогноз не распознан, возвращаем полный ответ для сохранения
+                            print(f"[Football AI] Не удалось распознать валидный прогноз в ответе, но сохраняем полный ответ: {ai_response[:200]}...")
+                            return None, ai_response, model
                     else:
-                        print(f"[Football AI] HTTP ошибка OpenRouter API для модели {model}: {response.status_code}")
-                        try:
-                            error_details = response.json()
-                            print(f"[Football AI] Детали ошибки: {error_details}")
-                            
-                            # Если это ошибка 503 "No instances available", переходим к следующей модели
-                            if response.status_code == 503 and "No instances available" in str(error_details):
-                                print(f"[Football AI] Модель {model} недоступна (503), переходим к следующей")
-                                continue
-                        except:
-                            print(f"[Football AI] Текст ошибки: {response.text[:500]}...")
+                        print(f"[Football AI] Ошибка API для модели {model}")
                         continue
                         
-                except requests.exceptions.Timeout:
-                    print(f"[Football AI] Таймаут запроса к модели {model}")
-                    continue
-                except requests.exceptions.RequestException as e:
-                    print(f"[Football AI] Ошибка запроса к модели {model}: {e}")
-                    continue
                 except Exception as e:
-                    print(f"[Football AI] Неожиданная ошибка при запросе к модели {model}: {e}")
-                    import traceback
-                    print(traceback.format_exc())
+                    print(f"[Football AI] Ошибка при запросе к модели {model}: {e}")
                     continue
             
             # Если все модели не дали валидного ответа
@@ -5458,65 +5387,31 @@ X2 ИГНОРИРУЕМ
                 print(f"[Football Bet AI] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
 
                 try:
-                    payload = {
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "max_tokens": 500,
-                        "temperature": 0.3  # Низкая температура для более детерминированного ответа
-                    }
+                    messages = [{"role": "user", "content": prompt}]
 
-                    print(f"[Football Bet AI] Отправка запроса к OpenRouter API (модель: {model})")
+                    print(f"[Football Bet AI] Вызов API (модель: {model})")
 
-                    if model.startswith('vertex/'):
-                        payload['model'] = model.replace('vertex/', '')
-
-                    response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=60
+                    ai_response = self.workflow_translator._call_model_api(
+                        model_name=model,
+                        messages=messages,
+                        operation_type='analyze',
+                        admin=True
                     )
 
-                    if response.status_code == 200:
-                        try:
-                            data = response.json()
-                            if 'choices' in data and len(data['choices']) > 0:
-                                ai_response = data['choices'][0]['message']['content']
-                                print(f"[Football Bet AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                    if ai_response and not ai_response.startswith("ОШИБКА:"):
+                        print(f"[Football Bet AI] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                        
+                        # Парсим ответ - ищем ДА или НЕТ
+                        is_yes = self._parse_bet_ai_response(ai_response)
 
-                                # Парсим ответ - ищем ДА или НЕТ
-                                is_yes = self._parse_bet_ai_response(ai_response)
-
-                                if is_yes is not None:
-                                    print(f"[Football Bet AI] Успешно распознан ответ: {'ДА' if is_yes else 'НЕТ'}")
-                                    return is_yes, ai_response
-                                else:
-                                    print(f"[Football Bet AI] Не удалось распознать ДА/НЕТ в ответе: {ai_response[:200]}...")
-                                    # Продолжаем с следующей моделью
-                                    continue
-                            else:
-                                print(f"[Football Bet AI] Неверный формат ответа от OpenRouter API для модели {model}")
-                                continue
-                        except json.JSONDecodeError as e:
-                            print(f"[Football Bet AI] Ошибка парсинга JSON для модели {model}: {e}")
+                        if is_yes is not None:
+                            print(f"[Football Bet AI] Успешно распознан ответ: {'ДА' if is_yes else 'НЕТ'}")
+                            return is_yes, ai_response
+                        else:
+                            print(f"[Football Bet AI] Не удалось распознать ДА/НЕТ в ответе: {ai_response[:200]}...")
                             continue
                     else:
-                        print(f"[Football Bet AI] HTTP ошибка OpenRouter API для модели {model}: {response.status_code}")
-                        try:
-                            error_details = response.json()
-                            print(f"[Football Bet AI] Детали ошибки: {error_details}")
-
-                            # Если это ошибка 503 "No instances available", переходим к следующей модели
-                            if response.status_code == 503 and "No instances available" in str(error_details):
-                                print(f"[Football Bet AI] Модель {model} недоступна (503), переходим к следующей")
-                                continue
-                        except:
-                            print(f"[Football Bet AI] Текст ошибки: {response.text[:500]}...")
+                        print(f"[Football Bet AI] Ошибка API для модели {model}")
                         continue
 
                 except requests.exceptions.Timeout:
