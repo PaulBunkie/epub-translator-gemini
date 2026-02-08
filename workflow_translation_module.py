@@ -20,6 +20,10 @@ CHUNK_SIZE_LIMIT_CHARS = 30000
 # Отдельный лимит для анализа - должен быть больше, чтобы вместить всю суммаризацию книги
 ANALYSIS_CHUNK_SIZE_LIMIT_CHARS = 100000
 
+# Проверка результата суммаризации: при исходном тексте длиннее этого порога результат должен быть минимум в 2 раза короче
+MIN_SOURCE_LENGTH_FOR_SUMMARY_RATIO_CHECK = 1000
+SUMMARY_MAX_RATIO_OF_SOURCE = 2  # суммаризация должна быть не длиннее len(source) / SUMMARY_MAX_RATIO_OF_SOURCE
+
 # User-provided PROMPT_TEMPLATES - EXACTLY AS PROVIDED
 SYSTEM_PROMPT_TEMPLATES = {
     'translate': {
@@ -789,6 +793,13 @@ class WorkflowTranslator:
                                         # Убираем маркер из финального результата (может быть в любом месте)
                                         output_content = output_content.replace(completion_marker, "").strip()
                                         print(f"[OpenRouterTranslator] Найден маркер завершения. Убираем маркер, финальная длина: {len(output_content)} символов.")
+                                
+                                # --- ПРОВЕРКА СУММАРИЗАЦИИ/REDUCE: результат должен быть минимум в 2 раза короче при длинном исходном тексте ---
+                                if operation_type in ('summarize', 'reduce') and chunk_text and len(chunk_text) > MIN_SOURCE_LENGTH_FOR_SUMMARY_RATIO_CHECK:
+                                    max_allowed_len = len(chunk_text) // SUMMARY_MAX_RATIO_OF_SOURCE
+                                    if len(output_content) > max_allowed_len:
+                                        print(f"[WorkflowTranslator] Результат {operation_type} отклонён: длина ({len(output_content)}) не минимум в {SUMMARY_MAX_RATIO_OF_SOURCE} раза меньше исходного ({len(chunk_text)}, макс. допуск: {max_allowed_len}). Ретрай.")
+                                        return None
                                 
                                 print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")                                                                
                                 return output_content
