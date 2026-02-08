@@ -15,7 +15,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'models/gemini-flash-latest'
     },
     'translate': {
-        'primary': 'models/gemini-flash-latest',
+        'primary': 'models/gemini-3-flash-preview',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
     },
