@@ -648,98 +648,74 @@ class FootballManager:
                     continue
                 print(f"[Football Parlay] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
                 try:
-                    payload = {
-                        "model": model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 4000,
-                        "temperature": 0.4
-                    }
-                    if model.startswith('vertex/'):
-                        payload['model'] = model.replace('vertex/', '')
-
-                    response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=600
+                    messages = [{"role": "user", "content": prompt}]
+                    ai_response = self.workflow_translator._call_model_api(
+                        model_name=model,
+                        messages=messages,
+                        operation_type='analyze',
+                        admin=True
                     )
-                    try:
-                        print(f"[Football Parlay] model={model} status={response.status_code}")
-                    except Exception:
-                        pass
-                    if response.status_code == 200:
-                        data = response.json()
-                        if 'choices' in data and data['choices']:
-                            raw = data['choices'][0]['message']['content']
-                            last_raw = raw
-                            # Пытаемся извлечь JSON из ответа (с предобработкой частых артефактов)
-                            parsed = None
-                            try:
-                                txt = raw.strip()
-                                # Удаляем markdown-фенс, если модель вернула ```json ... ```
-                                if txt.startswith('```'):
-                                    lines = txt.splitlines()
-                                    # убираем первую и последнюю строку, если они выглядят как ```...```
-                                    if lines and lines[0].startswith('```'):
-                                        lines = lines[1:]
-                                    if lines and lines[-1].startswith('```'):
-                                        lines = lines[:-1]
-                                    txt = "\n".join(lines).strip()
-                                # Если total_odds отдан как выражение (например: 1.1 * 1.2 …), завернём в строку, чтобы json распарсился
-                                import re as _re
-                                txt_quoted = _re.sub(r'("total_odds"\s*:\s*)([^,\}\n]+)', r'\1"\2"', txt)
-                                try:
-                                    parsed = json.loads(txt_quoted)
-                                except Exception:
-                                    # Попробуем вытащить первый JSON-блок по скобкам и применить ту же подмену
-                                    m = _re.search(r'\{[\s\S]*\}', txt)
-                                    if m:
-                                        candidate = m.group(0)
-                                        candidate = _re.sub(r'("total_odds"\s*:\s*)([^,\}\n]+)', r'\1"\2"', candidate)
-                                        parsed = json.loads(candidate)
-                            except Exception:
-                                parsed = None
 
-                            # Если удалось распарсить, но total_odds не число — попробуем вычислить произведение коэффициентов
-                            if isinstance(parsed, dict):
-                                # Всегда пересчитываем total_odds из коэффициентов legs для гарантии правильности
+                    if ai_response and not ai_response.startswith("ОШИБКА:"):
+                        raw = ai_response
+                        last_raw = raw
+                        # Пытаемся извлечь JSON из ответа (с предобработкой частых артефактов)
+                        parsed = None
+                        try:
+                            txt = raw.strip()
+                            # Удаляем markdown-фенс, если модель вернула ```json ... ```
+                            if txt.startswith('```'):
+                                lines = txt.splitlines()
+                                if lines and lines[0].startswith('```'):
+                                    lines = lines[1:]
+                                if lines and lines[-1].startswith('```'):
+                                    lines = lines[:-1]
+                                txt = "\n".join(lines).strip()
+                            
+                            import re as _re
+                            # Если total_odds отдан как выражение (например: 1.1 * 1.2 …), завернём в строку, чтобы json распарсился
+                            txt_quoted = _re.sub(r'("total_odds"\s*:\s*)([^,\}\n]+)', r'\1"\2"', txt)
+                            try:
+                                parsed = json.loads(txt_quoted)
+                            except Exception:
+                                m = _re.search(r'\{[\s\S]*\}', txt)
+                                if m:
+                                    candidate = m.group(0)
+                                    candidate = _re.sub(r'("total_odds"\s*:\s*)([^,\}\n]+)', r'\1"\2"', candidate)
+                                    parsed = json.loads(candidate)
+                        except Exception:
+                            parsed = None
+
+                        if isinstance(parsed, dict):
+                            try:
+                                legs = parsed.get('legs') or []
+                                prod = 1.0
+                                have_any = False
+                                for lg in legs:
+                                    od = lg.get('odds')
+                                    if isinstance(od, (int, float)):
+                                        prod *= float(od)
+                                        have_any = True
+                                parsed['total_odds'] = round(prod, 2) if have_any else None
+                            except Exception:
+                                pass
+                            
+                            legs_list = parsed.get('legs') if isinstance(parsed.get('legs'), list) else []
+                            if legs_list:
                                 try:
-                                    legs = parsed.get('legs') or []
-                                    prod = 1.0
-                                    have_any = False
-                                    for lg in legs:
-                                        od = lg.get('odds')
-                                        if isinstance(od, (int, float)):
-                                            prod *= float(od)
-                                            have_any = True
-                                    parsed['total_odds'] = round(prod, 2) if have_any else None
+                                    print(f"[Football Parlay] parsed legs={len(legs_list)} total_odds={parsed.get('total_odds')}")
                                 except Exception:
                                     pass
-                                # проверяем, что действительно есть ноги; иначе пробуем следующую модель
-                                legs_list = parsed.get('legs') if isinstance(parsed.get('legs'), list) else []
-                                if legs_list:
-                                    try:
-                                        print(f"[Football Parlay] parsed legs={len(legs_list)} total_odds={parsed.get('total_odds')}")
-                                    except Exception:
-                                        pass
-                                    return {'parlay_json': parsed, 'raw': raw}
-                                else:
-                                    print("[Football Parlay] parsed but no legs found, trying next model…")
-                                    continue
+                                return {'parlay_json': parsed, 'raw': raw}
                             else:
-                                print("[Football Parlay] could not parse JSON, trying next model…")
+                                print("[Football Parlay] parsed but no legs found, trying next model…")
                                 continue
                         else:
-                            print(f"[Football Parlay] Неверный формат ответа от модели {model}")
-                    else:
-                        print(f"[Football Parlay] HTTP ошибка {response.status_code} для модели {model}")
-                        if response.status_code == 429:
+                            print(f"[Football Parlay] Не удалось распарсить JSON от модели {model}")
                             continue
-                except requests.exceptions.Timeout:
-                    print(f"[Football Parlay] Таймаут модели {model}")
-                    continue
+                    else:
+                        print(f"[Football Parlay] Ошибка API для модели {model}")
+                        continue
                 except Exception as e:
                     print(f"[Football Parlay] Ошибка запроса к модели {model}: {e}")
                     continue
@@ -3172,108 +3148,84 @@ class FootballManager:
                 print(f"[Football Alt Bet] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model} для fixture {fixture_id}")
                 
                 try:
-                    payload = {
-                        "model": model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "max_tokens": 2000,
-                        "temperature": 0.4
-                    }
-                    
-                    print(f"[Football Alt Bet] Отправка запроса к OpenRouter API (модель: {model})")
-                    print(f"[Football Alt Bet] URL: {self.openrouter_api_url}/chat/completions")
-                    
-                    response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=300
+                    messages = [{"role": "user", "content": prompt}]
+                    ai_response = self.workflow_translator._call_model_api(
+                        model_name=model,
+                        messages=messages,
+                        operation_type='analyze',
+                        admin=True
                     )
-                    
-                    print(f"[Football Alt Bet] Ответ от модели {model}: статус {response.status_code}")
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        if 'choices' in data and data['choices']:
-                            raw = data['choices'][0]['message']['content']
-                            print(f"[Football Alt Bet] Получен ответ длиной {len(raw)} символов от модели {model}")
+
+                    if ai_response and not ai_response.startswith("ОШИБКА:"):
+                        raw = ai_response
+                        print(f"[Football Alt Bet] Получен ответ длиной {len(raw)} символов от модели {model}")
+                        
+                        # Пытаемся извлечь JSON из ответа
+                        parsed = None
+                        try:
+                            txt = raw.strip()
+                            # Удаляем markdown-фенс, если модель вернула ```json ... ```
+                            if txt.startswith('```'):
+                                lines = txt.splitlines()
+                                if lines and lines[0].startswith('```'):
+                                    lines = lines[1:]
+                                if lines and lines[-1].startswith('```'):
+                                    lines = lines[:-1]
+                                txt = "\n".join(lines).strip()
                             
-                            # Пытаемся извлечь JSON из ответа
-                            parsed = None
-                            try:
-                                txt = raw.strip()
-                                # Удаляем markdown-фенс, если модель вернула ```json ... ```
-                                if txt.startswith('```'):
-                                    lines = txt.splitlines()
-                                    if lines and lines[0].startswith('```'):
-                                        lines = lines[1:]
-                                    if lines and lines[-1].startswith('```'):
-                                        lines = lines[:-1]
-                                    txt = "\n".join(lines).strip()
-                                
-                                parsed = json.loads(txt)
-                            except Exception:
-                                # Попробуем вытащить первый JSON-блок
-                                import re as _re
-                                m = _re.search(r'\{[\s\S]*\}', txt)
-                                if m:
+                            parsed = json.loads(txt)
+                        except Exception:
+                            # Попробуем вытащить первый JSON-блок
+                            import re as _re
+                            m = _re.search(r'\{[\s\S]*\}', txt)
+                            if m:
+                                try:
                                     parsed = json.loads(m.group(0))
+                                except:
+                                    pass
+                        
+                        if isinstance(parsed, dict):
+                            market = parsed.get('market')
+                            pick = parsed.get('pick')
+                            line = parsed.get('line')
+                            odds = parsed.get('odds')
+                            reason = parsed.get('reason', '')
                             
-                            if isinstance(parsed, dict):
-                                market = parsed.get('market')
-                                pick = parsed.get('pick')
-                                line = parsed.get('line')
-                                odds = parsed.get('odds')
-                                reason = parsed.get('reason', '')
+                            if market and pick and odds:
+                                # Преобразуем в кодировку
+                                bet_alt_code = self._encode_alternative_bet(market, pick, line)
+                                bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
+                                # Получаем reason или пустую строку
+                                bet_alt_reason = str(reason).strip() if reason else ''
                                 
-                                if market and pick and odds:
-                                    # Преобразуем в кодировку
-                                    bet_alt_code = self._encode_alternative_bet(market, pick, line)
-                                    bet_alt_odds = float(odds) if isinstance(odds, (int, float)) else None
-                                    # Получаем reason или пустую строку
-                                    bet_alt_reason = str(reason).strip() if reason else ''
-                                    
-                                    # Вычисляем bet_alt_confirm по алгоритму:
-                                    # Если bet_alt_odds <= bet_ai_odds и bet_alt_odds > 1.10, то bet_alt_confirm=1, иначе 0
-                                    bet_ai_odds = match['bet_ai_odds'] if 'bet_ai_odds' in match.keys() and match['bet_ai_odds'] is not None else None
-                                    if bet_alt_odds is not None:
-                                        if bet_ai_odds is not None and bet_alt_odds <= bet_ai_odds and bet_alt_odds > 1.10:
-                                            bet_alt_confirm = 1
-                                        else:
-                                            bet_alt_confirm = 0
+                                # Вычисляем bet_alt_confirm по алгоритму:
+                                # Если bet_alt_odds <= bet_ai_odds и bet_alt_odds > 1.10, то bet_alt_confirm=1, иначе 0
+                                bet_ai_odds = match['bet_ai_odds'] if 'bet_ai_odds' in match.keys() and match['bet_ai_odds'] is not None else None
+                                if bet_alt_odds is not None:
+                                    if bet_ai_odds is not None and bet_alt_odds <= bet_ai_odds and bet_alt_odds > 1.10:
+                                        bet_alt_confirm = 1
                                     else:
                                         bet_alt_confirm = 0
-                                    
-                                    if bet_alt_code and bet_alt_odds is not None:
-                                        print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
-                                        return (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason)
-                                    else:
-                                        print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
-                                        continue
                                 else:
-                                    print(f"[Football Alt Bet] Неполный ответ модели {model}: market={market}, pick={pick}, odds={odds}")
+                                    bet_alt_confirm = 0
+                                
+                                if bet_alt_code and bet_alt_odds is not None:
+                                    print(f"[Football Alt Bet] Получена альтернативная ставка от модели {model}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
+                                    return (bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason)
+                                else:
+                                    print(f"[Football Alt Bet] Не удалось преобразовать в кодировку: market={market}, pick={pick}, line={line}")
                                     continue
                             else:
-                                print(f"[Football Alt Bet] Не удалось распарсить JSON от модели {model}, пробуем следующую")
+                                print(f"[Football Alt Bet] Неполный ответ модели {model}: market={market}, pick={pick}, odds={odds}")
                                 continue
                         else:
-                            print(f"[Football Alt Bet] Неверный формат ответа от модели {model}")
-                    else:
-                        print(f"[Football Alt Bet] HTTP ошибка {response.status_code} для модели {model}")
-                        if response.status_code == 429:
-                            print(f"[Football Alt Bet] Превышен лимит запросов для модели {model}, пробуем следующую")
+                            print(f"[Football Alt Bet] Не удалось распарсить JSON от модели {model}, пробуем следующую")
                             continue
-                        try:
-                            error_data = response.json()
-                            print(f"[Football Alt Bet] Ошибка API: {response.status_code} - {error_data}")
-                        except:
-                            print(f"[Football Alt Bet] Ошибка API: {response.status_code} - {response.text[:200]}")
-                except requests.exceptions.Timeout:
-                    print(f"[Football Alt Bet] Таймаут модели {model}")
-                    continue
+                    else:
+                        print(f"[Football Alt Bet] Ошибка API для модели {model}")
+                        continue
                 except Exception as e:
-                    print(f"[Football Alt Bet] Ошибка запроса к модели {model}: {e}")
+                    print(f"[Football Alt Bet] Ошибка при запросе к модели {model}: {e}")
                     continue
             
             print(f"[Football Alt Bet] Не удалось получить альтернативную ставку ни от одной модели для fixture {fixture_id}")
@@ -4567,61 +4519,21 @@ X2 ИГНОРИРУЕМ
                 print(f"[Football Risk Analysis] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
                 
                 try:
-                    payload = {
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": prompt
-                            }
-                        ],
-                        "max_tokens": 2000,
-                        "temperature": 0.7  # Средняя температура для более развернутого ответа
-                    }
-                    
-                    print(f"[Football Risk Analysis] Отправка запроса к OpenRouter API (модель: {model})")
-                    print(f"[Football Risk Analysis] URL: {self.openrouter_api_url}/chat/completions")
-                    print(f"[Football Risk Analysis] Payload: model={model}, max_tokens={payload['max_tokens']}, temperature={payload['temperature']}")
-                    
-                    if model.startswith('vertex/'):
-                        payload['model'] = model.replace('vertex/', '')
-
-                    response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=60
+                    messages = [{"role": "user", "content": prompt}]
+                    ai_response = self.workflow_translator._call_model_api(
+                        model_name=model,
+                        messages=messages,
+                        operation_type='analyze',
+                        admin=True
                     )
-                    
-                    print(f"[Football Risk Analysis] Получен ответ от OpenRouter API (модель: {model}): статус {response.status_code}")
-                    
-                    if response.status_code == 200:
-                        try:
-                            data = response.json()
-                            if 'choices' in data and len(data['choices']) > 0:
-                                ai_response = data['choices'][0]['message']['content']
-                                print(f"[Football Risk Analysis] Получен ответ длиной {len(ai_response)} символов от модели {model}")
-                                return ai_response
-                            else:
-                                print(f"[Football Risk Analysis] Неожиданный формат ответа от модели {model}")
-                        except Exception as e:
-                            print(f"[Football Risk Analysis] Ошибка парсинга ответа от модели {model}: {e}")
+
+                    if ai_response and not ai_response.startswith("ОШИБКА:"):
+                        print(f"[Football Risk Analysis] Получен ответ длиной {len(ai_response)} символов от модели {model}")
+                        return ai_response
                     else:
-                        error_status = response.status_code
-                        print(f"[Football Risk Analysis] Ошибка API для модели {model}: статус {error_status}")
-                        if error_status == 429:
-                            print(f"[Football Risk Analysis] Превышен лимит запросов для модели {model}, пробуем следующую")
-                            continue
-                        elif error_status == 401:
-                            print(f"[Football Risk Analysis] Ошибка авторизации для модели {model}")
-                            break
-                        else:
-                            # Для других ошибок тоже пробуем следующую модель
-                            continue
+                        print(f"[Football Risk Analysis] Ошибка API для модели {model}")
+                        continue
                 
-                except requests.exceptions.Timeout:
-                    print(f"[Football Risk Analysis] Таймаут при запросе к модели {model}")
-                    continue
                 except Exception as e:
                     print(f"[Football Risk Analysis] Ошибка при запросе к модели {model}: {e}")
                     continue
