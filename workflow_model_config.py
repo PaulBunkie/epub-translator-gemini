@@ -10,9 +10,9 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
-        'primary': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'models/gemini-flash-latest'
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
+        'fallback_level2': 'models/gemini-3-flash-preview'
     },
     'translate': {
         'primary': 'models/gemini-3-flash-preview',
@@ -20,12 +20,12 @@ MODEL_CONFIG = {
         'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
     },
     'reduce': {
-        'primary': 'models/gemini-flash-latest',
+        'primary': 'models/gemini-3-flash-preview',
         'fallback_level1': 'models/gemma-3-27b-it:free',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
-        'primary': 'models/gemini-flash-latest',
+        'primary': 'models/gemini-3-flash-preview',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
     },
@@ -35,26 +35,26 @@ MODEL_CONFIG = {
         'fallback_level2': 'free',
     },
     'video_chat': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
     },
     'title_translate': {
-        'primary': 'models/gemini-flash-latest',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free',
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
+        'fallback_level2': 'free',
     },
     'football_predict': {
         'primary': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
-        'fallback_level3': 'models/gemini-flash-latest'
+        'fallback_level3': 'models/gemini-3-flash-preview'
     },
     'bet_risk_analysis': {
         'primary': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
-        'fallback_level3': 'models/gemini-flash-latest'
+        'fallback_level3': 'models/gemini-3-flash-preview'
     }
 }
 
