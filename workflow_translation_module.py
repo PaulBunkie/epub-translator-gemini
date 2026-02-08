@@ -704,7 +704,9 @@ class WorkflowTranslator:
             # Максимально допустимое количество токенов для вывода
             calculated_max_output_tokens = model_total_context_limit - input_prompt_tokens - 100 # Буфер 100 токенов
             # Окончательный лимит вывода: минимум из заявленного моделью и рассчитанного
-            final_output_token_limit = min(model_declared_output_limit, calculated_max_output_tokens)
+            # Ограничиваем 65536 — лимит многих провайдеров (напр. Chutes) для completion tokens
+            OPENROUTER_MAX_COMPLETION_TOKENS = 65536
+            final_output_token_limit = min(model_declared_output_limit, calculated_max_output_tokens, OPENROUTER_MAX_COMPLETION_TOKENS)
             print(f"[WorkflowTranslator] Рассчитанный output_token_limit для API: {final_output_token_limit} (Общий контекст: {model_total_context_limit}, Входной промпт: ~{input_prompt_tokens} токенов)")
 
             data = {
