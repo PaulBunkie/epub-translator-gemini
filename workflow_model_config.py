@@ -47,7 +47,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'free',
     },
     'football_predict': {
-        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'vertex/gemini-3-flash-preview',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
         'fallback_level3': 'models/gemini-3-flash-preview'

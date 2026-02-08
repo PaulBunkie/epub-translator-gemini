@@ -652,6 +652,9 @@ class FootballManager:
                         "max_tokens": 4000,
                         "temperature": 0.4
                     }
+                    if model.startswith('vertex/'):
+                        payload['model'] = model.replace('vertex/', '')
+
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
@@ -819,8 +822,8 @@ class FootballManager:
                     # Дополнительно: уведомление, когда фаворит вничью на 30-й минуте (шансы высокие, ставки выросли)
                     if h_val == a_val and fav_team_id is not None and fav_team_name:
                         try:
-                            match_date = row.get('match_date')
-                            match_time = row.get('match_time')
+                            match_date = row['match_date']
+                            match_time = row['match_time']
                             if match_date and match_time:
                                 # Время в БД хранится в UTC (см. _save_match). Сравниваем в UTC.
                                 match_start_naive = datetime.strptime(f"{match_date} {match_time}", "%Y-%m-%d %H:%M")
@@ -839,8 +842,8 @@ class FootballManager:
                                         h_val,
                                         a_val,
                                         int(round(elapsed_minutes)),
-                                        row.get('initial_odds'),
-                                        row.get('last_odds'),
+                                        row['initial_odds'],
+                                        row['last_odds'],
                                     )
                         except (ValueError, TypeError) as e:
                             print(f"[Football Scores] Не удалось вычислить минуту для уведомления о ничьей {fixture_id}: {e}")
@@ -4438,7 +4441,13 @@ X2 ИГНОРИРУЕМ
                     }
                     
                     print(f"[Football AI] Отправка запроса к OpenRouter API (модель: {model})")
+
+                    if model.startswith('vertex/'):
+                        payload['model'] = model.replace('vertex/', '')
                     
+                    if model.startswith('vertex/'):
+                        payload['model'] = model.replace('vertex/', '')
+
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
@@ -4596,6 +4605,9 @@ X2 ИГНОРИРУЕМ
                     print(f"[Football Risk Analysis] URL: {self.openrouter_api_url}/chat/completions")
                     print(f"[Football Risk Analysis] Payload: model={model}, max_tokens={payload['max_tokens']}, temperature={payload['temperature']}")
                     
+                    if model.startswith('vertex/'):
+                        payload['model'] = model.replace('vertex/', '')
+
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
@@ -5235,7 +5247,17 @@ X2 ИГНОРИРУЕМ
                     }
                     
                     print(f"[Football AI] Отправка запроса к OpenRouter API (модель: {model})")
+
+                    # Проверка на Vertex модели - они требуют особого обращения или доступны только админам
+                    if model.startswith('vertex/'):
+                        # В football_predict мы пока разрешаем использование Vertex без явного флага admin,
+                        # так как этот процесс фоновый и управляется сервером.
+                        # Но убираем префикс для OpenRouter
+                        payload['model'] = model.replace('vertex/', '')
                     
+                    if model.startswith('vertex/'):
+                        payload['model'] = model.replace('vertex/', '')
+
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
                         headers=headers,
@@ -5449,6 +5471,9 @@ X2 ИГНОРИРУЕМ
                     }
 
                     print(f"[Football Bet AI] Отправка запроса к OpenRouter API (модель: {model})")
+
+                    if model.startswith('vertex/'):
+                        payload['model'] = model.replace('vertex/', '')
 
                     response = requests.post(
                         f"{self.openrouter_api_url}/chat/completions",
