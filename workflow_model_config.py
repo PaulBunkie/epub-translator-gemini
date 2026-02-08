@@ -25,9 +25,9 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'models/gemini-flash-latest'
+        'primary': 'models/gemini-flash-latest',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
+        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
     },
     'video_analyze': {
         'primary': 'tngtech/tng-r1t-chimera:free',
