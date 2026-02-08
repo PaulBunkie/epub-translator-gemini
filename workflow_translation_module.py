@@ -235,19 +235,28 @@ class WorkflowTranslator:
                         # Если не Base64, пробуем парсить как сырой JSON
                         creds_info = json.loads(gcp_creds_raw)
                     
+                    # Пытаемся найти Project ID всеми возможными способами
+                    project_id = (
+                        creds_info.get("project_id") or
+                        creds_info.get("quota_project_id") or
+                        creds_info.get("project") or
+                        os.getenv("GCP_PROJECT_ID") or
+                        os.getenv("GCP_PROJECT") or
+                        os.getenv("GOOGLE_CLOUD_PROJECT")
+                    )
+
                     # Используем универсальный загрузчик credentials из словаря
-                    credentials, project_id = google.auth.load_credentials_from_dict(creds_info)
-                    
-                    # Если проект не определился из ключа, берем из переменной или ищем в словаре
-                    project_id = project_id or os.getenv("GCP_PROJECT_ID") or creds_info.get("project_id")
+                    # Если project_id не был найден в JSON, load_credentials_from_dict может его вернуть
+                    credentials, discovered_project_id = google.auth.load_credentials_from_dict(creds_info)
+                    project_id = project_id or discovered_project_id
                     
                     if not project_id:
-                        print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: project_id не найден. Vertex AI может работать некорректно.")
-
-                    vertexai.init(project=project_id, location="global", credentials=credentials)
-                    
-                    self.vertex_available = True
-                    print(f"[WorkflowTranslator] Vertex AI успешно инициализирован (Project: {project_id}).")
+                        print("[WorkflowTranslator] ОШИБКА: project_id не найден ни в GCP_CREDENTIALS, ни в переменных окружения.")
+                        self.vertex_available = False
+                    else:
+                        vertexai.init(project=project_id, location="global", credentials=credentials)
+                        self.vertex_available = True
+                        print(f"[WorkflowTranslator] Vertex AI успешно инициализирован (Project: {project_id}).")
                 except Exception as ve:
                     print(f"[WorkflowTranslator] ОШИБКА при инициализации Vertex AI из GCP_CREDENTIALS: {ve}")
             else:
