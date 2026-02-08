@@ -5,23 +5,23 @@
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'xiaomi/mimo-v2-flash:free',
-        'fallback_level1': 'google/gemma-3-27b-it:free',
-        'fallback_level2': 'meta-llama/llama-3.3-70b-instruct:free'
+        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free',
+        'fallback_level1': 'models/gemma-3-27b-it:free',
+        'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
         'primary': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'models/gemini-3-pro-preview'
+        'fallback_level2': 'models/gemini-flash-latest'
     },
     'translate': {
-        'primary': 'nex-agi/deepseek-v3.1-nex-n1:free', 
-        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free', 
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free' #, 'models/gemini-3-pro-preview'
+        'primary': 'tngtech/deepseek-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'deepseek/deepseek-r1-0528:free'
     },
     'reduce': {
-        'primary': 'meta-llama/llama-3.1-405b-instruct:free',
-        'fallback_level1': 'amazon/nova-2-lite-v1:free',
+        'primary': 'models/gemini-flash-latest',
+        'fallback_level1': 'models/gemma-3-27b-it:free',
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'translate_toc': {
@@ -30,31 +30,31 @@ MODEL_CONFIG = {
         'fallback_level2': 'models/gemini-flash-latest'
     },
     'video_analyze': {
-        'primary': 'xiaomi/mimo-v2-flash:free',
-        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'free',
     },
     'video_chat': {
-        'primary': 'xiaomi/mimo-v2-flash:free',
-        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'free',
     },
     'title_translate': {
-        'primary': 'xiaomi/mimo-v2-flash:free',
-        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'primary': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'free',
     },
     'football_predict': {
         'primary': 'tngtech/tng-r1t-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'amazon/nova-2-lite-v1:free',
-        'fallback_level3': 'openai/gpt-5.1'
+        'fallback_level2': 'models/gemini-flash-latest',
+        'fallback_level3': 'free'
     },
     'bet_risk_analysis': {
         'primary': 'tngtech/tng-r1t-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'amazon/nova-2-lite-v1:free',
-        'fallback_level3': 'openai/gpt-5.1'
+        'fallback_level2': 'models/gemini-flash-latest',
+        'fallback_level3': 'free'
     }
 }
 

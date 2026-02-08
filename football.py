@@ -518,9 +518,9 @@ class FootballManager:
         self.requests_used = None
         self.requests_last_cost = None
         
-        # Словарь для хранения статуса отправки уведомлений о проигрыше фаворита
+        # Словарь для хранения статуса отправки уведомлений о том, что фаворит не выигрывает
         # Ключ: fixture_id, Значение: True (уведомление уже отправлено)
-        self.favorite_losing_notifications_sent = {}
+        self.favorite_not_winning_notifications_sent = {}
         
         # Получаем список лиг для сбора (из переменной окружения или по умолчанию)
         leagues_env = os.getenv("FOOTBALL_LEAGUES")
@@ -799,10 +799,10 @@ class FootballManager:
                     conn.commit()
                     updated += 1
                     
-                    # Проверяем и отправляем уведомление, если фаворит проигрывает
+                    # Проверяем и отправляем уведомление, если фаворит не выигрывает (проигрыш или ничья)
                     fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
                     fav_team_name = row['fav'] if 'fav' in row.keys() else None
-                    self._check_and_notify_favorite_losing(
+                    self._check_and_notify_favorite_not_winning(
                         row['fixture_id'],
                         row['home_team'],
                         row['away_team'],
@@ -826,7 +826,7 @@ class FootballManager:
                     pass
         return updated
 
-    def _check_and_notify_favorite_losing(
+    def _check_and_notify_favorite_not_winning(
         self,
         fixture_id: str,
         home_team: str,
@@ -837,7 +837,7 @@ class FootballManager:
         away_score: int
     ) -> None:
         """
-        Проверяет, проигрывает ли фаворит, и отправляет уведомление один раз.
+        Проверяет, не выигрывает ли фаворит (проигрыш или ничья), и отправляет уведомление один раз.
         
         Args:
             fixture_id: ID матча
@@ -853,21 +853,21 @@ class FootballManager:
             return
         
         # Пропускаем, если уведомление уже было отправлено
-        if self.favorite_losing_notifications_sent.get(fixture_id, False):
+        if self.favorite_not_winning_notifications_sent.get(fixture_id, False):
             return
         
-        # Проверяем, проигрывает ли фаворит
-        is_favorite_losing = False
+        # Проверяем, не выигрывает ли фаворит (проигрыш или ничья)
+        is_favorite_not_winning = False
         
         if fav_team_id == 1:  # Фаворит дома
-            if home_score < away_score:
-                is_favorite_losing = True
+            if home_score <= away_score:
+                is_favorite_not_winning = True
         elif fav_team_id == 0:  # Фаворит в гостях
-            if away_score < home_score:
-                is_favorite_losing = True
+            if away_score <= home_score:
+                is_favorite_not_winning = True
         
-        # Если фаворит проигрывает, отправляем уведомление
-        if is_favorite_losing:
+        # Если фаворит не выигрывает, отправляем уведомление
+        if is_favorite_not_winning:
             try:
                 if not TELEGRAM_AVAILABLE:
                     print(f"[Football] Telegram notifier недоступен, пропускаем уведомление для {fixture_id}")
@@ -877,11 +877,11 @@ class FootballManager:
                 subscribers = get_football_subscribers()
                 
                 if not subscribers:
-                    print(f"[Football] Нет подписчиков для уведомления о проигрыше фаворита {fixture_id}")
+                    print(f"[Football] Нет подписчиков для уведомления о том, что фаворит не выигрывает {fixture_id}")
                     return
                 
                 # Формируем сообщение
-                message = f"""⚠️ <b>Фаворит проигрывает!</b>
+                message = f"""⚠️ <b>Фаворит не выигрывает!</b>
 
 🏟️ <b>Матч:</b> {home_team} vs {away_team}
 📊 <b>Счет:</b> {home_score} - {away_score}
@@ -899,13 +899,13 @@ class FootballManager:
                 
                 if success_count > 0:
                     # Помечаем, что уведомление отправлено
-                    self.favorite_losing_notifications_sent[fixture_id] = True
-                    print(f"[Football] Отправлено уведомление о проигрыше фаворита: {fixture_id} ({home_team} vs {away_team}, счет {home_score}-{away_score})")
+                    self.favorite_not_winning_notifications_sent[fixture_id] = True
+                    print(f"[Football] Отправлено уведомление: фаворит не выигрывает: {fixture_id} ({home_team} vs {away_team}, счет {home_score}-{away_score})")
                 else:
-                    print(f"[Football] Не удалось отправить уведомление о проигрыше фаворита {fixture_id}: все попытки неудачны")
+                    print(f"[Football] Не удалось отправить уведомление (фаворит не выигрывает) {fixture_id}: все попытки неудачны")
                     
             except Exception as e:
-                print(f"[Football ERROR] Ошибка отправки уведомления о проигрыше фаворита для {fixture_id}: {e}")
+                print(f"[Football ERROR] Ошибка отправки уведомления (фаворит не выигрывает) для {fixture_id}: {e}")
                 import traceback
                 print(traceback.format_exc())
 
