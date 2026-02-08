@@ -26,12 +26,12 @@ MODEL_CONFIG = {
     },
     'translate_toc': {
         'primary': 'models/gemini-flash-latest',
-        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free'
+        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free'
     },
     'video_analyze': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
     },
     'video_chat': {
@@ -40,21 +40,21 @@ MODEL_CONFIG = {
         'fallback_level2': 'free',
     },
     'title_translate': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
+        'primary': 'models/gemini-flash-latest',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'free',
+        'fallback_level2': 'tngtech/deepseek-r1t-chimera:free',
     },
     'football_predict': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'models/gemini-flash-latest',
-        'fallback_level3': 'free'
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level2': 'free',
+        'fallback_level3': 'models/gemini-flash-latest'
     },
     'bet_risk_analysis': {
-        'primary': 'tngtech/tng-r1t-chimera:free',
-        'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'models/gemini-flash-latest',
-        'fallback_level3': 'free'
+        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tngtech/tng-r1t-chimera:free',
+        'fallback_level2': 'free',
+        'fallback_level3': 'models/gemini-flash-latest'
     }
 }
 
