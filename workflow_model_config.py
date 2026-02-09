@@ -10,14 +10,14 @@ MODEL_CONFIG = {
         'fallback_level2': 'google/gemma-3-27b-it:free'
     },
     'analyze': {
-        'primary': 'vertex/gemini-3-flash-preview',
+        'primary': 'vertex/gemini-3-pro-preview',
         'fallback_level1': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level3': 'models/gemini-3-flash-preview'
     },
     'translate': {
-        'primary': 'vertex/gemini-3-pro-preview',
-        'fallback_level1': 'models/gemini-3-flash-preview',
+        'primary': 'vertex/gemini-3-flash-preview',
+        'fallback_level1': 'vertex/gemini-3-pro-preview',
         'fallback_level2': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level3': 'tngtech/deepseek-r1t-chimera:free'
     },
@@ -47,13 +47,13 @@ MODEL_CONFIG = {
         'fallback_level2': 'free',
     },
     'football_predict': {
-        'primary': 'vertex/gemini-3-flash-preview',
+        'primary': 'vertex/gemini-3-pro-preview',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
         'fallback_level3': 'models/gemini-3-flash-preview'
     },
     'bet_risk_analysis': {
-        'primary': 'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'vertex/gemini-3-pro-preview',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
         'fallback_level2': 'free',
         'fallback_level3': 'models/gemini-3-flash-preview'
