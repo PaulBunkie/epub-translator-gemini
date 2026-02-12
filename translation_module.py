@@ -559,7 +559,7 @@ class OpenRouterTranslator(BaseTranslator):
 
         for attempt in range(max_retries):
             try:
-                print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries})...")
+                print(f"[OpenRouterTranslator] Отправка запроса к '{model_name}' (попытка {attempt + 1}/{max_retries})...")
                 json_str = json.dumps(data, ensure_ascii=False)
                 # Проверяем, что JSON валидный
                 json.loads(json_str)

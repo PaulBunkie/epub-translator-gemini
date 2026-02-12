@@ -7,7 +7,7 @@ MODEL_CONFIG = {
     'summarize': {
         'primary': 'nvidia/nemotron-3-nano-30b-a3b:free',
         'fallback_level1': 'models/gemma-3-27b-it:free',
-        'fallback_level2': 'google/gemma-3-27b-it:free'
+        'fallback_level2': 'openrouter/free'
     },
     'analyze': {
         'primary': 'vertex/gemini-3-pro-preview',
@@ -34,28 +34,28 @@ MODEL_CONFIG = {
     'video_analyze': {
         'primary': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'free',
+        'fallback_level2': 'openrouter/free',
     },
     'video_chat': {
         'primary': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'free',
+        'fallback_level2': 'openrouter/free',
     },
     'title_translate': {
         'primary': 'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'free',
+        'fallback_level2': 'openrouter/free',
     },
     'football_predict': {
         'primary': 'vertex/gemini-3-pro-preview',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'free',
+        'fallback_level2': 'openrouter/free',
         'fallback_level3': 'models/gemini-3-flash-preview'
     },
     'bet_risk_analysis': {
         'primary': 'vertex/gemini-3-pro-preview',
         'fallback_level1': 'tngtech/deepseek-r1t-chimera:free',
-        'fallback_level2': 'free',
+        'fallback_level2': 'openrouter/free',
         'fallback_level3': 'models/gemini-3-flash-preview'
     }
 }

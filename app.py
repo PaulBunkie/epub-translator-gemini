@@ -362,7 +362,7 @@ def index():
 
     print("Загрузка главной страницы...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
+    selected_model = session.get('model_name', 'openrouter/free')
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     
     # Получаем список моделей, учитывая режим администратора
@@ -371,9 +371,9 @@ def index():
     if not available_models:
         available_models = [
             {
-                'name': 'meta-llama/llama-4-maverick:free',
-                'display_name': 'Meta Llama 4 Maverick (Free)',
-                'description': 'Default Meta Llama model'
+                'name': 'openrouter/free',
+                'display_name': 'openrouter/free',
+                'description': 'openrouter/free'
             }
         ]
         print("  WARN: Не удалось получить список моделей от API.")
@@ -450,7 +450,7 @@ def upload_file():
         translated_toc_titles = {}
         if toc_titles_for_translation:
              print(f"Перевод {len(toc_titles_for_translation)} заголовков TOC...")
-             toc_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
+             toc_model = session.get('model_name', 'openrouter/free')
              titles_text = "\n|||---\n".join(toc_titles_for_translation)
              # Здесь мы не передаем operation_type, потому что это всегда просто перевод названий TOC
              translated_titles_text = translate_text(titles_text, target_language, toc_model, prompt_ext=None)
@@ -508,9 +508,7 @@ def view_book(book_id):
     book_db_language = book_info.get('target_language')
     target_language = book_db_language or request.args.get('lang') or session.get('target_language', 'russian')
 
-    # --- ИЗМЕНЕНИЕ: Меняем модель по умолчанию на 'meta-llama/llama-4-maverick:free' ---
-    selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    selected_model = session.get('model_name', 'openrouter/free')
 
     selected_operation = session.get('operation_type', 'translate')
 
@@ -524,7 +522,7 @@ def view_book(book_id):
     # Получаем список моделей, учитывая режим администратора
     is_admin_mode = session.get('admin_mode', False)
     available_models = get_models_list(show_all_models=is_admin_mode)
-    if not available_models: available_models = list(set([selected_model, 'meta-llama/llama-4-maverick:free'])); print("  WARN: Не удалось получить список моделей.\n")
+    if not available_models: available_models = list(set([selected_model, 'openrouter/free'])); print("  WARN: Не удалось получить список моделей.\n")
     prompt_ext_text = book_info.get('prompt_ext', '')
 
     resp = make_response(render_template('book_view.html', book_id=book_id, book_info=book_info, target_language=target_language, selected_model=selected_model, available_models=available_models, prompt_ext=prompt_ext_text, isinstance=isinstance, selected_operation=selected_operation, is_admin_mode=is_admin_mode))
@@ -546,7 +544,7 @@ def save_prompt_ext(book_id):
 
 @app.route('/translate_section/<book_id>/<section_id>', methods=['POST'])
 def translate_section_request(book_id, section_id):
-    print(f"Запрос на перевод секции: {book_id}/{section_id}")
+    print(f"\n[Перевод] >>> Запрос на перевод секции: {book_id}/{section_id}")
     print("  [DEBUG] 1. Вызов get_book...")
     book_info = get_book(book_id)
     if book_info is None:
@@ -564,7 +562,7 @@ def translate_section_request(book_id, section_id):
         data = request.get_json();
         if not data: raise ValueError("Missing JSON")
         target_language = data.get('target_language', session.get('target_language', 'russian'))
-        model_name = data.get('model_name', session.get('model_name', 'meta-llama/llama-4-maverick:free'))
+        model_name = data.get('model_name', session.get('model_name', 'openrouter/free'))
         operation_type = data.get('operation_type', 'translate') # Get operation type from JSON, default to 'translate'
         print(f"  [DEBUG] 3.1. Параметры получены: lang={target_language}, model={model_name}, operation={operation_type}")
     except Exception as e:
@@ -573,6 +571,8 @@ def translate_section_request(book_id, section_id):
 
     session['target_language'] = target_language; session['model_name'] = model_name
     session['operation_type'] = operation_type # Save operation type to session
+    
+    print(f"  [LOG] Используется модель: '{model_name}' (язык: {target_language})")
 
     print(f"  [DEBUG] 4. Проверка section_info для ID: {section_id}")
     sections = book_info.get('sections', {})
@@ -606,7 +606,7 @@ def translate_section_request(book_id, section_id):
 
 @app.route('/translate_all/<book_id>', methods=['POST'])
 def translate_all_request(book_id):
-    print(f"Запрос на перевод всех секций: {book_id}")
+    print(f"\n[Перевод] >>> ЗАПУСК ПЕРЕВОДА ВСЕХ СЕКЦИЙ для книги: {book_id}")
     book_info = get_book(book_id)
     if book_info is None: return jsonify({"error": "Book not found"}), 404
     filepath = book_info.get("filepath")
@@ -615,11 +615,14 @@ def translate_all_request(book_id):
         data = request.get_json();
         if not data: raise ValueError("Missing JSON")
         target_language = data.get('target_language', session.get('target_language', 'russian'))
-        model_name = data.get('model_name', session.get('model_name', 'meta-llama/llama-4-maverick:free'))
+        model_name = data.get('model_name', session.get('model_name', 'free'))
         operation_type = data.get('operation_type', 'translate') # Get operation type from JSON, default to 'translate'
     except Exception as e: print(f"  Ошибка получения параметров: {e}"); return jsonify({"error": f"Invalid JSON payload: {e}"}), 400
     session['target_language'] = target_language; session['model_name'] = model_name
     session['operation_type'] = operation_type # Save operation type to session
+    
+    print(f"  [LOG] Массовый перевод запущен. Модель: '{model_name}', Язык: {target_language}")
+    
     sections_list = book_info.get('sections', {})
     if not sections_list: return jsonify({"error": "No sections found"}), 404
     prompt_ext_text = book_info.get('prompt_ext', '')
@@ -2690,16 +2693,16 @@ def books():
 
     print("Загрузка страницы /books...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'meta-llama/llama-4-maverick:free')
+    selected_model = session.get('model_name', 'openrouter/free')
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     is_admin_mode = session.get('admin_mode', False)
     available_models = get_models_list(show_all_models=is_admin_mode)
     if not available_models:
         available_models = [
             {
-                'name': 'meta-llama/llama-4-maverick:free',
-                'display_name': 'Meta Llama 4 Maverick (Free)',
-                'description': 'Default Meta Llama model'
+                'name': 'openrouter/free',
+                'display_name': 'openrouter/free',
+                'description': 'openrouter/free'
             }
         ]
         print("  WARN: Не удалось получить список моделей от API.")
@@ -2963,7 +2966,12 @@ def list_media_files():
     files = []
     if os.path.exists(MEDIA_DIR):
         files = [f for f in os.listdir(MEDIA_DIR) if os.path.isfile(os.path.join(MEDIA_DIR, f))]
-    return render_template('files.html', files=files)
+    
+    from urllib.parse import unquote
+    def url_decode(s):
+        return unquote(s)
+
+    return render_template('files.html', files=files, url_decode=url_decode)
 
 @app.route('/files/upload', methods=['POST'])
 def upload_media_file():
@@ -2980,15 +2988,17 @@ def upload_media_file():
         return redirect(url_for('list_media_files'))
 
     if file:
-        filename = secure_filename(file.filename)
-        # Проверка расширения (простая, для медиа)
-        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+        from urllib.parse import quote
+        filename = quote(file.filename)
+
+        # Проверка расширения
+        check_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
         media_exts = {'png', 'jpg', 'jpeg', 'gif', 'mp3', 'wav', 'mp4', 'mov', 'avi', 'mkv', 'webp'}
         
-        if ext not in media_exts:
-             from flask import flash
-             flash(f'Неподдерживаемый тип файла: {ext}', 'danger')
-             return redirect(url_for('list_media_files'))
+        if check_ext not in media_exts:
+            from flask import flash
+            flash(f'Неподдерживаемый тип файла: {check_ext}', 'danger')
+            return redirect(url_for('list_media_files'))
 
         file_path = os.path.join(MEDIA_DIR, filename)
         file.save(file_path)
@@ -2996,15 +3006,17 @@ def upload_media_file():
         flash(f'Файл {filename} успешно загружен', 'success')
         return redirect(url_for('list_media_files'))
 
-@app.route('/media/<filename>')
+@app.route('/media/<path:filename>')
 def download_media_file(filename):
     """Эндпойнт для скачивания медиафайлов."""
+    from urllib.parse import unquote
+    # unquote не нужна для send_from_directory, Flask сам это делает для переменных пути,
+    # но используем path: тип для поддержки закодированных слешей и спецсимволов
     return send_from_directory(MEDIA_DIR, filename)
 
-@app.route('/files/delete/<filename>', methods=['POST'])
+@app.route('/files/delete/<path:filename>', methods=['POST'])
 def delete_media_file(filename):
     """Эндпойнт для удаления медиафайла."""
-    filename = secure_filename(filename)
     file_path = os.path.join(MEDIA_DIR, filename)
     if os.path.exists(file_path):
         try:

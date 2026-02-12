@@ -30,7 +30,7 @@
                         <label for="media_file" class="form-label">Выберите файл (аудио, видео, изображения, макс. 50МБ)</label>
                         <input class="form-control" type="file" id="media_file" name="media_file" required>
                         <div id="fileSizeWarning" class="text-danger mt-2" style="display: none;">
-                            ⚠️ Файл слишком большой! Максимальный размер — 50 МБ.
+                            ⚠️ Файл слишком большой! Максимальный размер — 50МБ.
                         </div>
                     </div>
                     <button type="submit" id="uploadBtn" class="btn btn-primary">Загрузить</button>
@@ -50,7 +50,7 @@
                 <tbody>
                     {% for file in files %}
                     <tr>
-                        <td>{{ file }}</td>
+                        <td>{{ url_decode(file) if url_decode else file }}</td>
                         <td>
                             <div class="btn-group" role="group">
                                 <a href="{{ url_for('download_media_file', filename=file) }}" class="btn btn-sm btn-success">Скачать</a>
@@ -84,7 +84,7 @@
                 </div>
                 <div class="modal-body text-center py-4">
                     <h4 class="text-danger mb-3">⚠️ Файл слишком большой</h4>
-                    <p>Размер выбранного файла превышает допустимый лимит <strong>50 МБ</strong>.</p>
+                    <p>Размер выбранного файла превышает допустимый лимит <strong>50МБ</strong>.</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Понятно</button>
