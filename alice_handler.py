@@ -53,7 +53,7 @@ def _get_bbc_news_from_api():
     return titles
 
 # --- Функция для ОБНОВЛЕНИЯ кеша новостей (вызывается лениво из /alice) ---
-def update_translated_news_cache(model_for_news: str = "meta-llama/llama-4-scout:free"):
+def update_translated_news_cache(model_for_news: str = "free"):
     global translated_news_cache, news_cache_lock; print(f"[Alice Handler/News Update] Запуск обновления новостей с моделью '{model_for_news}'..."); english_titles = _get_bbc_news_from_api()
     if not english_titles: print("[Alice Handler/News Update] Не удалось получить заголовки."); return False
     new_translated_titles = []; target_language = "russian"; alice_prompt_ext = "Do not use footnotes..."
@@ -79,7 +79,7 @@ def run_gemini_query_background(session_id, user_query):
     log_prefix = f"[Alice Handler/BG Gemini {session_id}]"; print(f"{log_prefix} Запуск: '{user_query[:50]}...'")
     result_payload = {"status": "error", "error": "BG error"}; start_time = time.time()
     try:
-        model_name = "gemini-2.5-flash-preview-05-20"; print(f"{log_prefix} Иниц. {model_name}...")
+        model_name = "free"; print(f"{log_prefix} Иниц. {model_name}...")
         try: model = genai.GenerativeModel(model_name); print(f"{log_prefix} Модель готова.")
         except Exception as model_e: print(f"{log_prefix} ОШИБКА иниц. модели: {model_e}"); raise model_e
         prompt = f"""Ты — ассистент Алиса. Ответь кратко. Макс 950 символов. Без Markdown.

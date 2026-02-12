@@ -18,8 +18,8 @@ LOCATION_CACHE_TTL_SECONDS = 4000
 USER_REQUEST_CACHE_TTL_SECONDS = 86400  # 24 часа для пользовательских запросов
 
 # Модели для анализа локаций (как в video_analyzer.py)
-PRIMARY_MODEL = os.getenv("LOCATION_FINDER_PRIMARY_MODEL", "gemini-2.5-flash-preview-05-20")
-FALLBACK_MODEL = os.getenv("LOCATION_FINDER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+PRIMARY_MODEL = os.getenv("LOCATION_FINDER_PRIMARY_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free")
+FALLBACK_MODEL = os.getenv("LOCATION_FINDER_FALLBACK_MODEL", "free")
 
 _gemini_model_instance = None
 _is_gemini_api_configured = False
