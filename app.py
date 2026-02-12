@@ -3001,6 +3001,31 @@ def download_media_file(filename):
     """Эндпойнт для скачивания медиафайлов."""
     return send_from_directory(MEDIA_DIR, filename)
 
+@app.route('/files/delete/<filename>', methods=['POST'])
+def delete_media_file(filename):
+    """Эндпойнт для удаления медиафайла."""
+    filename = secure_filename(filename)
+    file_path = os.path.join(MEDIA_DIR, filename)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            from flask import flash
+            flash(f'Файл {filename} успешно удален', 'success')
+        except Exception as e:
+            from flask import flash
+            flash(f'Ошибка при удалении файла: {e}', 'danger')
+    else:
+        from flask import flash
+        flash('Файл не найден', 'warning')
+    return redirect(url_for('list_media_files'))
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    """Обработчик ошибки превышения размера файла."""
+    from flask import flash
+    flash('Ошибка: Файл слишком большой. Максимальный размер — 50 МБ.', 'danger')
+    return redirect(url_for('list_media_files'))
+
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ МЕДИАФАЙЛОВ ---
 
 # --- Запуск приложения ---
