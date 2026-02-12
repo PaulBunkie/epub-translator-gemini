@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузка медиафайлов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; padding-top: 50px; }
+        .container { max-width: 800px; }
+        .file-list { margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 class="mb-4">Загрузка медиафайлов</h2>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <form action="{{ url_for('upload_media_file') }}" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="media_file" class="form-label">Выберите файл (аудио, видео, изображения, макс. 50МБ)</label>
+                        <input class="form-control" type="file" id="media_file" name="media_file" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Загрузить</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="file-list">
+            <h3>Список загруженных файлов</h3>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Имя файла</th>
+                        <th>Действие</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr>
+                        <td>{{ file }}</td>
+                        <td>
+                            <a href="{{ url_for('download_media_file', filename=file) }}" class="btn btn-sm btn-success">Скачать</a>
+                        </td>
+                    </tr>
+                    {% if not files %}
+                    <tr>
+                        <td colspan="2" class="text-center">Файлов пока нет</td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-4">
+            <a href="{{ url_for('user_main_page') }}" class="btn btn-secondary">Назад к книгам</a>
+        </div>
+    </div>
+</body>
+</html>

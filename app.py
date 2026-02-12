@@ -69,12 +69,13 @@ except ImportError:
     print("[App] Telegram бот недоступен (модуль не найден)")
 
 # --- Настройки ---
-from config import UPLOADS_DIR, CACHE_DIR, FULL_TRANSLATION_DIR
+from config import UPLOADS_DIR, CACHE_DIR, FULL_TRANSLATION_DIR, MEDIA_DIR, MAX_CONTENT_LENGTH
 
 UPLOAD_FOLDER = str(UPLOADS_DIR)
 ALLOWED_EXTENSIONS = {'epub'}
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SECRET_KEY'] = os.urandom(24) # Для сессий и flash-сообщений
 
@@ -2953,6 +2954,54 @@ def api_export_football_excel():
         import traceback
         print(traceback.format_exc())
         return jsonify({'error': f'Ошибка экспорта: {str(e)}'}), 500
+
+# --- НОВЫЕ МАРШРУТЫ ДЛЯ МЕДИАФАЙЛОВ ---
+
+@app.route('/files', methods=['GET'])
+def list_media_files():
+    """Отображает страницу со списком загруженных медиафайлов."""
+    files = []
+    if os.path.exists(MEDIA_DIR):
+        files = [f for f in os.listdir(MEDIA_DIR) if os.path.isfile(os.path.join(MEDIA_DIR, f))]
+    return render_template('files.html', files=files)
+
+@app.route('/files/upload', methods=['POST'])
+def upload_media_file():
+    """Обрабатывает загрузку медиафайла."""
+    if 'media_file' not in request.files:
+        from flask import flash
+        flash('Файл не найден', 'danger')
+        return redirect(url_for('list_media_files'))
+    
+    file = request.files['media_file']
+    if file.filename == '':
+        from flask import flash
+        flash('Файл не выбран', 'danger')
+        return redirect(url_for('list_media_files'))
+
+    if file:
+        filename = secure_filename(file.filename)
+        # Проверка расширения (простая, для медиа)
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+        media_exts = {'png', 'jpg', 'jpeg', 'gif', 'mp3', 'wav', 'mp4', 'mov', 'avi', 'mkv', 'webp'}
+        
+        if ext not in media_exts:
+             from flask import flash
+             flash(f'Неподдерживаемый тип файла: {ext}', 'danger')
+             return redirect(url_for('list_media_files'))
+
+        file_path = os.path.join(MEDIA_DIR, filename)
+        file.save(file_path)
+        from flask import flash
+        flash(f'Файл {filename} успешно загружен', 'success')
+        return redirect(url_for('list_media_files'))
+
+@app.route('/media/<filename>')
+def download_media_file(filename):
+    """Эндпойнт для скачивания медиафайлов."""
+    return send_from_directory(MEDIA_DIR, filename)
+
+# --- КОНЕЦ МАРШРУТОВ ДЛЯ МЕДИАФАЙЛОВ ---
 
 # --- Запуск приложения ---
 if __name__ == '__main__':

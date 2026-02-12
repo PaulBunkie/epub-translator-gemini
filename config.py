@@ -13,7 +13,11 @@ else:
 # --- Основные директории ---
 CACHE_DIR = BASE_DIR / ".epub_cache"
 UPLOADS_DIR = BASE_DIR / "uploads"
+MEDIA_DIR = UPLOADS_DIR / "media"
 FULL_TRANSLATION_DIR = BASE_DIR / ".translated"
+
+# --- Настройки загрузки ---
+MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50 MB
 
 # --- Базы данных ---
 MAIN_DB_FILE = BASE_DIR / "epub_translator.db"
@@ -27,6 +31,7 @@ def ensure_directories():
     directories = [
         CACHE_DIR,
         UPLOADS_DIR,
+        MEDIA_DIR,
         FULL_TRANSLATION_DIR
     ]
     
