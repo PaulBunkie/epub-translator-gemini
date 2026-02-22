@@ -57,6 +57,10 @@ MODEL_CONFIG = {
         'fallback_level1': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'models/gemini-3-flash-preview'
+    },
+    'generate_comic': {
+        'primary': 'gemini-2.5-flash-image',
+        'fallback_level1': 'gemini-flash-image'
     }
 }
 

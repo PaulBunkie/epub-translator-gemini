@@ -1,6 +1,47 @@
 document.addEventListener('DOMContentLoaded', () => {
     // console.log('workflow.js loaded.'); // Убрана отладочная строка
 
+    // Обработка кнопки "Сделать комикс"
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.classList.contains('generate-comic-button')) {
+            const bookId = e.target.getAttribute('data-book-id');
+            if (!bookId) return;
+
+            if (!confirm('Запустить генерацию комикса? Это может занять некоторое время.')) {
+                return;
+            }
+
+            const btn = e.target;
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = 'Запуск...';
+
+            fetch(`/workflow/api/book/${bookId}/generate_comic`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Генерация комикса запущена в фоновом режиме. Обновите страницу через пару минут.');
+                    btn.innerText = 'В процессе...';
+                } else {
+                    alert('Ошибка: ' + (data.message || 'Не удалось запустить генерацию'));
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error starting comic generation:', error);
+                alert('Произошла сетевая ошибка');
+                btn.disabled = false;
+                btn.innerText = originalText;
+            });
+        }
+    });
+
     // Читаем admin параметр из URL
     const urlParams = new URLSearchParams(window.location.search);
     const admin = urlParams.get('admin') === 'true';

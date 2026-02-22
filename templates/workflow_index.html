@@ -412,6 +412,16 @@
                                             </span>
                                             {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}
                                                 <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать суммаризацию</a>
+                                                
+                                                {% if admin %}
+                                                    <button class="generate-comic-button" data-book-id="{{ book.book_id }}" style="margin-left: 10px; background-color: #6c757d; color: white; border: none; padding: 2px 8px; cursor: pointer; font-size: 0.8em; border-radius: 3px;">Сделать комикс</button>
+                                                {% endif %}
+
+                                                {% if book.comic_status == 'completed' %}
+                                                    <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id) }}" style="margin-left: 10px; color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
+                                                {% elif book.comic_status == 'processing' %}
+                                                    <span style="margin-left: 10px; color: orange;">(Комикс в процессе...)</span>
+                                                {% endif %}
                                             {% endif %}
                                             {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty']) %}
                                                 <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать анализ</a>
@@ -426,8 +436,10 @@
                             </div>
                         </div>
                         <div class="book-actions" style="margin-top: 10px;">
-                            <button class="start-workflow-button" data-book-id="{{ book.book_id }}">Start Workflow</button>
-                            <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
+                            {% if admin %}
+                                <button class="start-workflow-button" data-book-id="{{ book.book_id }}">Start Workflow</button>
+                                <button class="delete-book-button" data-book-id="{{ book.book_id }}">Удалить</button>
+                            {% endif %}
                         </div>
                     </li>
                 {% else %}

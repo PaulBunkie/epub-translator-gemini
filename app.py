@@ -1271,7 +1271,7 @@ def workflow_index():
     print("Загрузка страницы списка книг рабочего процесса...")
     
     # Проверяем параметр admin
-    admin = request.args.get('admin') == 'true'
+    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin'
     print(f"Admin режим в workflow: {admin}")
 
     workflow_books = []
@@ -1301,6 +1301,7 @@ def workflow_index():
                  'filename': book_data['filename'],
                  'status': book_data.get('current_workflow_status') or 'pending',
                  'target_language': book_data.get('target_language'),
+                 'comic_status': book_data.get('comic_status'),
                  'total_sections': total_sections,
                  # Не передаём completed_sections_count и processed_sections_count_summarize!
                  'book_stage_statuses': detailed_stage_statuses,
@@ -1323,6 +1324,65 @@ def workflow_index():
     resp.headers['Content-Security-Policy'] = csp_policy
 
     return resp
+
+@app.route('/workflow/api/book/<book_id>/generate_comic', methods=['POST'])
+def workflow_api_generate_comic(book_id):
+    """
+    API endpoint to start comic generation for a book.
+    """
+    import workflow_processor
+    # Проверяем, что суммаризация готова
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if not book_info:
+        return jsonify({'status': 'error', 'message': 'Book not found'}), 404
+        
+    book_stage_statuses = book_info.get('book_stage_statuses', {})
+    summarize_status = book_stage_statuses.get('summarize', {}).get('status')
+    
+    if summarize_status not in ['completed', 'completed_with_errors']:
+        return jsonify({'status': 'error', 'message': 'Summarization not ready'}), 400
+
+    success = workflow_processor.start_comic_generation_task(book_id, app)
+    if success:
+        return jsonify({'status': 'success', 'message': 'Comic generation started'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Failed to start comic generation'}), 500
+
+@app.route('/workflow/book/<book_id>/comic')
+def workflow_book_comic_view(book_id):
+    """
+    Page to view the generated comic for a book.
+    """
+    import workflow_db_manager
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    if not book_info:
+        return "Book not found", 404
+    
+    sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+    # Теперь картинки в БД, поэтому проверяем наличие через БД
+    comic_sections = []
+    for section in sections:
+        # Проверяем наличие изображения в БД
+        if workflow_db_manager.get_comic_image_workflow(section['section_id']):
+            section['comic_url'] = url_for('workflow_api_comic_image', section_id=section['section_id'])
+            comic_sections.append(section)
+            
+    # Проверяем админские права для ссылки "Назад"
+    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin'
+    return render_template('comic_view.html', book=book_info, sections=comic_sections, admin=admin)
+
+@app.route('/workflow/api/comic_image/<int:section_id>')
+def workflow_api_comic_image(section_id):
+    """
+    Эндпоинт для получения бинарных данных изображения из БД.
+    """
+    import workflow_db_manager
+    from flask import Response
+    image_data = workflow_db_manager.get_comic_image_workflow(section_id)
+    if not image_data:
+        return "Image not found", 404
+    
+    return Response(image_data, mimetype='image/jpeg')
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ---
 

@@ -1,6 +1,7 @@
 # --- START OF FILE workflow_processor.py ---
 
 import workflow_db_manager
+import comic_generator
 import epub_parser
 import workflow_translation_module
 import os
@@ -1729,5 +1730,28 @@ def send_telegram_notification(book_id: str, status: str = 'completed'):
     except Exception as e:
         print(f"[WorkflowProcessor] Ошибка отправки Telegram уведомлений для книги {book_id}: {e}")
         return False
+
+def start_comic_generation_task(book_id: str, app_instance):
+    """
+    Запускает фоновую задачу генерации комикса.
+    """
+    print(f"[WorkflowProcessor] Запуск генерации комикса для книги {book_id}")
+    workflow_db_manager.update_book_comic_status_workflow(book_id, 'processing')
+    
+    def task_wrapper():
+        try:
+            generator = comic_generator.ComicGenerator()
+            generator.process_book_comic(book_id, app_instance)
+            with app_instance.app_context():
+                workflow_db_manager.update_book_comic_status_workflow(book_id, 'completed')
+        except Exception as e:
+            print(f"[WorkflowProcessor] Ошибка в фоновом потоке генерации комикса: {e}")
+            traceback.print_exc()
+            with app_instance.app_context():
+                workflow_db_manager.update_book_comic_status_workflow(book_id, 'error')
+
+    thread = threading.Thread(target=task_wrapper)
+    thread.start()
+    return True
 
 # --- END OF FILE workflow_processor.py ---

@@ -64,6 +64,16 @@ def init_workflow_db():
                 );
             ''')
 
+            # Миграция: Добавление comic_status в books если его нет
+            cursor = db.execute("PRAGMA table_info(books);")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'comic_status' not in columns:
+                try:
+                    db.execute("ALTER TABLE books ADD COLUMN comic_status TEXT DEFAULT 'not_started';")
+                    print("[WorkflowDB] Колонка comic_status добавлена в таблицу books")
+                except Exception as e:
+                    print(f"[WorkflowDB] ОШИБКА добавления comic_status: {e}")
+
             # Таблица sections
             db.execute('''
                 CREATE TABLE IF NOT EXISTS sections (
@@ -189,6 +199,18 @@ def init_workflow_db():
             except Exception as e:
                 print(f"[WorkflowDB] ОШИБКА создания уникального индекса для access_token: {e}")
             
+            # Таблица comic_images для хранения сгенерированных кадров
+            db.execute('''
+                CREATE TABLE IF NOT EXISTS comic_images (
+                    section_id INTEGER PRIMARY KEY,
+                    book_id TEXT NOT NULL,
+                    image_data BLOB NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (section_id) REFERENCES sections(section_id) ON DELETE CASCADE,
+                    FOREIGN KEY (book_id) REFERENCES books(book_id) ON DELETE CASCADE
+                );
+            ''')
+
             # --- КОНЕЦ ИЗМЕНЕНИЯ: Новая структура таблиц ---
 
         print("[WorkflowDB] База данных инициализирована.")
@@ -349,6 +371,13 @@ def delete_book_workflow(book_id):
     """Удаляет книгу и все связанные записи (секций, статусов этапов)."""
     db = get_workflow_db()
     try:
+        # Удаляем папку комиксов перед удалением из БД (нужен доступ к static_folder)
+        try:
+            import comic_generator
+            comic_generator.delete_comic_folder(book_id)
+        except Exception as ce:
+            print(f"[WorkflowDB] Warning: could not delete comic folder: {ce}")
+
         with db:
             # ON DELETE CASCADE в FOREIGN KEY позаботится об удалении из sections, section_stage_statuses, book_stage_statuses
             db.execute('DELETE FROM books WHERE book_id = ?', (book_id,))
@@ -995,6 +1024,53 @@ def get_book_by_access_token(access_token: str):
         print(f"[WorkflowDB] Ошибка получения книги по токену {access_token}: {e}")
         traceback.print_exc()
         return None
+
+def save_comic_image_workflow(book_id, section_id, image_data):
+    """Сохраняет бинарные данные изображения в БД."""
+    db = get_workflow_db()
+    try:
+        with db:
+            db.execute('''
+                INSERT OR REPLACE INTO comic_images (section_id, book_id, image_data)
+                VALUES (?, ?, ?)
+            ''', (section_id, book_id, sqlite3.Binary(image_data)))
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА сохранения изображения для секции {section_id}: {e}")
+        return False
+
+def get_comic_image_workflow(section_id):
+    """Получает бинарные данные изображения из БД."""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute('SELECT image_data FROM comic_images WHERE section_id = ?', (section_id,))
+        row = cursor.fetchone()
+        return row['image_data'] if row else None
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА получения изображения для секции {section_id}: {e}")
+        return None
+
+def has_comic_images_workflow(book_id):
+    """Проверяет наличие хотя бы одного изображения для книги."""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute('SELECT 1 FROM comic_images WHERE book_id = ? LIMIT 1', (book_id,))
+        return cursor.fetchone() is not None
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА проверки наличия изображений для книги {book_id}: {e}")
+        return False
+
+def update_book_comic_status_workflow(book_id, status):
+    """Обновляет статус генерации комикса для книги."""
+    db = get_workflow_db()
+    try:
+        with db:
+            db.execute('UPDATE books SET comic_status = ? WHERE book_id = ?', (status, book_id))
+        print(f"[WorkflowDB] comic_status для книги {book_id} обновлен на {status}")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА обновления comic_status для {book_id}: {e}")
+        return False
 
 def get_telegram_users_for_book(access_token: str) -> list:
     """Получает список пользователей Telegram, подписанных на уведомления о книге"""
