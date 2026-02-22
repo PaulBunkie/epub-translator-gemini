@@ -158,11 +158,11 @@ Now, execute both tasks on the text below. Begin with the table for Task 1. Repl
 {{prompt_ext_section}}"""
     },
     'translate_toc': {
-        'system': f"""Translate these chapter titles to {{target_language}}. 
+        'system': f"""Translate these chapter titles to {{target_language}}.
 Keep the exact same order and format. Use "|||" as separator.
 Preserve chapter numbers and punctuation exactly.
 Return only the translated titles, separated by "|||". Do not add any explanations, numbering, or additional text."""
-    }
+    },
 }
 
 USER_PROMPT_TEMPLATES = {
@@ -199,7 +199,7 @@ Text to Analyze:
     'translate_toc': {
         'user': f"""Translate the following chapter titles to {{target_language}}. Use "|||" as separator. Return only the translated titles, separated by "|||". Do not add any explanations, numbering, or additional text. Titles:
 {{text}}"""
-    }
+    },
 }
 
 # --- НОВЫЙ КЛАСС WorkflowTranslator ---
@@ -644,6 +644,7 @@ class WorkflowTranslator:
             messages.append({"role": "system", "content": system_content})
             messages.append({"role": "user", "content": user_content})
             
+
         else:
             raise ValueError(f"Unknown operation type: {operation_type}")
 

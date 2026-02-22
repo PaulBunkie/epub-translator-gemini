@@ -74,6 +74,13 @@ def init_workflow_db():
                 except Exception as e:
                     print(f"[WorkflowDB] ОШИБКА добавления comic_status: {e}")
 
+            if 'visual_bible' not in columns:
+                try:
+                    db.execute("ALTER TABLE books ADD COLUMN visual_bible TEXT;")
+                    print("[WorkflowDB] Колонка visual_bible добавлена в таблицу books")
+                except Exception as e:
+                    print(f"[WorkflowDB] ОШИБКА добавления visual_bible: {e}")
+
             # Таблица sections
             db.execute('''
                 CREATE TABLE IF NOT EXISTS sections (
@@ -1058,6 +1065,17 @@ def has_comic_images_workflow(book_id):
         return cursor.fetchone() is not None
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА проверки наличия изображений для книги {book_id}: {e}")
+        return False
+
+def update_book_visual_bible_workflow(book_id, visual_bible_json):
+    """Обновляет Visual Bible (список персонажей с описаниями) для книги."""
+    db = get_workflow_db()
+    try:
+        with db:
+            db.execute('UPDATE books SET visual_bible = ? WHERE book_id = ?', (visual_bible_json, book_id))
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА обновления visual_bible для {book_id}: {e}")
         return False
 
 def update_book_comic_status_workflow(book_id, status):
