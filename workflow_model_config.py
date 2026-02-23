@@ -66,7 +66,7 @@ MODEL_CONFIG = {
     'visual_analysis': {
         'primary': 'arcee-ai/trinity-large-preview:free', #'vertex/gemini-3-flash-preview',
         'fallback_level1': 'deepseek/deepseek-r1-0528:free',
-        'fallback_level2': 'vertex/gemini-3-pro-preview'
+        'fallback_level2': 'vertex/gemini-3-flash-preview'
     }
 }
 
