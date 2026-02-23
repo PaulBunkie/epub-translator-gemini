@@ -5,8 +5,8 @@
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free',
-        'fallback_level1': 'models/gemma-3-27b-it:free',
+        'primary': 'vertex/gemini-3-flash-preview', #,
+        'fallback_level1': 'nvidia/nemotron-3-nano-30b-a3b:free', #'models/gemma-3-27b-it:free',
         'fallback_level2': 'openrouter/free'
     },
     'analyze': {
@@ -64,7 +64,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'vertex/gemini-2.5-flash-image'
     },
     'visual_analysis': {
-        'primary': 'arcee-ai/trinity-large-preview:free', #'vertex/gemini-3-flash-preview',
+        'primary': 'vertex/gemini-3-flash-preview', #'arcee-ai/trinity-large-preview:free', #
         'fallback_level1': 'deepseek/deepseek-r1-0528:free',
         'fallback_level2': 'vertex/gemini-3-flash-preview'
     }

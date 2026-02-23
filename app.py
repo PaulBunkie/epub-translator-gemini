@@ -1270,8 +1270,8 @@ def workflow_index():
     """ Отображает страницу со списком книг в новом рабочем процессе. """
     print("Загрузка страницы списка книг рабочего процесса...")
     
-    # Проверяем параметр admin
-    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin'
+    # Проверяем параметр admin (включая сессию)
+    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
     print(f"Admin режим в workflow: {admin}")
 
     workflow_books = []
@@ -1318,7 +1318,29 @@ def workflow_index():
     # TODO: Добавить передачу языка и модели по умолчанию, если они нужны на этой странице
     # TODO: Добавить логику получения списка доступных моделей, если форма загрузки будет использовать выбор модели
 
-    resp = make_response(render_template('workflow_index.html', workflow_books=workflow_books, admin=admin))
+    # Получаем статус системы для админа
+    system_status = None
+    if admin:
+        try:
+            import shutil
+            from config import WORKFLOW_DB_FILE
+            data_path = "/data" if os.path.exists("/data") else "."
+            usage = shutil.disk_usage(data_path)
+            
+            db_size = 0
+            if WORKFLOW_DB_FILE.exists():
+                db_size = WORKFLOW_DB_FILE.stat().st_size
+                
+            system_status = {
+                "free_gb": round(usage.free / (1024**3), 2),
+                "used_percent": round((usage.used / usage.total) * 100, 1),
+                "db_size_mb": round(db_size / (1024**2), 2)
+            }
+            print(f"[AdminStatus] Calculated status: {system_status}")
+        except Exception as e:
+            print(f"[AdminStatus] Error calculating system status: {e}")
+
+    resp = make_response(render_template('workflow_index.html', workflow_books=workflow_books, admin=admin, system_status=system_status))
     # Наследуем CSP политику от основной страницы
     csp_policy = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: https://unpkg.com;"
     resp.headers['Content-Security-Policy'] = csp_policy
@@ -1365,6 +1387,9 @@ def workflow_book_comic_view(book_id):
         # Проверяем наличие изображения в БД
         if workflow_db_manager.get_comic_image_workflow(section['section_id']):
             section['comic_url'] = url_for('workflow_api_comic_image', section_id=section['section_id'])
+            # Загружаем суммаризацию для оверлея
+            import workflow_cache_manager
+            section['summary'] = workflow_cache_manager.load_section_stage_result(book_id, section['section_id'], 'summarize')
             comic_sections.append(section)
             
     # Проверяем админские права для ссылки "Назад"
@@ -1383,6 +1408,38 @@ def workflow_api_comic_image(section_id):
         return "Image not found", 404
     
     return Response(image_data, mimetype='image/jpeg')
+
+@app.route('/admin/system_status')
+def admin_system_status():
+    """
+    Эндпоинт для мониторинга свободного места на диске и размера БД (только для админов).
+    """
+    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin'
+    if not admin:
+        return "Access denied", 403
+        
+    import shutil
+    from pathlib import Path
+    
+    # Путь к данным на fly.io
+    data_path = "/data"
+    if not os.path.exists(data_path):
+        data_path = "." # Fallback для локальной разработки
+        
+    usage = shutil.disk_usage(data_path)
+    # Имя БД из конфига или дефолт
+    db_file = Path(data_path) / "workflow.db"
+    db_size = db_file.stat().st_size if db_file.exists() else 0
+    
+    status = {
+        "disk_total_gb": round(usage.total / (1024**3), 2),
+        "disk_free_gb": round(usage.free / (1024**3), 2),
+        "disk_used_percent": round((usage.used / usage.total) * 100, 1),
+        "db_size_mb": round(db_size / (1024**2), 2),
+        "location": data_path
+    }
+    
+    return jsonify(status)
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ---
 

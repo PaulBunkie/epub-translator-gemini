@@ -6,7 +6,6 @@
     <title>EPUB Translator Workflow</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        /* Оригинальные стили страницы */
         body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
@@ -19,7 +18,6 @@
         h1, h2 {
             color: #333;
         }
-        /* Стили workflow, изолированные от Bootstrap */
         #workflow-content {
             font-family: Arial, sans-serif;
             line-height: 1.6;
@@ -30,11 +28,11 @@
         }
         #workflow-content h1 {
             color: #333;
-            font-size: 2em; /* Browser default */
+            font-size: 2em;
         }
         #workflow-content h2 {
             color: #333;
-            font-size: 1.5em; /* Browser default */
+            font-size: 1.5em;
         }
         .upload-form {
             margin-bottom: 30px;
@@ -64,99 +62,36 @@
             font-size: 0.9em;
             color: #555;
         }
-         .book-info span.language {
+        .book-info span.language {
             font-size: 0.8em;
             color: red;
             margin-left: 5px;
             font-weight: bold;
             vertical-align: middle;
-         }
+        }
         .book-actions button {
             margin-left: 10px;
             padding: 5px 10px;
             cursor: pointer;
         }
-         .status-processing {
+        .status-processing {
             color: orange;
             font-weight: bold;
-         }
-         .status-completed {
+        }
+        .status-completed {
             color: green;
             font-weight: bold;
-         }
-         .status-completed_with_errors {
+        }
+        .status-completed_with_errors {
             color: darkorange;
             font-weight: bold;
-         }
-         .status-error, .status-error_unknown {
+        }
+        .status-error, .status-error_unknown {
             color: red;
             font-weight: bold;
-         }
-         .status-idle {
+        }
+        .status-idle {
             color: gray;
-         }
-
-        /* Styles for the workflow progress overlay */
-        .workflow-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            z-index: 1000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* Styles for the content inside the workflow overlay */
-        .workflow-overlay-content {
-            background-color: #fff;
-            color: #333;
-            padding: 30px;
-            border-radius: 8px;
-            text-align: center;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        }
-
-        .workflow-overlay-content h2 {
-            margin-top: 0;
-            color: #333; /* Ensure heading is dark */
-        }
-
-        .workflow-overlay-content p {
-            margin-bottom: 0;
-        }
-
-        /* Style for error status in overlay */
-        .workflow-overlay-content .status-error {
-            color: red;
-            font-weight: bold;
-        }
-
-        /* Styles for the book list toggle */
-        .hidden-list {
-            display: none;
-        }
-
-        /* Styles for the book list toggle link */
-        .toggle-list-link {
-            font-size: 0.6em; /* Match previous size, not too small */
-            text-decoration: none;
-            border-bottom: 1px dotted #007bff; /* Blue dotted underline */
-            color: #007bff; /* Blue color */
-            cursor: pointer;
-            font-weight: normal; /* Remove bold inherited from h2 */
-        }
-
-        .status-details {
-            margin-top: 8px;
-        }
-        .status-details div {
-            margin: 2px 0 2px 0;
-            font-size: 14px;
         }
         .stage-status {
             font-weight: 500;
@@ -174,8 +109,6 @@
         .stage-status[data-stage="epub_creation"] {
             color: #6f42c1;
         }
-
-        /* Минимальные стили Bootstrap для меню */
         .navbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding-top: .5rem; padding-bottom: .5rem; }
         .navbar-expand-sm { flex-wrap: nowrap; justify-content: flex-start; }
         .navbar-nav { display: flex; flex-direction: column; padding-left: 0; margin-bottom: 0; list-style: none; }
@@ -188,72 +121,6 @@
         .mb-4 { margin-bottom: 1.5rem !important; }
         .rounded { border-radius: .375rem !important; }
         .me-1 { margin-right: .25rem !important; }
-
-        .upload-form {
-            margin-bottom: 30px;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f9f9f9;
-        }
-
-        .book-list {
-            list-style: none;
-            padding: 0;
-        }
-
-        .book-item {
-            background-color: #fff;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            padding: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .book-info strong {
-            font-size: 1.1em;
-        }
-
-        .book-status {
-            font-size: 0.9em;
-            color: #555;
-        }
-         .book-info span.language {
-            font-size: 0.8em;
-            color: red;
-            margin-left: 5px;
-            font-weight: bold;
-            vertical-align: middle;
-         }
-        .book-actions button {
-            margin-left: 10px;
-            padding: 5px 10px;
-            cursor: pointer;
-        }
-         .status-processing {
-            color: orange;
-            font-weight: bold;
-         }
-         .status-completed {
-            color: green;
-            font-weight: bold;
-         }
-         .status-completed_with_errors {
-            color: darkorange;
-            font-weight: bold;
-         }
-         .status-error, .status-error_unknown {
-            color: red;
-            font-weight: bold;
-         }
-         .status-idle {
-            color: gray;
-         }
-
-        /* Styles for the workflow progress overlay */
         .workflow-overlay {
             position: fixed;
             top: 0;
@@ -267,8 +134,6 @@
             justify-content: center;
             align-items: center;
         }
-
-        /* Styles for the content inside the workflow overlay */
         .workflow-overlay-content {
             background-color: #fff;
             color: #333;
@@ -277,63 +142,29 @@
             text-align: center;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
         }
-
-        .workflow-overlay-content h2 {
-            margin-top: 0;
-            color: #333; /* Ensure heading is dark */
-        }
-
-        .workflow-overlay-content p {
-            margin-bottom: 0;
-        }
-
-        /* Style for error status in overlay */
-        .workflow-overlay-content .status-error {
-            color: red;
-            font-weight: bold;
-        }
-
-        /* Styles for the book list toggle */
         .hidden-list {
             display: none;
         }
-
-        /* Styles for the book list toggle link */
         .toggle-list-link {
-            font-size: 0.6em; /* Match previous size, not too small */
+            font-size: 0.6em;
             text-decoration: none;
-            border-bottom: 1px dotted #007bff; /* Blue dotted underline */
-            color: #007bff; /* Blue color */
+            border-bottom: 1px dotted #007bff;
+            color: #007bff;
             cursor: pointer;
-            font-weight: normal; /* Remove bold inherited from h2 */
+            font-weight: normal;
         }
-
-        .status-details {
-            margin-top: 8px;
+        .system-status-widget {
+            background: #eef2f7;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            border: 2px solid #d1d9e6;
+            display: flex;
+            align-items: center;
+            gap: 25px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            color: #333;
         }
-        .status-details div {
-            margin: 2px 0 2px 0;
-            font-size: 14px;
-        }
-        .stage-status {
-            font-weight: 500;
-            color: #667eea;
-        }
-        .stage-status[data-stage="summarize"] {
-            color: #28a745;
-        }
-        .stage-status[data-stage="analyze"] {
-            color: #ffc107;
-        }
-        .stage-status[data-stage="translate"] {
-            color: #17a2b8;
-        }
-        .stage-status[data-stage="epub_creation"] {
-            color: #6f42c1;
-        }
-
-
-
     </style>
 </head>
 <body>
@@ -367,6 +198,26 @@
         <div id="workflow-content">
             <h1>EPUB Workflow Dashboard</h1>
 
+            {% if admin and system_status %}
+            <div class="system-status-widget">
+                <div title="Свободное место на диске">
+                    <i class="fas fa-hdd" style="color: #4a5568; margin-right: 8px;"></i>
+                    <strong>Диск:</strong> 
+                    {% if system_status.free_gb < 0.2 %}
+                        <span style="color: #e53e3e; font-weight: bold; font-size: 1.1em;">{{ system_status.free_gb }} GB</span>
+                    {% else %}
+                        <span style="color: #38a169; font-weight: bold; font-size: 1.1em;">{{ system_status.free_gb }} GB</span>
+                    {% endif %}
+                    <small style="color: #718096; margin-left: 5px;">({{ system_status.used_percent }}% занято)</small>
+                </div>
+                <div style="border-left: 2px solid #cbd5e0; padding-left: 25px;" title="Размер файла workflow.db">
+                    <i class="fas fa-database" style="color: #4a5568; margin-right: 8px;"></i>
+                    <strong>База данных:</strong> 
+                    <span style="color: #2d3748; font-weight: bold;">{{ system_status.db_size_mb }} MB</span>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="upload-form">
                 <h2>Upload New EPUB for Workflow</h2>
                 <form action="{{ url_for('workflow_upload_file') }}" method="post" enctype="multipart/form-data">
@@ -379,14 +230,13 @@
                         <option value="german">German</option>
                         <option value="french">French</option>
                         <option value="spanish">Spanish</option>
-                        <!-- Add more languages as needed -->
                     </select>
                     <button type="submit">Upload and Start Workflow</button>
                 </form>
             </div>
 
             <h2>
-                <a href="#" id="toggleBookListBtn" class="toggle-list-link">Hide ▼</a>
+                <a href="#" id="toggleBookListBtn" class="toggle-list-link">Books in Workflow ▼</a>
             </h2>
             <div id="bookListContainer">
             <ul class="book-list">
@@ -449,40 +299,15 @@
             </div>
         </div>
     </div>
-    <!-- Overlay for progress display -->
     <div id="progressOverlay" class="workflow-overlay" style="display: none;">
         <div class="workflow-overlay-content">
             <h2>Processing Workflow...</h2>
             <p id="progressText">Starting...</p>
-            <!-- Optional: Add a loading spinner -->
             <div class="spinner" style="margin-top: 20px;"></div>
         </div>
     </div>
 
-    <!-- Overlay for analysis editing -->
-    <div id="editAnalysisOverlay" class="workflow-overlay" style="display: none;">
-        <div class="workflow-overlay-content" style="max-width: 80%; max-height: 80%;">
-            <h2>Редактирование результатов анализа</h2>
-            <p>Отредактируйте результаты анализа книги и нажмите "Продолжить" для запуска перевода.</p>
-            
-            <div style="margin: 20px 0;">
-                <label for="analysisTextArea"><strong>Результаты анализа:</strong></label>
-                <textarea id="analysisTextArea" style="width: 100%; height: 400px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; resize: vertical;"></textarea>
-            </div>
-            
-            <div style="margin-top: 20px; text-align: center;">
-                <button id="continueAfterEdit" style="padding: 10px 20px; margin-right: 10px; background-color: #28a745; color: white; border: none; cursor: pointer;">Продолжить workflow</button>
-                <button id="cancelEdit" style="padding: 10px 20px; background-color: #6c757d; color: white; border: none; cursor: pointer;">Отменить</button>
-            </div>
-        </div>
-    </div>
-
     <script>
-        // Basic script to update status periodically (client-side polling)
-        // TODO: Implement proper polling for workflow status updates
-        console.log("Workflow dashboard loaded.");
-
-        // Placeholder for loading spinner style
         const style = document.createElement('style');
         style.innerHTML = `
             .spinner {
@@ -493,50 +318,13 @@
                 height: 30px;
                 animation: spin 1s linear infinite;
             }
-
             @keyframes spin {
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
             }
-            
-            .workflow-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background-color: rgba(0, 0, 0, 0.7);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 1000;
-            }
-            
-            .workflow-overlay-content {
-                background-color: white;
-                padding: 30px;
-                border-radius: 8px;
-                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-                max-width: 90%;
-                max-height: 90%;
-                overflow-y: auto;
-            }
-            
-            #editAnalysisOverlay .workflow-overlay-content {
-                width: 80%;
-                height: 80%;
-            }
-            
-            #analysisTextArea {
-                resize: vertical;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            }
         `;
         document.head.appendChild(style);
-
-        // TODO: Add JavaScript logic for form submission, polling, and download
-
     </script>
     <script src="{{ url_for('static', filename='js/workflow.js') }}"></script>
 </body>
-</html> 
+</html>

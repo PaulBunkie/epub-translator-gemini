@@ -63,9 +63,60 @@
             color: #ffca28;
             margin-bottom: 10px;
         }
-        .section-meta {
-            font-size: 0.9em;
-            color: #aaa;
+
+        /* Overlay styles */
+        .comic-item { position: relative; }
+
+        .summary-overlay {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 380px;
+            max-width: calc(100% - 40px);
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            color: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: scale(0.95) translateY(10px);
+            text-align: left;
+            line-height: 1.6;
+            font-size: 0.95em;
+            max-height: 80%;
+            overflow-y: auto;
+            z-index: 10;
+            border: 1px solid rgba(255,255,255,0.15);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+        
+        .comic-item:hover .summary-overlay {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+            pointer-events: auto;
+        }
+
+        /* Стильный скроллбар для оверлея */
+        .summary-overlay::-webkit-scrollbar {
+            width: 6px;
+        }
+        .summary-overlay::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.1);
+        }
+        .summary-overlay::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+        }
+
+        .overlay-title {
+            color: #ffca28;
+            font-weight: bold;
+            margin-bottom: 8px;
+            display: block;
+            font-size: 1.1em;
         }
         
         @media (max-width: 768px) {
@@ -89,6 +140,11 @@
             <div class="comic-grid">
                 {% for section in sections %}
                     <div class="comic-item">
+                        <div class="summary-overlay">
+                            <span class="overlay-title">{{ section.translated_title or section.section_title }}</span>
+                            <div class="summary-text">{% if section.summary %}{{ section.summary.strip() | safe }}{% else %}Суммаризация не найдена{% endif %}</div>
+                        </div>
+
                         <div class="comic-image-container">
                             <img src="{{ section.comic_url }}" alt="{{ section.section_title }}" class="comic-image">
                         </div>
@@ -105,5 +161,6 @@
             </div>
         {% endif %}
     </div>
+
 </body>
 </html>

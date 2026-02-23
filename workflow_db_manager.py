@@ -389,10 +389,26 @@ def delete_book_workflow(book_id):
             # ON DELETE CASCADE в FOREIGN KEY позаботится об удалении из sections, section_stage_statuses, book_stage_statuses
             db.execute('DELETE FROM books WHERE book_id = ?', (book_id,))
         print(f"[WorkflowDB] Книга '{book_id}' и связанные записи удалены из БД.")
+        
+        # Сжимаем базу данных после удаления больших данных (BLOB)
+        vacuum_db()
+        
         return True
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА удаления книги '{book_id}': {e}")
         traceback.print_exc()
+        return False
+
+def vacuum_db():
+    """Выполняет команду VACUUM для сжатия базы данных."""
+    db = get_workflow_db()
+    try:
+        print("[WorkflowDB] Запуск VACUUM...")
+        db.execute("VACUUM")
+        print("[WorkflowDB] VACUUM завершен успешно.")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА при выполнении VACUUM: {e}")
         return False
 
 # --- Функции работы с секциями ---
