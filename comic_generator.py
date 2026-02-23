@@ -223,12 +223,15 @@ Book Summaries:
                 except:
                     pass
 
-            # Детальное определение стиля
-            STYLE_GUIDE = (
-                "STYLE: Modern European digital comic (Bande Dessinée). Clean black ink lineart, "
-                "professional flat digital coloring with soft cel-shading. Simplified, slightly "
-                "expressive anatomy. Clear, cozy background colors. No American superhero style, "
-                "no manga style, no realism."
+            # Базовый промпт от пользователя
+            BASE_PROMPT = (
+                "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
+                "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
+                "Do not use evenly spaced rectangular panels. Use an asymmetrical, contemporary layout with varied panel sizes, "
+                "angled or overlapping frames, and occasional full-bleed panels. "
+                "Tell the story through action, movement, body language, lighting, environment, and cinematic camera shifts "
+                "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
+                "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
             )
 
             for section in sections:
@@ -243,19 +246,15 @@ Book Summaries:
                 for attempt in range(2):
                     if attempt == 0:
                         prompt = (
-                            f"{STYLE_GUIDE}\n\n"
-                            f"PAGE LAYOUT: Create a sequential comic book page with at least 3 distinct panels. "
-                            f"Arrange panels vertically.\n\n"
-                            f"{visual_bible_prompt}\n\n"
-                            f"CURRENT SCENE SUMMARY: {summary}\n\n"
-                            f"FINAL INSTRUCTION: Illustrate the events from the summary across the panels. "
-                            f"Keep character consistency strictly based on the references provided."
+                            f"{BASE_PROMPT}\n\n"
+                            f"TEXT TO DRAW: {summary}\n\n"
+                            f"VISUAL REFERENCES: {visual_bible_prompt}"                            
                         )
                     else:
                         print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id}...")
                         prompt = (
-                            f"{STYLE_GUIDE}\n\n"
-                            f"Comic book illustration, safe for all ages. {visual_bible_prompt}\n\n"
+                            f"Dynamic modern comic illustration, Studio Ghibli inspired style, safe for all ages.\n\n"
+                            f"{visual_bible_prompt}\n\n"
                             f"SCENE: {summary}"
                         )
 
