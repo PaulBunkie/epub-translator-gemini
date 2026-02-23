@@ -22,15 +22,16 @@ class ComicGenerator:
         
 CRITICAL RULES:
 1. Identify all recurring or important characters and entities.
-2. For each, provide a detailed visual description in ENGLISH (for better image generation).
+2. For each, provide a detailed visual description in ENGLISH.
 3. Focus on: age, gender, ethnicity, build, hair style/color, distinctive facial features, typical clothing style, and specific accessories.
-4. IMPORTANT: If the text doesn't specify visual details, INFER them logically based on the character's role, personality, and context to ensure consistency.
-5. Return ONLY a JSON object where keys are character names and values are their visual descriptions.
+4. IMPORTANT: If the text doesn't specify visual details, INFER them logically based on the character's role, personality, and context.
+5. STYLE ADHERENCE: All descriptions must be compatible with a "Modern European Digital Comic / Bande Dessinée" style.
+6. Return ONLY a JSON object where keys are character names and values are their visual descriptions.
 
 Example Output:
 {
-  "Jamie": "A tall, athletic woman in her late 20s, short-cropped dark hair, sharp features, wearing tactical outdoor gear.",
-  "Bella": "A massive, bioluminescent kaiju resembling a cross between a dragon and a deep-sea fish, with iridescent scales and multiple rows of glowing teeth."
+  "Jamie": "A tall, athletic woman in her late 20s, short-cropped dark hair, sharp features, wearing tactical outdoor gear with clean lines.",
+  "Bella": "A massive, bioluminescent kaiju resembling a cross between a dragon and a deep-sea fish, iridescent scales, glowing teeth."
 }"""
 
     VISUAL_ANALYSIS_USER_TEMPLATE = """Analyze the following book summaries and extract visual profiles for all key characters. If details are missing, invent them logically to fix the character's look for the entire book. Return ONLY valid JSON.
@@ -222,6 +223,14 @@ Book Summaries:
                 except:
                     pass
 
+            # Детальное определение стиля
+            STYLE_GUIDE = (
+                "STYLE: Modern European digital comic (Bande Dessinée). Clean black ink lineart, "
+                "professional flat digital coloring with soft cel-shading. Simplified, slightly "
+                "expressive anatomy. Clear, cozy background colors. No American superhero style, "
+                "no manga style, no realism."
+            )
+
             for section in sections:
                 section_id = section['section_id']
                 if workflow_db_manager.get_comic_image_workflow(section_id):
@@ -233,10 +242,22 @@ Book Summaries:
 
                 for attempt in range(2):
                     if attempt == 0:
-                        prompt = f"Professional comic book illustration. {visual_bible_prompt}\n\nCURRENT SCENE TO ILLUSTRATE: {summary}\n\nINSTRUCTION: Depict the scene accurately using character references if they appear."
+                        prompt = (
+                            f"{STYLE_GUIDE}\n\n"
+                            f"PAGE LAYOUT: Create a sequential comic book page with at least 3 distinct panels. "
+                            f"Arrange panels vertically.\n\n"
+                            f"{visual_bible_prompt}\n\n"
+                            f"CURRENT SCENE SUMMARY: {summary}\n\n"
+                            f"FINAL INSTRUCTION: Illustrate the events from the summary across the panels. "
+                            f"Keep character consistency strictly based on the references provided."
+                        )
                     else:
                         print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id}...")
-                        prompt = f"Comic book illustration, cinematic style, safe for all ages. {visual_bible_prompt}\n\nSCENE: {summary}"
+                        prompt = (
+                            f"{STYLE_GUIDE}\n\n"
+                            f"Comic book illustration, safe for all ages. {visual_bible_prompt}\n\n"
+                            f"SCENE: {summary}"
+                        )
 
                     image_data, error = self.generate_image(prompt, book_id, section_id)
                     
