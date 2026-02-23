@@ -59,13 +59,14 @@ MODEL_CONFIG = {
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },
     'generate_comic': {
-        'primary': 'gemini-2.5-flash-image',
-        'fallback_level1': 'gemini-flash-image'
+        'primary': 'bytedance-seed/seedream-4.5',
+        'fallback_level1': 'sourceful/riverflow-v2-fast',
+        'fallback_level2': 'vertex/gemini-2.5-flash-image'
     },
     'visual_analysis': {
-        'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'vertex/gemini-3-pro-preview',
-        'fallback_level2': 'deepseek/deepseek-r1-0528:free'
+        'primary': 'arcee-ai/trinity-large-preview:free', #'vertex/gemini-3-flash-preview',
+        'fallback_level1': 'deepseek/deepseek-r1-0528:free',
+        'fallback_level2': 'vertex/gemini-3-pro-preview'
     }
 }
 

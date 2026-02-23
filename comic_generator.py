@@ -6,6 +6,7 @@ import time
 import random
 import requests
 import re
+import base64
 from pathlib import Path
 from flask import current_app
 from google import genai
@@ -13,11 +14,13 @@ from google.genai import types
 import workflow_db_manager
 import workflow_cache_manager
 import workflow_model_config
+import workflow_translation_module
 
 class ComicGenerator:
     CENSORED_IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Censored_rubber_stamp.svg/960px-Censored_rubber_stamp.svg.png"
+    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-    # Промпты теперь инкапсулированы внутри модуля
+    # Промпты инкапсулированы внутри модуля
     VISUAL_ANALYSIS_SYSTEM_PROMPT = """You are an expert in visual character design and literary analysis. Your task is to create a "Visual Bible" for a book based on its summaries.
         
 CRITICAL RULES:
@@ -49,9 +52,7 @@ Book Summaries:
             project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
             
             if gcp_creds_raw:
-                import base64
                 import tempfile
-                
                 try:
                     creds_info = None
                     try:
@@ -81,73 +82,150 @@ Book Summaries:
                     project=project_id,
                     location="global"
                 )
-                print(f"[ComicGenerator] Client initialized for project {project_id}")
+                print(f"[ComicGenerator] Client initialized for project {project_id} (Location: global)")
             else:
                 print("[ComicGenerator] No project_id found, client not initialized.")
         except Exception as e:
             print(f"[ComicGenerator] Error initializing GenAI Client: {e}")
             traceback.print_exc()
 
-    def generate_image(self, prompt_text, book_id, section_id, max_retries=2):
+    def _generate_with_vertex(self, model_name, prompt_text, book_id, section_id, attempt):
+        """Метод генерации через Vertex AI SDK."""
         if not self.client:
-            return None, "GenAI Client not initialized"
-
-        model_name_raw = workflow_model_config.get_model_for_operation('generate_comic', 'primary') or "gemini-2.0-flash-exp"
-        # Убираем префикс vertex/ если он есть для вызова через genai SDK
-        actual_model = model_name_raw.replace('vertex/', '')
+            return None, "Vertex client not initialized"
         
-        for attempt in range(max_retries + 1):
-            try:
+        # Убираем префиксы если они есть
+        actual_model = model_name.replace('vertex/', '').replace('models/', '')
+        
+        try:
+            print(f"[ComicGenerator] [Vertex] Generating image for {section_id} using {actual_model}...")
+            response = self.client.models.generate_content(
+                model=actual_model,
+                contents=prompt_text,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"]
+                )
+            )
+            
+            image_data = None
+            if response and response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if candidate.content and candidate.content.parts:
+                    for part in candidate.content.parts:
+                        if part.inline_data:
+                            image_data = part.inline_data.data
+                            break
+            
+            if image_data:
+                return image_data, None
+            
+            finish_reason = "Unknown"
+            if response and response.candidates and response.candidates[0].finish_reason:
+                finish_reason = str(response.candidates[0].finish_reason)
+            
+            return None, f"IMAGE_SAFETY" if "SAFETY" in finish_reason else f"No image: {finish_reason}"
+        except Exception as e:
+            return None, str(e)
+
+    def _generate_with_openrouter(self, model_name, prompt_text, book_id, section_id, attempt):
+        """Метод генерации через OpenRouter API согласно предоставленному примеру."""
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return None, "OPENROUTER_API_KEY missing"
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        data = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": prompt_text}],
+            "modalities": ["image"]
+        }
+
+        try:
+            print(f"[ComicGenerator] [OpenRouter] Requesting image for {section_id} using {model_name}...")
+            response = requests.post(self.OPENROUTER_API_URL, headers=headers, json=data, timeout=120)
+            
+            if response.status_code != 200:
+                # Ограничиваем лог ошибки, чтобы не выплюнуть случайно бинарщину
+                return None, f"OpenRouter error {response.status_code}: {response.text[:200]}"
+            
+            result = response.json()
+            
+            if result.get("choices"):
+                message = result["choices"][0].get("message", {})
+                if message.get("images"):
+                    # Берем первое изображение
+                    image = message["images"][0]
+                    image_url = image.get("image_url", {}).get("url")
+                    
+                    if image_url:
+                        # Логируем только начало
+                        print(f"[ComicGenerator] [OpenRouter] Generated image URL: {image_url[:50]}...")
+                        
+                        if image_url.startswith('data:image'):
+                            try:
+                                # Обработка base64 data URL
+                                header, encoded = image_url.split(",", 1)
+                                return base64.b64decode(encoded), None
+                            except Exception as be:
+                                return None, f"Failed to decode base64: {be}"
+                        else:
+                            # Обычный URL
+                            img_resp = requests.get(image_url, timeout=60)
+                            if img_resp.status_code == 200:
+                                return img_resp.content, None
+                            return None, f"Failed to download image from URL (Status: {img_resp.status_code})"
+            
+            return None, "No image found in OpenRouter response"
+        except Exception as e:
+            print(f"[ComicGenerator] [OpenRouter] Exception: {e}")
+            return None, str(e)
+
+    def generate_image(self, prompt_text, book_id, section_id, max_retries=2):
+        """Генерирует изображение, перебирая уровни fallback из конфига."""
+        levels = ['primary', 'fallback_level1', 'fallback_level2']
+        
+        for level in levels:
+            model_name = workflow_model_config.get_model_for_operation('generate_comic', level)
+            if not model_name:
+                continue
+
+            for attempt in range(max_retries + 1):
                 if attempt > 0:
                     wait_time = 10 * attempt
-                    print(f"[ComicGenerator] Retry attempt {attempt} for {section_id}, waiting {wait_time}s...")
+                    print(f"[ComicGenerator] Retry {level} attempt {attempt} for {section_id}, waiting {wait_time}s...")
                     time.sleep(wait_time)
 
-                print(f"[ComicGenerator] Generating image for {book_id}/{section_id} using {actual_model} (Attempt {attempt+1})...")
+                # Определяем провайдера СТРОГО
+                is_vertex = model_name.startswith('vertex/') or model_name.startswith('models/') or 'gemini' in model_name.lower()
                 
-                response = self.client.models.generate_content(
-                    model=actual_model,
-                    contents=prompt_text,
-                    config=types.GenerateContentConfig(
-                        response_modalities=["IMAGE"]
-                    )
-                )
-                
-                image_data = None
-                if response and response.candidates and len(response.candidates) > 0:
-                    candidate = response.candidates[0]
-                    if candidate.content and candidate.content.parts:
-                        for part in candidate.content.parts:
-                            if part.inline_data:
-                                image_data = part.inline_data.data
-                                break
-                
+                if is_vertex:
+                    image_data, error = self._generate_with_vertex(model_name, prompt_text, book_id, section_id, attempt)
+                else:
+                    image_data, error = self._generate_with_openrouter(model_name, prompt_text, book_id, section_id, attempt)
+
                 if image_data:
                     return image_data, None
-                else:
-                    finish_reason = "Unknown"
-                    if response.candidates and response.candidates[0].finish_reason:
-                        finish_reason = str(response.candidates[0].finish_reason)
-                    return None, f"IMAGE_SAFETY" if "SAFETY" in finish_reason else f"No image: {finish_reason}"
+                
+                print(f"[ComicGenerator] Level {level} failed: {error}")
+                
+                # Если ошибка безопасности, переходим к следующему уровню (модели)
+                if "IMAGE_SAFETY" in str(error).upper():
+                    break 
+                
+                # Если не лимиты, переходим к следующей модели
+                if "429" not in str(error) and "RESOURCE_EXHAUSTED" not in str(error):
+                    break
 
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    if attempt == max_retries:
-                        return None, "Rate limit exhausted"
-                    continue
-                return None, str(e)
-
-        return None, "Unexpected error"
+        return None, "All models and retries exhausted"
 
     def _run_visual_analysis(self, book_id, sections):
-        """Выполняет визуальный анализ книги используя инкапсулированные промпты."""
+        """Выполняет визуальный анализ книги используя систему фоллбэков."""
         print(f"[ComicGenerator] Running visual analysis for book {book_id}...")
         
-        if not self.client:
-            print("[ComicGenerator] Cannot run analysis: Client not initialized.")
-            return None
-
         all_summaries = []
         for sec in sections:
             summary = workflow_cache_manager.load_section_stage_result(book_id, sec['section_id'], 'summarize')
@@ -158,23 +236,43 @@ Book Summaries:
         if not full_text:
             return None
 
-        model_name = workflow_model_config.get_model_for_operation('visual_analysis', 'primary') or "gemini-1.5-pro"
-        # Убираем префикс vertex/ если он есть для вызова через genai SDK
-        actual_model = model_name.replace('vertex/', '')
+        levels = ['primary', 'fallback_level1', 'fallback_level2']
+        full_prompt = f"{self.VISUAL_ANALYSIS_SYSTEM_PROMPT}\n\n{self.VISUAL_ANALYSIS_USER_TEMPLATE.format(text=full_text)}"
 
-        try:
-            # Вызываем модель напрямую через наш клиент, не трогая основной модуль перевода
-            # Чтобы избежать ошибки 'Content with system role is not supported',
-            # объединяем системную инструкцию и пользовательский запрос в один промпт.
-            full_prompt = f"{self.VISUAL_ANALYSIS_SYSTEM_PROMPT}\n\n{self.VISUAL_ANALYSIS_USER_TEMPLATE.format(text=full_text)}"
-            
-            response = self.client.models.generate_content(
-                model=actual_model,
-                contents=full_prompt
-            )
-            
-            result = response.text
-            if result and "{" in result:
+        for level in levels:
+            model_name = workflow_model_config.get_model_for_operation('visual_analysis', level)
+            if not model_name:
+                continue
+
+            try:
+                print(f"[ComicGenerator] [Analysis] Trying level {level}: {model_name}...")
+                
+                result = None
+                # СТРОГОЕ определение провайдера
+                is_vertex = model_name.startswith('vertex/') or model_name.startswith('models/') or 'gemini' in model_name.lower()
+                
+                if is_vertex:
+                    if self.client:
+                        actual_model = model_name.replace('vertex/', '').replace('models/', '')
+                        # Объединяем промпт для Vertex
+                        response = self.client.models.generate_content(model=actual_model, contents=full_prompt)
+                        result = response.text
+                else:
+                    # OpenRouter для текста
+                    api_key = os.getenv("OPENROUTER_API_KEY")
+                    if api_key:
+                        resp = requests.post(
+                            self.OPENROUTER_API_URL,
+                            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                            json={"model": model_name, "messages": [{"role": "user", "content": full_prompt}]},
+                            timeout=120
+                        )
+                        if resp.status_code == 200:
+                            result = resp.json()["choices"][0]["message"]["content"]
+
+                if not result:
+                    continue
+
                 cleaned_result = result.strip()
                 if "```json" in cleaned_result:
                     cleaned_result = re.search(r'```json\s*(.*?)\s*```', cleaned_result, re.DOTALL).group(1)
@@ -189,19 +287,18 @@ Book Summaries:
                     print(f"[ComicGenerator] Visual Bible created and saved for {book_id}")
                     return cleaned_result
                 except:
-                    # Резервный поиск
                     match = re.search(r'\{.*\}', cleaned_result, re.DOTALL)
                     if match:
                         json_str = match.group(0)
                         workflow_db_manager.update_book_visual_bible_workflow(book_id, json_str)
                         return json_str
-        except Exception as e:
-            print(f"[ComicGenerator] Visual analysis failed: {e}")
-            traceback.print_exc()
+            except Exception as e:
+                print(f"[ComicGenerator] Visual analysis attempt {level} failed: {e}")
         
         return None
 
     def process_book_comic(self, book_id, app_instance):
+        """Цикл генерации комикса по всем секциям книги с сохранением в БД."""
         with app_instance.app_context():
             print(f"[ComicGenerator] Starting comic generation for book {book_id}")
             
@@ -223,7 +320,6 @@ Book Summaries:
                 except:
                     pass
 
-            # Базовый промпт от пользователя
             BASE_PROMPT = (
                 "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
                 "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
@@ -245,28 +341,21 @@ Book Summaries:
 
                 for attempt in range(2):
                     if attempt == 0:
-                        prompt = (
-                            f"{BASE_PROMPT}\n\n"
-                            f"TEXT TO DRAW: {summary}\n\n"
-                            f"VISUAL REFERENCES: {visual_bible_prompt}"                            
-                        )
+                        prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
                     else:
-                        print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id}...")
-                        prompt = (
-                            f"Dynamic modern comic illustration, Studio Ghibli inspired style, safe for all ages.\n\n"
-                            f"{visual_bible_prompt}\n\n"
-                            f"SCENE: {summary}"
-                        )
+                        print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id} due to failure/filter...")
+                        prompt = f"Dynamic modern comic illustration, Studio Ghibli inspired style, safe for all ages.\n\n{visual_bible_prompt}\n\nSCENE: {summary}"
 
                     image_data, error = self.generate_image(prompt, book_id, section_id)
                     
                     if image_data:
                         workflow_db_manager.save_comic_image_workflow(book_id, section_id, image_data)
+                        print(f"[ComicGenerator] Successfully saved comic to DB for section {section_id}")
                         break
                     elif error == "IMAGE_SAFETY" and attempt == 0:
                         continue
                     else:
-                        print(f"[ComicGenerator] Failed section {section_id}. Saving CENSORED.")
+                        print(f"[ComicGenerator] Permanent failure for section {section_id}. Saving CENSORED.")
                         self._save_censored_placeholder(book_id, section_id)
                         break
                 
