@@ -1023,7 +1023,8 @@ class FootballManager:
             
             # Логируем текущие значения лимитов
             if self.requests_remaining is not None:
-                print(f"[Football API Limits] Ключ #{self.current_key_index + 1}: Осталось запросов: {self.requests_remaining}, Использовано: {self.requests_used}, Стоимость последнего: {self.requests_last_cost}")
+                # print(f"[Football API Limits] Ключ #{self.current_key_index + 1}: Осталось запросов: {self.requests_remaining}, Использовано: {self.requests_used}, Стоимость последнего: {self.requests_last_cost}")
+                pass
                 
                 # Проверяем, нужно ли переключиться на следующий ключ
                 if self.requests_remaining <= ODDS_API_SWITCH_THRESHOLD:
@@ -1136,7 +1137,7 @@ class FootballManager:
         """
         try:
             url = f"{ODDS_API_URL}{endpoint}"
-            print(f"[Football] Запрос к API: {endpoint}, params: {params}")
+            # print(f"[Football] Запрос к API: {endpoint}, params: {params}")
             
             # Добавляем API ключ в параметры
             params['apiKey'] = self.api_key
@@ -1159,7 +1160,7 @@ class FootballManager:
             
             data = response.json()
             
-            print(f"[Football] Успешный ответ от API, получено {len(data) if isinstance(data, list) else 1} записей")
+            # print(f"[Football] Успешный ответ от API, получено {len(data) if isinstance(data, list) else 1} записей")
             return data
             
         except requests.exceptions.RequestException as e:
@@ -1301,7 +1302,7 @@ class FootballManager:
             headers["User-Agent"] = random.choice(SOFASCORE_USER_AGENTS)
             
             try:
-                print(f"[Football SofaScore] Запрос событий на дату {date} (попытка {attempt}/{max_retries})")
+                # print(f"[Football SofaScore] Запрос событий на дату {date} (попытка {attempt}/{max_retries})")
                 response = requests.get(url, headers=headers, timeout=15.0)
                 code = response.status_code
                 
@@ -1310,7 +1311,7 @@ class FootballManager:
                     try:
                         data = response.json()
                         events = data.get('events', [])
-                        print(f"[Football SofaScore] Получено {len(events)} событий на дату {date}")
+                        # print(f"[Football SofaScore] Получено {len(events)} событий на дату {date}")
                         return events
                     except json.JSONDecodeError as e:
                         print(f"[Football SofaScore ERROR] Ошибка парсинга JSON: {e}")
@@ -1483,7 +1484,7 @@ class FootballManager:
                         continue
 
                                         # Найдено совпадение по названиям команд (время не проверяем, так как данные уже отфильтрованы по дате)
-                    print(f"[Football SofaScore] Найдено совпадение: {home_team_odds} vs {away_team_odds} -> event_id={event_id}")
+                    # print(f"[Football SofaScore] Найдено совпадение: {home_team_odds} vs {away_team_odds} -> event_id={event_id}")
                     return event_id
                     
                 except Exception as e:
@@ -1655,7 +1656,7 @@ class FootballManager:
                     
                     # Если хотя бы одна команда совпадает и время совпадает, считаем это совпадением
                     if home_match or away_match:
-                        print(f"[Football SofaScore] Найдено совпадение по команде+времени: {home_team_odds} vs {away_team_odds} -> event_id={event_id} (home_match={home_match}, away_match={away_match})")
+                        # print(f"[Football SofaScore] Найдено совпадение по команде+времени: {home_team_odds} vs {away_team_odds} -> event_id={event_id} (home_match={home_match}, away_match={away_match})")
                         # Возвращаем словарь с event_id и данными для сохранения
                         return {
                             'event_id': event_id,
@@ -1884,7 +1885,7 @@ class FootballManager:
         # Обрабатываем каждую лигу
         for league_key in leagues_to_process:
             try:
-                print(f"[Football] Обрабатываем лигу: {league_key}")
+                # print(f"[Football] Обрабатываем лигу: {league_key}")
                 
                 params = {
                     "regions": "eu",
@@ -1900,7 +1901,7 @@ class FootballManager:
                     stats['leagues_failed'] += 1
                     continue
                 
-                print(f"[Football] Получено {len(data)} матчей из лиги {league_key}")
+                # print(f"[Football] Получено {len(data)} матчей из лиги {league_key}")
                 stats['leagues_processed'] += 1
                 
                 for match_data in data:
@@ -1953,13 +1954,14 @@ class FootballManager:
                             success = self._update_match(fixture_id, fav_info, match_data, odds_1_x_2)
                             if success:
                                 stats['updated'] += 1
-                                print(f"[Football] Обновлен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
+                                # print(f"[Football] Обновлен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
+                                pass
                         else:
                             # Добавляем новый матч
                             success = self._save_match(match_data, fav_info, odds_1_x_2)
                             if success:
                                 stats['added'] += 1
-                                print(f"[Football] Добавлен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
+                                # print(f"[Football] Добавлен матч с фаворитом {match_data.get('home_team')} vs {match_data.get('away_team')}, кэф: {fav_info['odds']}")
                     else:
                         # Матч без фаворита или с кэфом > 1.30 - заполняем только базовые поля
                         if match_exists:
@@ -1972,13 +1974,14 @@ class FootballManager:
                             success = self._update_match_without_fav(fixture_id, match_data, odds_1_x_2)
                             if success:
                                 stats['updated'] += 1
-                                print(f"[Football] Обновлен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')}")
+                                # print(f"[Football] Обновлен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')}")
+                                pass
                         else:
                             # Добавляем новый матч (без fav)
                             success = self._save_match_without_fav(match_data, odds_1_x_2)
                             if success:
                                 stats['added'] += 1
-                                print(f"[Football] Добавлен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')}")
+                                # print(f"[Football] Добавлен матч без фаворита {match_data.get('home_team')} vs {match_data.get('away_team')}")
                 
             except Exception as e:
                 print(f"[Football ERROR] Ошибка при обработке лиги {league_key}: {e}")
@@ -2660,7 +2663,7 @@ class FootballManager:
         Вызывается каждые 5 минут.
         Обработка 60-й минуты вынесена в отдельный метод check_matches_60min_and_status (3-минутный интервал).
         """
-        print("[Football] Проверка матчей и сбор финального результата")
+        # print("[Football] Проверка матчей и сбор финального результата")
 
         try:
             conn = get_football_db_connection()
@@ -2678,7 +2681,7 @@ class FootballManager:
             """)
             
             matches_for_live_odds = cursor.fetchall()
-            print(f"[Football] Найдено {len(matches_for_live_odds)} матчей с bet, но без live_odds для обновления")
+            # print(f"[Football] Найдено {len(matches_for_live_odds)} матчей с bet, но без live_odds для обновления")
             
             for match in matches_for_live_odds:
                 try:
@@ -2729,7 +2732,7 @@ class FootballManager:
             """)
 
             matches_for_final = cursor.fetchall()
-            print(f"[Football] Найдено {len(matches_for_final)} матчей in_progress для проверки финального результата")
+            # print(f"[Football] Найдено {len(matches_for_final)} матчей in_progress для проверки финального результата")
 
             # Проверяем каждый матч на завершение
             for match in matches_for_final:
@@ -2807,7 +2810,7 @@ class FootballManager:
         Проверяет активные матчи только для смены статуса и сбора статистики на 60-й минуте (без проверки финального счета).
         Используется для более частого (например, каждые 3 минуты) детектора 60-й минуты.
         """
-        print("[Football] (3-мин) Проверка статуса и 60-й минуты")
+        # print("[Football] (3-мин) Проверка статуса и 60-й минуты")
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
@@ -2932,7 +2935,8 @@ class FootballManager:
             matches_for_alt_bet = cursor.fetchall()
             
             if matches_for_alt_bet:
-                print(f"[Football] Найдено {len(matches_for_alt_bet)} матчей с stats_60min, но без bet_alt_code")
+                # print(f"[Football] Найдено {len(matches_for_alt_bet)} матчей с stats_60min, но без bet_alt_code")
+                pass
                 import time
                 for idx, match in enumerate(matches_for_alt_bet, 1):
                     fixture_id = match['fixture_id']
@@ -2940,11 +2944,7 @@ class FootballManager:
                         import json
                         stats = json.loads(match['stats_60min']) if isinstance(match['stats_60min'], str) else match['stats_60min']
                         
-                        start_time = time.time()
-                        print(f"[Football] [{idx}/{len(matches_for_alt_bet)}] Запрашиваем альтернативную ставку для fixture {fixture_id} (время начала: {time.strftime('%H:%M:%S')})")
                         alt_result = self._get_alternative_bet(match, stats)
-                        elapsed = time.time() - start_time
-                        print(f"[Football] [{idx}/{len(matches_for_alt_bet)}] Запрос для fixture {fixture_id} завершен за {elapsed:.2f} сек")
                         if alt_result:
                             bet_alt_code, bet_alt_odds, bet_alt_confirm, bet_alt_reason = alt_result
                             cursor.execute("""
@@ -2960,7 +2960,6 @@ class FootballManager:
                             print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                             
                             # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
-                            print(f"[Football Notify] Проверка условий для уведомления (альт. ставка, периодическая задача): bet_alt_code={bet_alt_code}, bet_alt_odds={bet_alt_odds}, bet_alt_confirm={bet_alt_confirm}")
                             if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
                                 # Читаем данные матча из БД для уведомления
                                 conn_notify = get_football_db_connection()
@@ -2977,15 +2976,10 @@ class FootballManager:
                                     try:
                                         self._send_match_notification(match_for_notification, stats)
                                         print(f"[Football Notify] ✅ Уведомление отправлено для альтернативной ставки (периодическая задача) {match_for_notification['fixture_id']}")
-                                    except Exception as notify_error:
-                                        print(f"[Football ERROR] Ошибка отправки уведомления для альтернативной ставки (периодическая задача): {notify_error}")
+                                    except Exception:
+                                        pass
                             else:
-                                reason = []
-                                if not bet_alt_code: reason.append("нет bet_alt_code")
-                                if not bet_alt_odds: reason.append("нет bet_alt_odds")
-                                elif bet_alt_odds <= 1.75: reason.append(f"bet_alt_odds={bet_alt_odds} <= 1.75")
-                                if bet_alt_confirm != 1: reason.append(f"bet_alt_confirm={bet_alt_confirm} != 1")
-                                print(f"[Football Notify] ❌ Уведомление НЕ отправлено для альтернативной ставки (периодическая задача) {fixture_id}: {', '.join(reason)}")
+                                pass
                         else:
                             print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                     except Exception as e:
@@ -3970,7 +3964,6 @@ class FootballManager:
                                 print(f"[Football] Альтернативная ставка сохранена для fixture {fixture_id}: {bet_alt_code} (коэф. {bet_alt_odds}, confirm={bet_alt_confirm})")
                                 
                                 # Проверяем условие для отправки уведомления: bet_alt_code IS NOT NULL И bet_alt_odds > 1.75 И bet_alt_confirm = 1
-                                print(f"[Football Notify] Проверка условий для уведомления (альт. ставка, фаворит): bet_alt_code={bet_alt_code}, bet_alt_odds={bet_alt_odds}, bet_alt_confirm={bet_alt_confirm}")
                                 if bet_alt_code and bet_alt_odds and bet_alt_odds > 1.75 and bet_alt_confirm == 1:
                                     # Читаем данные матча из БД для уведомления
                                     conn_alt = get_football_db_connection()
@@ -3991,12 +3984,7 @@ class FootballManager:
                                         except Exception as notify_error:
                                             print(f"[Football ERROR] Ошибка отправки уведомления для альтернативной ставки (фаворит): {notify_error}")
                                 else:
-                                    reason = []
-                                    if not bet_alt_code: reason.append("нет bet_alt_code")
-                                    if not bet_alt_odds: reason.append("нет bet_alt_odds")
-                                    elif bet_alt_odds <= 1.75: reason.append(f"bet_alt_odds={bet_alt_odds} <= 1.75")
-                                    if bet_alt_confirm != 1: reason.append(f"bet_alt_confirm={bet_alt_confirm} != 1")
-                                    print(f"[Football Notify] ❌ Уведомление НЕ отправлено для альтернативной ставки (фаворит) {fixture_id}: {', '.join(reason)}")
+                                    pass
                             else:
                                 print(f"[Football] _get_alternative_bet вернул None для fixture {fixture_id}")
                 except Exception as alt_error:

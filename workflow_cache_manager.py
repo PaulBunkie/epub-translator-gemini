@@ -26,7 +26,6 @@ def _get_cache_file_path(book_id, section_id, stage_name, file_extension='.txt')
 
 def save_section_stage_result(book_id, section_id, stage_name, content):
     """Сохраняет результат обработки секции на определенном этапе в файловый кэш."""
-    print(f"[WorkflowCache] Попытка сохранить кэш для книги {book_id}, секции {section_id}, этапа {stage_name}")
     stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
     file_path = _get_cache_file_path(book_id, section_id, stage_name)
 
@@ -38,7 +37,6 @@ def save_section_stage_result(book_id, section_id, stage_name, content):
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
-        print(f"[WorkflowCache] Кэш сохранен успешно: {file_path}")
         return True
     except Exception as e:
         print(f"[WorkflowCache] ОШИБКА при сохранении кэша для {file_path}: {e}")
@@ -48,17 +46,14 @@ def save_section_stage_result(book_id, section_id, stage_name, content):
 def load_section_stage_result(book_id, section_id, stage_name):
     """Загружает результат обработки секции на определенном этапе из файлового кэша."""
     file_path = _get_cache_file_path(book_id, section_id, stage_name)
-    print(f"[WorkflowCache] Попытка загрузить кэш из: {file_path}")
 
     if not os.path.exists(file_path):
-        print(f"[WorkflowCache] Кэш не найден: {file_path}")
         return None
 
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        print(f"[WorkflowCache] Кэш загружен успешно: {file_path} (Длина: {len(content)} chars)")
         return content
     except Exception as e:
         print(f"[WorkflowCache] ОШИБКА при загрузке кэша из {file_path}: {e}")
@@ -68,15 +63,12 @@ def load_section_stage_result(book_id, section_id, stage_name):
 def delete_section_stage_result(book_id, section_id, stage_name):
     """Удаляет файл кэша для секции на определенном этапе."""
     file_path = _get_cache_file_path(book_id, section_id, stage_name)
-    print(f"[WorkflowCache] Попытка удалить кэш: {file_path}")
 
     if not os.path.exists(file_path):
-        print(f"[WorkflowCache] Кэш не найден, удаление не требуется: {file_path}")
         return False # Файл не найден, считаем успешным удалением (в смысле, его нет)
 
     try:
         os.remove(file_path)
-        print(f"[WorkflowCache] Кэш удален успешно: {file_path}")
         return True
     except Exception as e:
         print(f"[WorkflowCache] ОШИБКА при удалении кэша {file_path}: {e}")
@@ -86,15 +78,12 @@ def delete_section_stage_result(book_id, section_id, stage_name):
 def delete_book_workflow_cache(book_id):
     """Удаляет всю директорию кэша для данной книги."""
     book_cache_dir = os.path.join(WORKFLOW_CACHE_BASE_DIR, book_id)
-    print(f"[WorkflowCache] Попытка удалить директорию кэша книги: {book_cache_dir}")
 
     if not os.path.exists(book_cache_dir):
-        print(f"[WorkflowCache] Директория кэша книги не найдена, удаление не требуется: {book_cache_dir}")
-        return False # Директория не найдена, считаем успешным удалением
+        return False # Директория не найденa, считаем успешным удалением
 
     try:
         shutil.rmtree(book_cache_dir)
-        print(f"[WorkflowCache] Директория кэша книги удалена успешно: {book_cache_dir}")
         return True
     except Exception as e:
         print(f"[WorkflowCache] ОШИБКА при удалении директории кэша книги {book_cache_dir}: {e}")
@@ -106,7 +95,6 @@ def save_book_stage_result(book_id, stage_name, content, file_extension='.txt'):
     """
     Saves the result of a book-level stage to a file cache.
     """
-    print(f"[WorkflowCache] Attempting to save book-level cache for book {book_id}, stage {stage_name}")
     stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
     # For book-level stages, the filename can be a fixed name, e.g., 'result.txt'
     filename = f'result{file_extension}'
@@ -120,7 +108,6 @@ def save_book_stage_result(book_id, stage_name, content, file_extension='.txt'):
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
-        print(f"[WorkflowCache] Book-level cache saved successfully: {file_path}")
         return True
     except Exception as e:
         print(f"[WorkflowCache] ERROR saving book-level cache for {file_path}: {e}")
@@ -135,17 +122,14 @@ def load_book_stage_result(book_id, stage_name, file_extension='.txt'):
     stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
     filename = f'result{file_extension}'
     file_path = os.path.join(stage_dir, filename)
-    print(f"[WorkflowCache] Attempting to load book-level cache from: {file_path}")
 
     if not os.path.exists(file_path):
-        print(f"[WorkflowCache] Book-level cache not found: {file_path}")
         return None
 
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        print(f"[WorkflowCache] Book-level cache loaded successfully: {file_path} (Length: {len(content)} chars)")
         return content
     except Exception as e:
         print(f"[WorkflowCache] ERROR loading book-level cache from {file_path}: {e}")
@@ -161,15 +145,12 @@ def delete_book_stage_result(book_id, stage_name):
     Удаляет кэш только для одного этапа книги (например, analyze, translate, epub_creation).
     """
     stage_dir = _get_cache_dir_for_stage(book_id, stage_name)
-    print(f"[WorkflowCache] Попытка удалить директорию кэша этапа: {stage_dir}")
 
     if not os.path.exists(stage_dir):
-        print(f"[WorkflowCache] Директория кэша этапа не найдена, удаление не требуется: {stage_dir}")
         return False # Директория не найдена, считаем успешным удалением
 
     try:
         shutil.rmtree(stage_dir)
-        print(f"[WorkflowCache] Директория кэша этапа удалена успешно: {stage_dir}")
         return True
     except Exception as e:
         print(f"[WorkflowCache] ОШИБКА при удалении директории кэша этапа {stage_dir}: {e}")
