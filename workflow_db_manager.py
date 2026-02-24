@@ -390,9 +390,6 @@ def delete_book_workflow(book_id):
             db.execute('DELETE FROM books WHERE book_id = ?', (book_id,))
         print(f"[WorkflowDB] Книга '{book_id}' и связанные записи удалены из БД.")
         
-        # Сжимаем базу данных после удаления больших данных (BLOB)
-        vacuum_db()
-        
         return True
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА удаления книги '{book_id}': {e}")
