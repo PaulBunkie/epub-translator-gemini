@@ -609,7 +609,8 @@ def update_section_stage_status_workflow(
 
             if exists:
                 # Запись существует, обновляем
-                print(f"[WorkflowDB] Обновление статуса для секции {section_id} этапа {stage_name} на '{status}'.")
+                # print(f"[WorkflowDB] Обновление статуса для секции {section_id} этапа {stage_name} на '{status}'.")
+                pass
 
                 # Получаем текущие значения времени, чтобы не перезаписывать их
                 cursor = db.execute('''
@@ -696,7 +697,7 @@ def update_book_stage_status_workflow(book_id, stage_name, status, model_name=No
     try:
         with db:
             # Пытаемся обновить существующую запись
-            print(f"[WorkflowDB] Обновление статуса этапа '{stage_name}' для книги '{book_id}' на '{status}'.")
+            # print(f"[WorkflowDB] Обновление статуса этапа '{stage_name}' для книги '{book_id}' на '{status}'.")
 
             # Определяем значения для start_time и end_time в зависимости от нового статуса
             current_time = time.time() # Получаем текущее время в виде timestamp
@@ -750,7 +751,7 @@ def update_book_stage_status_workflow(book_id, stage_name, status, model_name=No
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (book_id, stage_name, status, model_name, error_message,
                       start_time_val, end_time_val))
-        print(f"[WorkflowDB] Статус этапа '{stage_name}' для книги '{book_id}' обновлен на '{status}'.")
+        # print(f"[WorkflowDB] Статус этапа '{stage_name}' для книги '{book_id}' обновлен на '{status}'.")
         return True
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА обновления статуса этапа '{stage_name}' для книги '{book_id}': {e}")

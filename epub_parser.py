@@ -284,7 +284,7 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
             print(f"ОШИБКА: Элемент с ID '{section_id}' не является текстовым документом.")
             return None
 
-        print(f"Извлечение текста из раздела: {section_id} ({item.get_name()})")
+        # print(f"Извлечение текста из раздела: {section_id} ({item.get_name()})")
         html_content = item.get_content()
         # Используем XML парсер для XHTML
         soup = BeautifulSoup(html_content, 'xml')

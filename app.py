@@ -1272,7 +1272,6 @@ def workflow_index():
     
     # Проверяем параметр admin (включая сессию)
     admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
-    print(f"Admin режим в workflow: {admin}")
 
     workflow_books = []
     try:
@@ -1395,6 +1394,71 @@ def workflow_book_comic_view(book_id):
     # Проверяем админские права для ссылки "Назад"
     admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin'
     return render_template('comic_view.html', book=book_info, sections=comic_sections, admin=admin)
+
+@app.route('/workflow/api/section/<int:section_id>/regenerate_comic', methods=['POST'])
+def workflow_api_regenerate_section_comic(section_id):
+    """
+    API endpoint to regenerate comic image for a single section.
+    """
+    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
+    if not admin:
+        # Проверяем наличие валидной сессии, если параметры не переданы
+        if not session.get('admin_mode'):
+            return jsonify({'status': 'error', 'message': 'Access denied'}), 403
+
+    import workflow_db_manager
+    import workflow_cache_manager
+    import comic_generator
+    import json
+
+    # 1. Получаем инфо о секции
+    # Нам нужно найти book_id для этой секции. В workflow_db_manager нет прямого метода get_book_id_by_section_id
+    # Но мы можем получить инфо о секции через существующие методы
+    # Нам нужно сначала найти book_id. Пройдем через базу.
+    db = workflow_db_manager.get_workflow_db()
+    row = db.execute("SELECT book_id, section_epub_id FROM sections WHERE section_id = ?", (section_id,)).fetchone()
+    if not row:
+        return jsonify({'status': 'error', 'message': 'Section not found'}), 404
+    
+    book_id = row['book_id']
+    book_info = workflow_db_manager.get_book_workflow(book_id)
+    
+    # 2. Получаем суммаризацию
+    summary = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
+    if not summary or len(summary.strip()) < 50:
+        return jsonify({'status': 'error', 'message': 'Summary too short or not found'}), 400
+
+    # 3. Подготавливаем Visual Bible
+    visual_bible_prompt = ""
+    visual_bible_raw = book_info.get('visual_bible')
+    if visual_bible_raw:
+        try:
+            bible_data = json.loads(visual_bible_raw)
+            bible_list = [f"- {name}: {desc}" for name, desc in bible_data.items()]
+            visual_bible_prompt = "\nREFERENCE FOR CHARACTERS (Follow these descriptions strictly):\n" + "\n".join(bible_list)
+        except: pass
+
+    # 4. Формируем промпт (тот самый отлаженный)
+    BASE_PROMPT = (
+        "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
+        "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
+        "Do not use evenly spaced rectangular panels. Use an asymmetrical, contemporary layout with varied panel sizes, "
+        "angled or overlapping frames, and occasional full-bleed panels. "
+        "Tell the story through action, movement, body language, lighting, environment, and cinematic camera shifts "
+        "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
+        "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
+    )
+    prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
+
+    # 5. Генерируем
+    generator = comic_generator.ComicGenerator()
+    image_data, error = generator.generate_image(prompt, book_id, section_id)
+    
+    if image_data:
+        workflow_db_manager.save_comic_image_workflow(book_id, section_id, image_data)
+        return jsonify({'status': 'success', 'message': 'Image regenerated'})
+    else:
+        return jsonify({'status': 'error', 'message': f'Regeneration failed: {error}'}), 500
 
 @app.route('/workflow/api/comic_image/<int:section_id>')
 def workflow_api_comic_image(section_id):

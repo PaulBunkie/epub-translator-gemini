@@ -218,11 +218,12 @@
             </div>
             {% endif %}
 
+            {% if admin %}
             <div class="upload-form">
                 <h2>Upload New EPUB for Workflow</h2>
                 <form action="{{ url_for('workflow_upload_file') }}" method="post" enctype="multipart/form-data">
                     <input type="file" name="epub_file" accept=".epub" required>
-                    {% if admin %}<input type="hidden" name="admin" value="true">{% endif %}
+                    <input type="hidden" name="admin" value="true">
                      <label for="target_language">Target Language:</label>
                     <select name="target_language" id="target_language">
                         <option value="russian">Russian</option>
@@ -234,6 +235,7 @@
                     <button type="submit">Upload and Start Workflow</button>
                 </form>
             </div>
+            {% endif %}
 
             <h2>
                 <a href="#" id="toggleBookListBtn" class="toggle-list-link">Books in Workflow ▼</a>
@@ -268,7 +270,7 @@
                                                 {% endif %}
 
                                                 {% if book.comic_status == 'completed' %}
-                                                    <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id) }}" style="margin-left: 10px; color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
+                                                    <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id, admin='true' if admin else None) }}" style="margin-left: 10px; color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
                                                 {% elif book.comic_status == 'processing' %}
                                                     <span style="margin-left: 10px; color: orange;">(Комикс в процессе...)</span>
                                                 {% endif %}

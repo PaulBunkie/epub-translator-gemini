@@ -553,13 +553,14 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
                     workflow_cache_manager.delete_section_stage_result(book_id, section_id, stage_name)
                 # Пересчитываем статус этапа на уровне книги после сброса секций
                 recalculate_book_stage_status(book_id, stage_name)
-                print(f"[WorkflowProcessor] Сброшен per-section этап: {stage_name}")
+                # print(f"[WorkflowProcessor] Сброшен per-section этап: {stage_name}")
+                pass
             else:
                 # Сброс book-level этапа
                 workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, 'pending', model_name=None, error_message=None)
                 import workflow_cache_manager
                 workflow_cache_manager.delete_book_stage_result(book_id, stage_name)
-                print(f"[WorkflowProcessor] Сброшен book-level этап: {stage_name}")
+                # print(f"[WorkflowProcessor] Сброшен book-level этап: {stage_name}")
         
         # Обновляем book_info после сброса
         book_info = workflow_db_manager.get_book_workflow(book_id)
@@ -1290,7 +1291,7 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 
                 # Если заголовки совпадают - удаляем первый параграф
                 if clean_for_comparison == normalized_title:
-                    print(f"      Удален дублирующийся заголовок из текста: '{first_para[:50]}...'")
+                    # print(f"      Удален дублирующийся заголовок из текста: '{first_para[:50]}...'")
                     # Возвращаем текст без первого параграфа
                     remaining_paragraphs = paragraphs[1:]
                     return '\n\n'.join(remaining_paragraphs).strip()
@@ -1357,7 +1358,7 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                                 if note_num > 0:
                                     note_definitions[note_num].append(note_text)
                                     note_targets_found.add(note_num)
-                                    print(f"      [DEBUG] Найдено определение сноски {note_num}: {note_text[:50]}...")
+                                    # print(f"      [DEBUG] Найдено определение сноски {note_num}: {note_text[:50]}...")
                         if is_definition_para:
                             note_paragraph_indices.add(para_idx)
                         # Ищем ссылки-маркеры
@@ -1366,10 +1367,10 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                             note_num = get_int_from_superscript(marker)
                             if note_num > 0:
                                 reference_markers_data.append((para_idx, match, note_num))
-                                print(f"      [DEBUG] Найдена ссылка на сноску {note_num} в параграфе {para_idx}")
+                                # print(f"      [DEBUG] Найдена ссылка на сноску {note_num} в параграфе {para_idx}")
                     
-                    print(f"      [DEBUG] Найдено определений сносок: {len(note_targets_found)}")
-                    print(f"      [DEBUG] Найдено ссылок на сноски: {len(reference_markers_data)}")
+                    # print(f"      [DEBUG] Найдено определений сносок: {len(note_targets_found)}")
+                    # print(f"      [DEBUG] Найдено ссылок на сноски: {len(reference_markers_data)}")
                     
                     # Этап 2: Генерация HTML
                     final_content_blocks = []
@@ -1395,6 +1396,7 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                         
                         if is_footnote_para:
                             # Обработка параграфа-сноски
+                            # print(f"      [DEBUG] Обрабатываем сноски для секции {section_id}")
                             footnote_lines_html = []
                             lines = para_strip.split('\n')
                             for line in lines:
@@ -1446,16 +1448,20 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                                     current_para_html = current_para_html[:start] + replacement + current_para_html[end:]
                                     offset += len(replacement) - (end - start)
                                     processed_markers_count += 1
-                                    print(f"      [DEBUG] Заменен маркер {marker} на ссылку к {note_anchor_id}")
+                                    # print(f"      [DEBUG] Заменен маркер {marker} на ссылку к {note_anchor_id}")
+                                    pass
                                 elif note_num > 0:
-                                    print(f"      [DEBUG] Маркер {marker} (сноска {note_num}) найден, но определение не найдено")
+                                    # print(f"      [DEBUG] Маркер {marker} (сноска {note_num}) найден, но определение не найдено")
+                                    pass
+                                    pass
                             processed_html = current_para_html.replace('\n', '<br/>')
                             final_para_html = f"<p>{processed_html}</p>"
                             final_content_blocks.append(final_para_html)
                     
                     # После всех циклов для секции
                     if processed_markers_count > 0:
-                        print(f"      Заменено маркеров ссылками: {processed_markers_count} для {section_id}")
+                        # print(f"      Заменено маркеров ссылками: {processed_markers_count} для {section_id}")
+                        pass
                     # Добавляем собранные блоки
                     final_html_body_content += "\n".join(final_content_blocks)
                     # Если после всего контент (кроме заголовка) остался пустым, добавим пустой параграф
@@ -1661,7 +1667,7 @@ def recalculate_book_stage_status(book_id, stage_name):
     else:
         status = 'processing'
     workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, status)
-    print(f"[WorkflowProcessor] recalculate_book_stage_status: book_id={book_id}, stage={stage_name}, status={status}")
+    # print(f"[WorkflowProcessor] recalculate_book_stage_status: book_id={book_id}, stage={stage_name}, status={status}")
 
 # --- КОНЕЦ ФУНКЦИЙ ДЛЯ РАБОТЫ С ТОКЕНАМИ ДОСТУПА ---
 

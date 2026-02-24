@@ -63,6 +63,29 @@
             color: #ffca28;
             margin-bottom: 10px;
         }
+        .regenerate-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ccc;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 5px;
+        }
+        .regenerate-btn:hover {
+            background: rgba(0, 123, 255, 0.2);
+            border-color: #007bff;
+            color: #fff;
+        }
+        .regenerate-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
         /* Overlay styles */
         .comic-item { position: relative; }
@@ -150,6 +173,11 @@
                         </div>
                         <div class="comic-info">
                             <div class="section-title">{{ section.translated_title or section.section_title }}</div>
+                            {% if admin %}
+                                <button class="regenerate-btn" data-section-id="{{ section.section_id }}">
+                                    <i class="fas fa-sync-alt"></i><span> Перегенерировать</span>
+                                </button>
+                            {% endif %}
                         </div>
                     </div>
                 {% endfor %}
@@ -162,5 +190,54 @@
         {% endif %}
     </div>
 
+    <script>
+        // Обработка перегенерации
+        document.querySelectorAll('.regenerate-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const sectionId = btn.getAttribute('data-section-id');
+                if (!confirm('Перегенерировать это изображение?')) return;
+
+                const icon = btn.querySelector('i');
+                const originalContent = btn.innerHTML;
+                
+                btn.disabled = true;
+                icon.classList.add('fa-spin');
+                
+                // Находим span и меняем его
+                const textSpan = btn.querySelector('span');
+                if (textSpan) textSpan.textContent = ' Генерирую...';
+
+                try {
+                    const response = await fetch(`/workflow/api/section/${sectionId}/regenerate_comic?admin=true`, {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+
+                    if (data.status === 'success') {
+                        // Обновляем картинку (добавляем timestamp чтобы обойти кэш браузера)
+                        const img = btn.closest('.comic-item').querySelector('.comic-image');
+                        const baseUrl = img.src.split('?')[0];
+                        img.src = baseUrl + '?t=' + new Date().getTime();
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('Произошла сетевая ошибка при перегенерации');
+                } finally {
+                    btn.disabled = false;
+                    icon.classList.remove('fa-spin');
+                    if (textSpan) textSpan.textContent = ' Перегенерировать';
+                }
+            });
+        });
+
+        // Скроллбар для оверлея на тач-устройствах
+        document.querySelectorAll('.summary-overlay').forEach(el => {
+            el.addEventListener('wheel', (e) => {
+                e.stopPropagation();
+            }, { passive: true });
+        });
+    </script>
 </body>
 </html>

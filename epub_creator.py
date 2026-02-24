@@ -208,7 +208,7 @@ def create_translated_epub(book_info, target_language):
                     final_content_blocks.append(final_para_html)
 
             # После всех циклов для секции
-            if processed_markers_count > 0: print(f"      Заменено маркеров ссылками: {processed_markers_count} для {section_id}")
+            # if processed_markers_count > 0: print(f"      Заменено маркеров ссылками: {processed_markers_count} для {section_id}")
             # Добавляем собранные блоки (даже если пустые)
             final_html_body_content += "\n".join(final_content_blocks)
             # Если после всего контент (кроме заголовка) остался пустым, добавим пустой параграф
