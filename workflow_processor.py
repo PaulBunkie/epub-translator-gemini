@@ -1173,18 +1173,20 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             import tempfile
             from collections import defaultdict
             
-            # Регулярные выражения (копируем из epub_creator.py)
+            # Регулярные выражения (полностью автономные)
             INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
             BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
             ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
             SUPERSCRIPT_MARKER_RE = re.compile(r"([\¹\²\³\⁰\⁴\⁵\⁶\⁷\⁸\⁹]+)")
             NOTE_LINE_START_RE = re.compile(r"^\s*([\¹\²\³\⁰\⁴\⁵\⁶\⁷\⁸\⁹]+)\s*(.*)", re.UNICODE)
             
+            # Карта для преобразования надстрочных цифр
+            W_SUP_MAP = {'¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9'}
+
             def get_int_from_superscript(marker_str):
                 """Преобразует строку надстрочных цифр в целое число."""
-                SUPerscript_INT_MAP = {'¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9'}
                 if not marker_str: return -1
-                num_str = "".join(SUPerscript_INT_MAP.get(c, '') for c in marker_str)
+                num_str = "".join(W_SUP_MAP.get(c, '') for c in marker_str)
                 try: return int(num_str) if num_str else -1
                 except ValueError: return -1
             
