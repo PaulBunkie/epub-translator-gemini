@@ -123,20 +123,88 @@ def create_translated_epub(book_info, target_language):
             # Удаляем дублирующийся заголовок
             clean_text = re.sub(r'^(?:#+\s*|\*\*|)' + re.escape(chapter_title) + r'(?:\*\*|)\s*', '', clean_text, flags=re.IGNORECASE).strip()
             
-            paragraphs = clean_text.split('\n\n')
-            for p_raw in paragraphs:
+            original_paragraphs = clean_text.split('\n\n')
+            note_definitions = defaultdict(list)
+            note_targets_found = set()
+            
+            # 1. Сбор определений
+            for p_raw in original_paragraphs:
+                p_strip = p_raw.strip()
+                if not p_strip: continue
+                if NOTE_LINE_START_RE.match(p_strip):
+                    for line in p_strip.split('\n'):
+                        m = NOTE_LINE_START_RE.match(line.strip())
+                        if m:
+                            marker, note_text = m.groups()
+                            num = get_int_from_superscript(marker)
+                            if num > 0:
+                                note_targets_found.add(num)
+
+            # 2. Рендеринг параграфов
+            ref_counters = defaultdict(int)
+            def_counters = defaultdict(int)
+            
+            for p_raw in original_paragraphs:
                 p_strip = p_raw.strip()
                 if not p_strip: continue
                 
-                # Обработка Markdown и сносок (упрощенно)
-                p_esc = html.escape(p_strip).replace('\n', '<br/>')
-                p_esc = BOLD_MD_RE.sub(r'<strong>\1</strong>', p_esc)
-                p_esc = ITALIC_MD_RE.sub(r'<em>\1</em>', p_esc)
-                
                 if NOTE_LINE_START_RE.match(p_strip):
-                    final_html_body += f'<div class="footnote" style="font-size: 0.9em; color: #555;">{p_esc}</div>'
+                    f_lines = []
+                    for line in p_strip.split('\n'):
+                        line_s = line.strip()
+                        if not line_s: continue
+                        m = NOTE_LINE_START_RE.match(line_s)
+                        if m:
+                            marker, note_text = m.groups()
+                            num = get_int_from_superscript(marker)
+                            if num > 0:
+                                def_counters[num] += 1
+                                occ = def_counters[num]
+                                note_id = f"note_{chapter_index}_{num}_{occ}"
+                                ref_id = f"ref_{chapter_index}_{num}_{occ}"
+                                
+                                n_cleaned = INVALID_XML_CHARS_RE.sub('', note_text)
+                                n_html = html.escape(n_cleaned)
+                                n_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', n_html)
+                                n_html = ITALIC_MD_RE.sub(r'<em>\1</em>', n_html)
+                                
+                                backlink = f' <a href="#{ref_id}" class="footnote-backlink" title="Back">↩</a>'
+                                f_lines.append(f'<p class="footnote-definition" id="{note_id}"><small>{marker}</small> {n_html}{backlink}</p>')
+                            else:
+                                f_lines.append(f'<p>{html.escape(line_s)}</p>')
+                        else:
+                            f_lines.append(f'<p>{html.escape(line_s)}</p>')
+                    
+                    if f_lines:
+                        final_html_body += f'<div class="footnote-block" style="font-size: 0.9em; border-top: 1px solid #eee; margin-top: 2em; padding-top: 1em;">\n{"".join(f_lines)}\n</div>'
                 else:
-                    final_html_body += f"<p>{p_esc}</p>\n"
+                    text_norm = unicodedata.normalize('NFC', p_strip)
+                    text_clean = INVALID_XML_CHARS_RE.sub('', text_norm)
+                    p_html = html.escape(text_clean).replace('\n', '<br/>')
+                    p_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', p_html)
+                    p_html = ITALIC_MD_RE.sub(r'<em>\1</em>', p_html)
+                    
+                    # Замена маркеров на ссылки
+                    matches = list(SUPERSCRIPT_MARKER_RE.finditer(p_html))
+                    if matches:
+                        new_p_html = ""
+                        last_idx = 0
+                        for m in matches:
+                            marker = m.group(1)
+                            num = get_int_from_superscript(marker)
+                            if num > 0 and num in note_targets_found:
+                                ref_counters[num] += 1
+                                occ = ref_counters[num]
+                                note_id = f"note_{chapter_index}_{num}_{occ}"
+                                ref_id = f"ref_{chapter_index}_{num}_{occ}"
+                                link = f'<sup class="footnote-ref"><a id="{ref_id}" href="#{note_id}">{marker}</a></sup>'
+                                
+                                new_p_html += p_html[last_idx:m.start()] + link
+                                last_idx = m.end()
+                        new_p_html += p_html[last_idx:]
+                        p_html = new_p_html
+                    
+                    final_html_body += f"<p>{p_html}</p>\n"
         
         if not final_html_body:
             final_html_body = "<p> </p>"

@@ -1278,7 +1278,6 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
 
                 # Текст и очистка
                 raw_text = section_data.get('translated_text', '')
-                # Чистим от маркера в конце ($$$$$)
                 clean_text = re.sub(r'(?:\$\s*){3,}\s*$', '', raw_text).strip()
                 clean_text = remove_duplicate_title_from_text(clean_text, chapter_title)
                 
@@ -1293,7 +1292,6 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                     if image_data:
                         img_name = f"comic_{internal_id}.png"
                         img_path = f"images/{img_name}"
-                        # Добавляем изображение как отдельный айтем
                         img_item = epub.EpubItem(
                             uid=f"img_{internal_id}",
                             file_name=img_path,
@@ -1301,35 +1299,85 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                             media_type="image/png"
                         )
                         book.add_item(img_item)
-                        # Вставляем в HTML перед текстом
                         final_html_body += f'<div style="text-align: center; margin: 1.2em 0;"><img src="{img_path}" alt="Illustration" style="max-width: 100%; height: auto; border-radius: 4px;"/></div>\n'
 
-                # Параграфы и сноски
+                # --- FOOTNOTE LOGIC ---
                 if clean_text:
-                    paragraphs = clean_text.split('\n\n')
-                    for p_raw in paragraphs:
+                    original_paragraphs = clean_text.split('\n\n')
+                    note_targets_found = set()
+                    
+                    # 1. Сбор определений (проходим по всем строкам всех параграфов)
+                    for p_raw in original_paragraphs:
+                        for line in p_raw.strip().split('\n'):
+                            m = NOTE_LINE_START_RE.match(line.strip())
+                            if m:
+                                num = get_int_from_superscript(m.group(1))
+                                if num > 0:
+                                    note_targets_found.add(num)
+
+                    # 2. Рендеринг параграфов
+                    ref_counters = defaultdict(int)
+                    def_counters = defaultdict(int)
+                    
+                    for p_raw in original_paragraphs:
                         p_strip = p_raw.strip()
                         if not p_strip: continue
                         
-                        # Простая обработка сносок, если они есть
-                        if NOTE_LINE_START_RE.match(p_strip):
-                            lines = p_strip.split('\n')
-                            f_html = '<div class="footnotes" style="font-size: 0.9em; border-top: 1px solid #eee; margin-top: 2em; padding-top: 1em;">'
-                            for line in lines:
-                                m = NOTE_LINE_START_RE.match(line.strip())
+                        # Проверяем, является ли этот параграф (или любая его строка) определением сноски
+                        is_def_para = any(NOTE_LINE_START_RE.match(l.strip()) for l in p_strip.split('\n'))
+                        
+                        if is_def_para:
+                            f_lines = []
+                            for line in p_strip.split('\n'):
+                                line_s = line.strip()
+                                if not line_s: continue
+                                m = NOTE_LINE_START_RE.match(line_s)
                                 if m:
-                                    marker, note = m.groups()
-                                    f_html += f'<p><sup>{marker}</sup> {html.escape(note)}</p>'
+                                    marker, note_text = m.groups()
+                                    num = get_int_from_superscript(marker)
+                                    if num > 0:
+                                        def_counters[num] += 1
+                                        occ = def_counters[num]
+                                        note_id = f"note_{chapter_index}_{num}_{occ}"
+                                        ref_id = f"ref_{chapter_index}_{num}_{occ}"
+                                        
+                                        n_cleaned = INVALID_XML_CHARS_RE.sub('', note_text)
+                                        n_html = html.escape(n_cleaned)
+                                        n_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', n_html)
+                                        n_html = ITALIC_MD_RE.sub(r'<em>\1</em>', n_html)
+                                        
+                                        backlink = f' <a href="#{ref_id}" class="footnote-backlink" title="Back">↩</a>'
+                                        f_lines.append(f'<p class="footnote-definition" id="{note_id}"><small>{marker}</small> {n_html}{backlink}</p>')
+                                    else:
+                                        f_lines.append(f'<p>{html.escape(line_s)}</p>')
                                 else:
-                                    f_html += f'<p>{html.escape(line.strip())}</p>'
-                            f_html += '</div>'
-                            final_html_body += f_html
+                                    f_lines.append(f'<p>{html.escape(line_s)}</p>')
+                            
+                            if f_lines:
+                                final_html_body += f'<div class="footnote-block" style="font-size: 0.9em; border-top: 1px solid #eee; margin-top: 2em; padding-top: 1em;">\n{"".join(f_lines)}\n</div>'
                         else:
-                            # Обычный параграф с поддержкой базового Markdown
-                            p_esc = html.escape(p_strip).replace('\n', '<br/>')
-                            p_esc = BOLD_MD_RE.sub(r'<strong>\1</strong>', p_esc)
-                            p_esc = ITALIC_MD_RE.sub(r'<em>\1</em>', p_esc)
-                            final_html_body += f"<p>{p_esc}</p>\n"
+                            # Обычный параграф
+                            text_norm = unicodedata.normalize('NFC', p_strip)
+                            text_clean = INVALID_XML_CHARS_RE.sub('', text_norm)
+                            p_html = html.escape(text_clean).replace('\n', '<br/>')
+                            p_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', p_html)
+                            p_html = ITALIC_MD_RE.sub(r'<em>\1</em>', p_html)
+                            
+                            # Замена маркеров на ссылки
+                            # Важно: ищем маркеры в ESCAPED строке, т.к. сами маркеры (¹²) не меняются при escape
+                            markers = sorted(list(SUPERSCRIPT_MARKER_RE.finditer(p_html)), key=lambda x: x.start(), reverse=True)
+                            for m in markers:
+                                marker = m.group(1)
+                                num = get_int_from_superscript(marker)
+                                if num > 0 and num in note_targets_found:
+                                    ref_counters[num] += 1
+                                    occ = ref_counters[num]
+                                    note_id = f"note_{chapter_index}_{num}_{occ}"
+                                    ref_id = f"ref_{chapter_index}_{num}_{occ}"
+                                    link = f'<sup class="footnote-ref"><a id="{ref_id}" href="#{note_id}">{marker}</a></sup>'
+                                    p_html = p_html[:m.start()] + link + p_html[m.end():]
+                            
+                            final_html_body += f"<p>{p_html}</p>\n"
                 
                 if not final_html_body:
                     final_html_body = "<p> </p>"
