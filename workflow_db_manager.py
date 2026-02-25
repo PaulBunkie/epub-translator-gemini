@@ -270,39 +270,38 @@ def create_book_workflow(book_id, filename, filepath, toc_data, target_language,
         traceback.print_exc()
         return False
 
-def get_book_workflow(book_id):
+def get_book_workflow(book_id, include_sections=True):
     """Получает информацию о книге из таблицы books по ID, включая статусы этапов."""
     db = get_workflow_db()
     try:
-        cursor = db.execute('SELECT * FROM books WHERE book_id = ?', (book_id,))
+        # ОПТИМИЗАЦИЯ: выбираем только нужные поля для основной инфы
+        cursor = db.execute('''
+            SELECT book_id, filename, filepath, current_workflow_status,
+                   target_language, upload_time, workflow_error_message,
+                   generated_prompt_ext, manual_prompt_ext, access_token,
+                   comic_status, visual_bible, toc
+            FROM books WHERE book_id = ?
+        ''', (book_id,))
         row = cursor.fetchone()
         if row:
             book_info = dict(row)
             # Преобразуем JSON поле toc обратно в Python объект
             if book_info.get('toc'):
                 try: book_info['toc'] = json.loads(book_info['toc'])
-                except (json.JSONDecodeError, TypeError) as e: print(f"[WorkflowDB] Ошибка парсинга TOC для {book_id}: {e}"); book_info['toc'] = []
+                except (json.JSONDecodeError, TypeError) as e: book_info['toc'] = []
             else: book_info['toc'] = []
             
-            # Вместо извлечения из TOC просто используем имя файла
             book_info['book_title'] = book_info['filename']
-            # Обеспечиваем наличие target_language
-            book_info['target_language'] = book_info.get('target_language') or 'russian' # Default to russian
+            book_info['target_language'] = book_info.get('target_language') or 'russian'
 
             # Получаем статусы этапов книги
             book_info['book_stage_statuses'] = get_book_stage_statuses_workflow(book_id)
-            # Получаем статусы этапов секций (может быть много, но полезно для общего прогресса)
-            # Можно добавить агрегацию или отдельную функцию для сводных статусов секций по этапам
-            # Пока просто вернем общее количество секций и количество завершенных на первом per-section этапе
             book_info['total_sections_count'] = get_section_count_for_book_workflow(book_id)
 
-            # Используем новую функцию для получения количества обработанных секций (completed + skipped + empty)
-            book_info['processed_sections_count_summarize'] = get_processed_sections_count_for_stage_workflow(book_id, 'summarize')
-
-            # --- НОВОЕ: Добавляем список секций с их статусами ---
-            book_info['sections'] = get_sections_for_book_workflow(book_id)
-            # --- КОНЕЦ НОВОГО ---
-
+            # --- ОПТИМИЗАЦИЯ: подгружаем секции только если нужно ---
+            if include_sections:
+                book_info['sections'] = get_sections_for_book_workflow(book_id)
+            
             return book_info
         return None
     except Exception as e:
@@ -313,26 +312,42 @@ def get_book_workflow(book_id):
         pass # Ничего не делаем, закрытие через g.teardown
 
 def get_all_books_workflow():
-    """Получает информацию обо всех книгах из таблицы books."""
+    """
+    Получает информацию обо всех книгах из таблицы books.
+    Оптимизировано: выбираются только необходимые поля, исключая тяжелые блобы/тексты.
+    """
     db = get_workflow_db()
     try:
-        cursor = db.execute('SELECT * FROM books ORDER BY upload_time DESC')
+        # Исключаем toc, generated_prompt_ext, manual_prompt_ext, visual_bible для экономии памяти
+        cursor = db.execute('''
+            SELECT book_id, filename, filepath, current_workflow_status,
+                   target_language, upload_time, workflow_error_message,
+                   access_token, comic_status
+            FROM books
+            ORDER BY upload_time DESC
+        ''')
         rows = cursor.fetchall()
         books_list = []
-        # Получаем список всех этапов и определяем, какие из них посекционные
+        
+        # Получаем список всех этапов
         stages_config = get_all_stages_ordered_workflow()
         per_section_stages = [stage['stage_name'] for stage in stages_config if stage.get('is_per_section')]
+        
         for row in rows:
             book_info = dict(row)
-            # Получаем количество секций для отображения прогресса
-            book_info['total_sections_count'] = get_section_count_for_book_workflow(book_info['book_id'])
-            # Для каждого посекционного этапа добавляем processed_sections_count_<stage_name>
+            book_id = book_info['book_id']
+            
+            # Получаем количество секций
+            book_info['total_sections_count'] = get_section_count_for_book_workflow(book_id)
+            
+            # Сводка по этапам
             for stage_name in per_section_stages:
-                key =f'processed_sections_count_{stage_name}' 
-                book_info[key] = get_processed_sections_count_for_stage_workflow(book_info['book_id'], stage_name)
-            # Обеспечиваем наличие target_language
-            book_info['target_language'] = book_info.get('target_language') or 'russian' # Default to russian
+                key = f'processed_sections_count_{stage_name}'
+                book_info[key] = get_processed_sections_count_for_stage_workflow(book_id, stage_name)
+            
+            book_info['target_language'] = book_info.get('target_language') or 'russian'
             books_list.append(book_info)
+            
         return books_list
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА при получении списка книг: {e}")
@@ -441,10 +456,13 @@ def create_section_workflow(book_id, section_epub_id, section_title, translated_
         return False
 
 def get_sections_for_book_workflow(book_id):
-    """Получает все секции для данной книги из таблицы sections с их статусами по этапам."""
+    """
+    Получает все секции для данной книги из таблицы sections с их статусами по этапам.
+    ОПТИМИЗИРОВАНО: используется JOIN для получения всех статусов одним запросом.
+    """
     db = get_workflow_db()
     try:
-        # Получаем секции
+        # 1. Получаем основные данные секций
         sections_cursor = db.execute('''
             SELECT section_id, book_id, section_epub_id, section_title, translated_title, order_in_book
             FROM sections
@@ -452,10 +470,29 @@ def get_sections_for_book_workflow(book_id):
             ORDER BY order_in_book;
         ''', (book_id,))
         sections_list = [dict(row) for row in sections_cursor.fetchall()]
+        if not sections_list:
+            return []
 
-        # Для каждой секции получаем ее статусы этапов
+        # 2. Получаем ВСЕ статусы этапов для ВСЕХ секций этой книги одним запросом
+        status_cursor = db.execute('''
+            SELECT sss.section_id, sss.stage_name, sss.status, sss.model_name,
+                   sss.error_message, sss.start_time, sss.end_time
+            FROM section_stage_statuses sss
+            JOIN sections s ON sss.section_id = s.section_id
+            WHERE s.book_id = ?
+        ''', (book_id,))
+        
+        # Группируем статусы по section_id
+        statuses_by_section = {}
+        for row in status_cursor.fetchall():
+            s_id = row['section_id']
+            if s_id not in statuses_by_section:
+                statuses_by_section[s_id] = {}
+            statuses_by_section[s_id][row['stage_name']] = dict(row)
+
+        # 3. Привязываем статусы к секциям
         for section_info in sections_list:
-             section_info['stage_statuses'] = get_section_stage_statuses_workflow(section_info['section_id'])
+            section_info['stage_statuses'] = statuses_by_section.get(section_info['section_id'], {})
 
         return sections_list
     except Exception as e:
@@ -1081,6 +1118,16 @@ def has_comic_images_workflow(book_id):
         print(f"[WorkflowDB] ОШИБКА проверки наличия изображений для книги {book_id}: {e}")
         return False
 
+def check_comic_image_exists(section_id):
+    """Быстрая проверка наличия изображения без загрузки BLOB."""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute('SELECT 1 FROM comic_images WHERE section_id = ? LIMIT 1', (section_id,))
+        return cursor.fetchone() is not None
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА check_comic_image_exists для секции {section_id}: {e}")
+        return False
+
 def update_book_visual_bible_workflow(book_id, visual_bible_json):
     """Обновляет Visual Bible (список персонажей с описаниями) для книги."""
     db = get_workflow_db()
@@ -1161,60 +1208,61 @@ def get_telegram_user_subscriptions(user_id: str) -> list:
         return []
 
 def get_workflow_book_status(book_id: str) -> dict:
-    """Получает полный статус книги для Telegram бота (аналог API endpoint)"""
+    """
+    Получает полный статус книги.
+    ОПТИМИЗИРОВАНО: один запрос для получения сводки по статусам секций.
+    """
     try:
-        book_info = get_book_workflow(book_id)
+        # Получаем инфу о книге БЕЗ списка секций (нам нужна только сводка)
+        book_info = get_book_workflow(book_id, include_sections=False)
         if not book_info:
             return None
         
-        # Получаем конфигурацию этапов
-        stages_config = get_all_stages_ordered_workflow()
-        stages_config_map = {stage['stage_name']: stage for stage in stages_config}
+        db = get_workflow_db()
         
-        # Получаем секции
-        sections = get_sections_for_book_workflow(book_id)
-        total_sections = len(sections)
+        # 1. Получаем общие данные
+        total_sections = book_info['total_sections_count']
         
-        # Формируем ответ в том же формате, что и API
-        response_data = {
-            "book_id": book_info.get('book_id'),
-            "filename": book_info.get('filename'),
-            "book_title": book_info.get('book_title', book_info.get('filename')),
-            "target_language": book_info.get('target_language'),
-            "current_workflow_status": book_info.get('current_workflow_status'),
-            "book_stage_statuses": {},
-            "total_sections_count": total_sections,
-            "sections_status_summary": {}
-        }
+        # 2. Получаем сводку по всем посекционным этапам ОДНИМ запросом
+        # Группируем по stage_name и status
+        cursor = db.execute('''
+            SELECT sss.stage_name, sss.status, COUNT(*) as count
+            FROM section_stage_statuses sss
+            JOIN sections s ON sss.section_id = s.section_id
+            WHERE s.book_id = ?
+            GROUP BY sss.stage_name, sss.status
+        ''', (book_id,))
         
-        # Добавляем статусы этапов
-        book_stage_statuses = book_info.get('book_stage_statuses', {})
-        for stage_name, stage_data in book_stage_statuses.items():
-            response_data['book_stage_statuses'][stage_name] = stage_data
-            config = stages_config_map.get(stage_name)
-            response_data['book_stage_statuses'][stage_name]['is_per_section'] = config.get('is_per_section', False) if config else False
+        summary_rows = cursor.fetchall()
         
-        # Формируем сводку статусов секций для посекционных этапов
-        for stage_name, stage_config in stages_config_map.items():
-            if stage_config.get('is_per_section'):
-                sections_status_summary = {
-                    'total': total_sections,
-                    'completed': 0,
-                    'completed_empty': 0,
-                    'processing': 0,
-                    'queued': 0,
-                    'error': 0,
-                    'skipped': 0,
-                    'pending': 0,
-                    'cached': 0,
+        # Группируем результаты
+        stage_summaries = {}
+        for row in summary_rows:
+            st_name = row['stage_name']
+            st_status = row['status']
+            count = row['count']
+            
+            if st_name not in stage_summaries:
+                stage_summaries[st_name] = {
+                    'total': total_sections, 'completed': 0, 'completed_empty': 0,
+                    'processing': 0, 'queued': 0, 'error': 0, 'skipped': 0,
+                    'pending': 0, 'cached': 0
                 }
-                
-                for section in sections:
-                    section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
-                    if section_stage_status in sections_status_summary:
-                        sections_status_summary[section_stage_status] += 1
-                
-                response_data['sections_status_summary'][stage_name] = sections_status_summary
+            if st_status in stage_summaries[st_name]:
+                stage_summaries[st_name][st_status] = count
+
+        # Формируем ответ
+        response_data = {
+            "book_id": book_info['book_id'],
+            "filename": book_info['filename'],
+            "book_title": book_info['book_title'],
+            "target_language": book_info['target_language'],
+            "current_workflow_status": book_info['current_workflow_status'],
+            "comic_status": book_info.get('comic_status', 'not_started'),
+            "book_stage_statuses": book_info.get('book_stage_statuses', {}),
+            "total_sections_count": total_sections,
+            "sections_status_summary": stage_summaries
+        }
         
         return response_data
         

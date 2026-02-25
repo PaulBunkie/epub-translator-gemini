@@ -632,6 +632,8 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
                 if result and admin:
                     print(f"[WorkflowProcessor] Анализ завершен. Флаг admin установлен. Останавливаем workflow для редактирования.")
                     workflow_db_manager.update_book_stage_status_workflow(book_id, 'analyze', 'awaiting_edit')
+                    # Останавливаем также генерацию комикса, если она была запущена или планировалась,
+                    # так как каст-лист может измениться.
                     update_overall_workflow_book_status(book_id)
                     return True  # Возвращаем True, но workflow остановлен для редактирования
             elif stage_name == 'epub_creation':

@@ -307,6 +307,14 @@ Book Summaries:
             if not sections:
                 return
 
+            # ВАЖНО: Мы НЕ запускаем генерацию комикса, пока анализ находится в статусе 'awaiting_edit'
+            book_stage_statuses = book_info.get('book_stage_statuses', {})
+            analyze_status = book_stage_statuses.get('analyze', {}).get('status')
+            
+            if analyze_status == 'awaiting_edit':
+                print(f"[ComicGenerator] Анализ книги {book_id} ожидает редактирования. Пропускаем генерацию комикса.")
+                return
+
             visual_bible_raw = book_info.get('visual_bible')
             if not visual_bible_raw:
                 visual_bible_raw = self._run_visual_analysis(book_id, sections)

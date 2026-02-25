@@ -149,9 +149,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     updateBookListItem(bookId, statusData);
 
-                    // Обновляем список секций, если он открыт
+                    // Обновляем список секций только если он реально открыт (display: block)
                     const sectionsList = document.getElementById(`sections-${bookId}`);
-                    if (sectionsList && sectionsList.style.display !== 'none') {
+                    if (sectionsList && sectionsList.style.display === 'block') {
                         loadBookSections(bookId, sectionsList, false);
                     }
 
@@ -165,15 +165,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // Если все процессы (включая комикс) завершены, останавливаем поллинг
                     const isComicBusy = statusData.comic_status === 'processing';
-                    if (!['processing', 'queued'].includes(bookStatus) && !isComicBusy) {
+                    if (!['processing', 'queued', 'uploaded'].includes(bookStatus) && !isComicBusy) {
                         clearInterval(intervalId);
                         activePollingIntervals.delete(bookId);
                     }
                 }
             } catch (error) {
-                console.error('Polling error:', error);
+                // Уменьшаем шум в консоли
             }
-        }, 3000);
+        }, 5000); // Увеличиваем интервал до 5 сек для снижения нагрузки
         activePollingIntervals.set(bookId, intervalId);
     }
 

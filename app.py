@@ -1426,8 +1426,8 @@ def workflow_book_comic_view(book_id):
     # Теперь картинки в БД, поэтому проверяем наличие через БД
     comic_sections = []
     for section in sections:
-        # Проверяем наличие изображения в БД
-        if workflow_db_manager.get_comic_image_workflow(section['section_id']):
+        # Проверяем наличие изображения в БД БЕЗ загрузки блоба
+        if workflow_db_manager.check_comic_image_exists(section['section_id']):
             section['comic_url'] = url_for('workflow_api_comic_image', section_id=section['section_id'])
             # Загружаем суммаризацию для оверлея
             import workflow_cache_manager
@@ -1886,9 +1886,14 @@ def user_main_page():
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛУЧЕНИЯ СТАТУСА WORKFLOW КНИГИ ---
 @app.route('/workflow_book_status/<book_id>', methods=['GET'])
 def get_workflow_book_status(book_id):
-    print(f"Запрос статуса workflow для книги: {book_id}")
+    # print(f"Запрос статуса workflow для книги: {book_id}")
+    import workflow_db_manager
+    response_data = workflow_db_manager.get_workflow_book_status(book_id)
+    if response_data is None:
+        return jsonify({"error": "Book not found"}), 404
+    return jsonify(response_data)
 
-    # Убедимся, что вызываем функции работы с workflow DB
+def get_workflow_book_status_old(book_id):
     # Импорты workflow_db_manager, json, Response, jsonify должны быть на верхнем уровне
 
     book_info = workflow_db_manager.get_book_workflow(book_id)
