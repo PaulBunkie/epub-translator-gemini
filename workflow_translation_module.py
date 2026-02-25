@@ -730,7 +730,8 @@ class WorkflowTranslator:
                     return None
                 
                 print(f"[WorkflowTranslator] Vertex AI ответ получен успешно.")
-                return response.text
+                # Удаляем служебный маркер $$$$$ только в конце (любое количество $ от 3 и выше)
+                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip()
 
             except Exception as e:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Vertex AI: {e}")
@@ -772,7 +773,8 @@ class WorkflowTranslator:
                     return None
                 
                 print(f"[WorkflowTranslator] Google API ответ получен успешно.")
-                return response.text
+                # Удаляем служебный маркер $$$$$ только в конце (любое количество $ от 3 и выше)
+                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip()
 
             except Exception as e:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Google API: {e}")
@@ -891,14 +893,14 @@ class WorkflowTranslator:
                                 
                                 # --- ПРОВЕРКА МАРКЕРА ЗАВЕРШЕНИЯ ПЕРЕВОДА ---
                                 if operation_type == 'translate' and chunk_text:
-                                    completion_marker = "$$$$$"
-                                    if completion_marker not in output_content:
-                                        print(f"[OpenRouterTranslator] Предупреждение: Отсутствует маркер завершения перевода '{completion_marker}'. Перевод может быть неполным. Возвращаем None для ретрая.")
+                                    # Ищем маркер регуляркой (любое кол-во $ от 3 и выше)
+                                    if not re.search(r'\${3,}', output_content):
+                                        print(f"[OpenRouterTranslator] Предупреждение: Отсутствует маркер завершения перевода. Перевод может быть неполным. Возвращаем None для ретрая.")
                                         return None
                                     else:
-                                        # Убираем маркер из финального результата (может быть в любом месте)
-                                        output_content = output_content.replace(completion_marker, "").strip()
-                                        print(f"[OpenRouterTranslator] Найден маркер завершения. Убираем маркер, финальная длина: {len(output_content)} символов.")
+                                        # Убираем маркер из финального результата (только если он в конце)
+                                        output_content = re.sub(r'(?:\$\s*){3,}\s*$', '', output_content).strip()
+                                        print(f"[OpenRouterTranslator] Найден маркер завершения. Убираем маркер в конце, финальная длина: {len(output_content)} символов.")
                                 
                                 # --- ПРОВЕРКА СУММАРИЗАЦИИ/REDUCE: результат должен быть минимум в 2 раза короче при длинном исходном тексте ---
                                 if operation_type in ('summarize', 'reduce') and chunk_text and len(chunk_text) > MIN_SOURCE_LENGTH_FOR_SUMMARY_RATIO_CHECK:

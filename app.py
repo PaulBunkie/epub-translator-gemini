@@ -1346,6 +1346,49 @@ def workflow_index():
 
     return resp
 
+@app.route('/workflow/api/book/<book_id>/retranslate_section/<int:section_id>', methods=['POST'])
+def workflow_api_retranslate_section(book_id, section_id):
+    """
+    Эндпойнт для перезапуска перевода конкретной секции.
+    """
+    if request.args.get('admin') != 'true' and request.args.get('user') != 'admin' and session.get('admin_mode') != True:
+        return jsonify({'status': 'error', 'message': 'Access denied'}), 403
+        
+    import workflow_processor
+    success = workflow_processor.retrigger_section_translation(book_id, section_id)
+    if success:
+        return jsonify({'status': 'success', 'message': 'Section re-translation started'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Failed to start section re-translation'}), 500
+
+@app.route('/workflow/api/book/<book_id>/sections', methods=['GET'])
+def workflow_api_get_book_sections(book_id):
+    """
+    Возвращает список секций книги со статусами перевода.
+    """
+    import workflow_db_manager
+    sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
+    
+    # Добавляем данные о статусе перевода
+    result = []
+    for s in sections:
+        statuses = workflow_db_manager.get_section_stage_statuses_workflow(s['section_id'])
+        translate_stage_data = statuses.get('translate')
+        
+        # Извлекаем только строку статуса, если это объект из БД
+        if isinstance(translate_stage_data, dict):
+            translate_status = translate_stage_data.get('status', 'pending')
+        else:
+            translate_status = translate_stage_data or 'pending'
+            
+        result.append({
+            'section_id': s['section_id'],
+            'section_title': s['translated_title'] or s['section_title'],
+            'status': translate_status
+        })
+    
+    return jsonify(result)
+
 @app.route('/workflow/api/book/<book_id>/generate_comic', methods=['POST'])
 def workflow_api_generate_comic(book_id):
     """

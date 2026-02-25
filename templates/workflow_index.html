@@ -255,13 +255,26 @@
                                     <div style="margin-top: 6px;">
                                     {% for stage_name, stage_data in book.book_stage_statuses.items() %}
                                         <div style="margin-bottom: 2px;">
-                                            <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
+                                            {% if stage_name == 'translate' %}
+                                                <a href="#" class="toggle-sections-link" data-book-id="{{ book.book_id }}" style="text-decoration: none; color: inherit;">
+                                                    <span class="toggle-icon">▶</span> <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
+                                                </a>
+                                            {% else %}
+                                                <strong>{{ stage_data.display_name or stage_name | title }}:</strong>
+                                            {% endif %}
+                                            
                                             <span class="stage-status" data-stage="{{ stage_name }}">
                                                 {{ stage_data.status or 'pending' }}
                                                 {% if stage_data.is_per_section %}
                                                     ({{ book['processed_sections_count_' ~ stage_name] or 0 }} / {{ book.total_sections or 0 }} секций)
                                                 {% endif %}
                                             </span>
+
+                                            {% if stage_name == 'translate' %}
+                                                <div class="sections-list" id="sections-{{ book.book_id }}" style="display: none; margin-left: 20px; font-size: 0.9em; max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 5px; border: 1px solid #dee2e6; margin-top: 5px;">
+                                                    <div class="sections-loading">Загрузка секций...</div>
+                                                </div>
+                                            {% endif %}
                                             {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}
                                                 <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать суммаризацию</a>
                                                 

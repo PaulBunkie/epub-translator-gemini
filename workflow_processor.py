@@ -1367,8 +1367,6 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                     print(f"      [EPUB_CREATOR] >>> ВНИМАНИЕ: Не удалось сопоставить секцию '{section_id}' с ID в базе данных.")
 
                 final_html_body_content = header_html + image_html
-
-                final_html_body_content = header_html + image_html
                 
                 section_data = sections_data_map.get(section_id)
                 section_status = section_data.get("status", "unknown") if section_data else "unknown"
@@ -1378,6 +1376,8 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 translated_text = section_data.get("translated_text") if section_data else None
                 
                 if translated_text is not None:
+                    # 1. Удаляем служебный маркер (любое кол-во $ от 3 и выше только в конце)
+                    translated_text = re.sub(r'(?:\$\s*){3,}\s*$', '', translated_text).strip()
                     # Удаляем дублирующийся заголовок из переведенного текста
                     translated_text = remove_duplicate_title_from_text(translated_text, chapter_title)
                     # Обработка параграфов и сносок (упрощенная версия)
@@ -1810,5 +1810,46 @@ def start_comic_generation_task(book_id: str, app_instance):
     thread = threading.Thread(target=task_wrapper)
     thread.start()
     return True
+
+def retrigger_section_translation(book_id: str, section_id: int):
+    """
+    Удаляет кэш перевода для секции и запускает перевод заново.
+    """
+    try:
+        import workflow_cache_manager
+        import workflow_db_manager
+        import threading
+        from flask import current_app
+        
+        # 1. Удаляем кэш
+        workflow_cache_manager.delete_section_stage_result(book_id, section_id, 'translate')
+        
+        # 2. Сбрасываем статус в БД
+        workflow_db_manager.update_section_stage_status_workflow(
+            book_id, section_id, 'translate', 'pending', model_name=None, error_message=None
+        )
+        
+        # 3. Обновляем общий статус книги (она теперь снова в процессе)
+        update_overall_workflow_book_status(book_id)
+        
+        # 4. Запускаем задачу в фоне
+        app_instance = current_app._get_current_object()
+        
+        def task_wrapper():
+            with app_instance.app_context():
+                try:
+                    # Запускаем перевод секции напрямую
+                    process_section_translate(book_id, section_id, admin=True)
+                    # После завершения пересчитываем статусы
+                    recalculate_book_stage_status(book_id, 'translate')
+                    update_overall_workflow_book_status(book_id)
+                except Exception as e:
+                    print(f"[Retranslate Task] Error processing section {section_id}: {e}")
+
+        threading.Thread(target=task_wrapper).start()
+        return True
+    except Exception as e:
+        print(f"[WorkflowProcessor] Error retriggering translation: {e}")
+        return False
 
 # --- END OF FILE workflow_processor.py ---

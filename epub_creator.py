@@ -95,14 +95,28 @@ def create_translated_epub(book_info, target_language):
             book.add_item(item)
         print(f"  Скопировано {len(items_to_copy)} ресурсов.")
 
-        # Установка обложки
+        # 2. Установка обложки (улучшенная совместимость)
         cover_item = None
-        for item in original_book.get_items_of_type(ebooklib.ITEM_IMAGE):
-            if item.get_id() == 'cover' or 'cover' in item.get_name().lower():
-                cover_item = item
+        # Сначала ищем по стандартным ID
+        for item_id in ['cover', 'cover-image', 'img-cover']:
+            it = original_book.get_item_with_id(item_id)
+            if it and it.get_type() == ebooklib.ITEM_IMAGE:
+                cover_item = it
                 break
+        
+        if not cover_item:
+            # Ищем по имени файла
+            for item in original_book.get_items_of_type(ebooklib.ITEM_IMAGE):
+                if 'cover' in item.get_name().lower():
+                    cover_item = item
+                    break
+        
         if cover_item:
+            # В EPUB3 важно иметь properties="cover-image"
+            cover_item.add_property('cover-image')
             book.set_cover(cover_item.file_name, cover_item.get_content())
+            # Добавляем метаданные для старых ридеров
+            book.add_metadata(None, 'meta', '', {'name': 'cover', 'content': cover_item.get_id()})
 
     # --- Обработка и добавление глав ---
     chapters = []
@@ -122,7 +136,13 @@ def create_translated_epub(book_info, target_language):
         chapter_index = i + 1
         chapter_title = chapter_titles_map.get(section_id, f"{default_title_prefix} {chapter_index}")
         chapter_title_escaped = html.escape(chapter_title)
-        header_html = f"<h1>{chapter_title_escaped}</h1>\n"
+        
+        # 3. Скрываем заголовки для служебных секций
+        service_titles = ['cover', 'обложка', 'title', 'титульный', 'copyright', 'авторское право', 'contents', 'содержание', 'toc']
+        is_service_section = any(st in chapter_title.lower() for st in service_titles) or \
+                             any(st in str(section_id).lower() for st in service_titles)
+        
+        header_html = f"<h1>{chapter_title_escaped}</h1>\n" if not is_service_section else ""
         final_html_body_content = header_html
 
         section_data = sections_data_map.get(section_id)
@@ -132,6 +152,8 @@ def create_translated_epub(book_info, target_language):
         translated_text = get_translation_from_cache(original_filepath, section_id, target_language)
 
         if translated_text is not None:
+            # 1. Удаляем служебный маркер (любое кол-во $ от 3 и выше только в конце)
+            translated_text = re.sub(r'(?:\$\s*){3,}\s*$', '', translated_text).strip()
             note_definitions = defaultdict(list)
             note_targets_found = set()
             note_paragraph_indices = set()
