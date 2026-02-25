@@ -1164,7 +1164,11 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
         
         # Создаем модифицированную функцию для workflow
         def create_workflow_epub(book_info, target_language):
-            """Модифицированная версия create_translated_epub для workflow"""
+            """
+            Создает EPUB в унифицированном формате (Unified Standard Rebuild).
+            Максимальная совместимость с FBReader и другими читалками.
+            Все главы в корне, расширение .xhtml, картинки в images/.
+            """
             from ebooklib import epub
             import ebooklib
             import os
@@ -1176,24 +1180,37 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             import tempfile
             from collections import defaultdict
             
-            # Регулярные выражения (полностью автономные)
+            # --- START OF UTILITIES ---
             INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
             BOLD_MD_RE = re.compile(r'\*\*(.*?)\*\*')
             ITALIC_MD_RE = re.compile(r'\*(.*?)\*')
             SUPERSCRIPT_MARKER_RE = re.compile(r"([\¹\²\³\⁰\⁴\⁵\⁶\⁷\⁸\⁹]+)")
             NOTE_LINE_START_RE = re.compile(r"^\s*([\¹\²\³\⁰\⁴\⁵\⁶\⁷\⁸\⁹]+)\s*(.*)", re.UNICODE)
-            
-            # Карта для преобразования надстрочных цифр
             W_SUP_MAP = {'¹': '1', '²': '2', '³': '3', '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9'}
 
             def get_int_from_superscript(marker_str):
-                """Преобразует строку надстрочных цифр в целое число."""
                 if not marker_str: return -1
                 num_str = "".join(W_SUP_MAP.get(c, '') for c in marker_str)
                 try: return int(num_str) if num_str else -1
                 except ValueError: return -1
-            
-            print(f"Запуск создания EPUB для: {book_info.get('filename', 'N/A')}, язык: {target_language}")
+
+            def remove_duplicate_title_from_text(text: str, expected_title: str) -> str:
+                if not text or not expected_title: return text
+                normalized_title = expected_title.strip().lower()
+                paragraphs = text.split('\n\n')
+                if not paragraphs: return text
+                first_para = paragraphs[0].strip()
+                if not first_para: return text
+                clean_for_comparison = re.sub(r'\*\*(.*?)\*\*', r'\1', first_para)
+                clean_for_comparison = re.sub(r'\*(.*?)\*', r'\1', clean_for_comparison)
+                clean_for_comparison = re.sub(r'^#+\s*', '', clean_for_comparison)
+                clean_for_comparison = clean_for_comparison.strip().lower()
+                if clean_for_comparison == normalized_title:
+                    return '\n\n'.join(paragraphs[1:]).strip()
+                return text
+            # --- END OF UTILITIES ---
+
+            print(f"[EPUB_REBUILD] Начат процесс для книги: {book_info.get('filename')}")
             
             original_filepath = book_info.get("filepath")
             section_ids = book_info.get("section_ids_list", [])
@@ -1204,456 +1221,164 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             epub_id_str = book_info.get('book_id', 'unknown-book-id')
             lang_code = target_language[:2] if target_language else "ru"
             
-            if not original_filepath or not os.path.exists(original_filepath) or not section_ids:
-                print("[ERROR epub_creator] Отсутствует путь к файлу, файл не найден или нет ID секций.")
-                return None
-            
-            # Чтение оригинала для копирования ресурсов
-            try:
-                original_book = epub.read_epub(original_filepath)
-                print(f"  Оригинальная книга прочитана: {original_filepath}")
-            except Exception as e:
-                print(f"  ОШИБКА чтения оригинальной книги: {e}")
-                traceback.print_exc()
-                return None
-            
-            # Создание новой книги
+            # 1. Инициализация книги
             book = epub.EpubBook()
             book.set_identifier(f"urn:uuid:{epub_id_str}-{target_language}")
-            book.set_title(f"{book_title_orig} ({target_language.capitalize()} Translation)")
+            book.set_title(f"{book_title_orig} ({target_language.capitalize()})")
             book.set_language(lang_code)
             book.add_author("EPUB Translator Tool")
-            book.add_metadata('DC', 'description', 'Translated using EPUB Translator Tool')
             
-            # Копирование ресурсов
-            copied_items_ids = set()
-            items_to_copy = []
-            print("  Копирование ресурсов...")
-            for item in original_book.get_items():
-                # НЕ копируем документы, навигацию и старое оглавление - мы создадим их заново
-                is_service = item.get_type() in [ebooklib.ITEM_DOCUMENT, ebooklib.ITEM_NAVIGATION]
-                is_cover = item.get_id() == 'cover' or 'cover' in item.get_name().lower()
-                
-                if not is_service or is_cover:
-                    item_id = item.get_id()
-                    if item_id not in copied_items_ids:
-                        items_to_copy.append(item)
-                        copied_items_ids.add(item_id)
-            
-            for item in items_to_copy:
-                book.add_item(item)
-            print(f"  Скопировано {len(items_to_copy)} ресурсов/служебных файлов.")
-
-            # --- ЯВНО УСТАНАВЛИВАЕМ ОБЛОЖКУ ---
-            cover_item = None
-            for item in original_book.get_items_of_type(ebooklib.ITEM_IMAGE):
-                if item.get_id() == 'cover' or 'cover' in item.get_name().lower():
-                    cover_item = item
-                    break
-            if cover_item:
-                book.set_cover(cover_item.file_name, cover_item.get_content())
-                print(f'  Обложка установлена: {cover_item.file_name}')
-            else:
-                print('  [WARN] Обложка не найдена в оригинале, не будет установлена явно.')
-
-            # Обработка и добавление переведенных глав
-            chapters = []
-            chapter_titles_map = {}
-            default_title_prefix = "Section"
-            if toc_data:
-                for item in toc_data:
-                    sec_id = item.get('id')
-                    title = item.get('translated_title') or item.get('title')
-                    if sec_id and title:
-                        chapter_titles_map[sec_id] = title
-                        if default_title_prefix == "Section" and any('а' <= c <= 'я' for c in title.lower()):
-                            default_title_prefix = "Раздел"
-                if not chapter_titles_map:
-                    print("  [WARN] Не удалось извлечь заголовки из TOC.")
-            else:
-                print("  [WARN] Нет данных TOC.")
-            
-            def remove_duplicate_title_from_text(text: str, expected_title: str) -> str:
-                """
-                Удаляет дублирующийся заголовок из начала переведенного текста.
-                Проверяет различные форматы: обычный текст, **bold**, # heading
-                """
-                if not text or not expected_title:
-                    return text
-                
-                # Нормализуем ожидаемый заголовок для сравнения
-                normalized_title = expected_title.strip().lower()
-                
-                # Разбиваем текст на параграфы
-                paragraphs = text.split('\n\n')
-                if not paragraphs:
-                    return text
-                
-                first_para = paragraphs[0].strip()
-                if not first_para:
-                    return text
-                
-                # Проверяем различные форматы заголовка в первом параграфе
-                first_para_clean = first_para
-                
-                # Удаляем markdown форматирование для сравнения
-                # **bold** → bold
-                clean_for_comparison = re.sub(r'\*\*(.*?)\*\*', r'\1', first_para_clean)
-                # *italic* → italic  
-                clean_for_comparison = re.sub(r'\*(.*?)\*', r'\1', clean_for_comparison)
-                # # heading → heading
-                clean_for_comparison = re.sub(r'^#+\s*', '', clean_for_comparison)
-                # Убираем лишние пробелы
-                clean_for_comparison = clean_for_comparison.strip().lower()
-                
-                # Если заголовки совпадают - удаляем первый параграф
-                if clean_for_comparison == normalized_title:
-                    # print(f"      Удален дублирующийся заголовок из текста: '{first_para[:50]}...'")
-                    # Возвращаем текст без первого параграфа
-                    remaining_paragraphs = paragraphs[1:]
-                    return '\n\n'.join(remaining_paragraphs).strip()
-                
-                return text
-
-            print(f"  Обработка {len(section_ids)} секций книги...")
-            for i, section_id in enumerate(section_ids):
-                chapter_index = i + 1
-                
-                # Ищем название главы в TOC по section_id
-                chapter_title = None
-                if toc_data:
-                    for item in toc_data:
-                        if item.get('id') == section_id:
-                            chapter_title = item.get('translated_title') or item.get('title')
+            # 2. Перенос обложки
+            if original_filepath and os.path.exists(original_filepath):
+                try:
+                    orig_book = epub.read_epub(original_filepath)
+                    cover_item = None
+                    for item_id in ['cover', 'cover-image', 'img-cover']:
+                        it = orig_book.get_item_with_id(item_id)
+                        if it and it.get_type() == ebooklib.ITEM_IMAGE:
+                            cover_item = it
                             break
+                    if not cover_item:
+                        for it in orig_book.get_items_of_type(ebooklib.ITEM_IMAGE):
+                            if 'cover' in it.get_name().lower() or 'cover' in it.get_id().lower():
+                                cover_item = it
+                                break
+                    if cover_item:
+                        ext = os.path.splitext(cover_item.get_name())[1] or '.jpg'
+                        # Важно: используем фиксированное имя cover.jpg/png для стабильности
+                        cover_name = f"cover{ext}"
+                        book.set_cover(cover_name, cover_item.get_content())
+                        print(f"[EPUB_REBUILD] Обложка сохранена как {cover_name}")
+                    del orig_book
+                except Exception as e:
+                    print(f"[EPUB_REBUILD] Ошибка при извлечении обложки: {e}")
+
+            # 3. Обработка глав
+            chapters = []
+            default_title_prefix = "Раздел" if lang_code == 'ru' else "Section"
+            
+            for i, epub_id in enumerate(section_ids):
+                chapter_index = i + 1
+                section_data = sections_data_map.get(epub_id, {})
+                internal_id = section_data.get('internal_section_id')
                 
-                # Если не нашли в TOC, используем fallback
+                # Заголовок
+                chapter_title = None
+                for t in toc_data:
+                    if str(t.get('id')) == str(epub_id):
+                        chapter_title = t.get('translated_title') or t.get('title')
+                        break
                 if not chapter_title:
                     chapter_title = f"{default_title_prefix} {chapter_index}"
                 
-                chapter_title_escaped = html.escape(chapter_title)
-                # Добавляем заголовок главы как H1 (как в классическом подходе)
-                header_html = f"<h1>{chapter_title_escaped}</h1>\n"
-                
-                # Добавляем изображение комикса, если оно есть
-                image_html = ""
-                
-                section_data = sections_data_map.get(section_id)
-                # Пытаемся получить internal_section_id из мапы или из всех секций книги
-                internal_section_id = section_data.get('internal_section_id') if section_data else None
-                
-                # Поиск по всем секциям (all_sections_raw), если в основной мапе пусто
-                if not internal_section_id:
-                    all_sections_raw = book_info.get('all_sections_raw', [])
-                    for s in all_sections_raw:
-                        if str(s.get('section_epub_id')) == str(section_id):
-                            internal_section_id = s.get('section_id')
-                            break
+                # Служебная ли секция?
+                service_titles = ['cover', 'обложка', 'title', 'титульный', 'copyright', 'авторское право', 'contents', 'содержание', 'toc', 'annotation', 'аннотация']
+                is_service = any(st in chapter_title.lower() for st in service_titles) or \
+                             any(st in str(epub_id).lower() for st in service_titles)
 
-                if internal_section_id:
-                    print(f"      [EPUB_CREATOR] >>> ПОИСК КАРТИНКИ: InternalID={internal_section_id}, EpubID={section_id}")
-                    image_data = workflow_db_manager.get_comic_image_workflow(internal_section_id)
+                # Текст и очистка
+                raw_text = section_data.get('translated_text', '')
+                # Чистим от маркера в конце ($$$$$)
+                clean_text = re.sub(r'(?:\$\s*){3,}\s*$', '', raw_text).strip()
+                clean_text = remove_duplicate_title_from_text(clean_text, chapter_title)
+                
+                # Сборка HTML
+                final_html_body = ""
+                if not is_service:
+                    final_html_body += f"<h1>{html.escape(chapter_title)}</h1>\n"
+                
+                # Изображение комикса
+                if internal_id:
+                    image_data = workflow_db_manager.get_comic_image_workflow(internal_id)
                     if image_data:
-                        image_filename = f"comic_{internal_section_id}.png"
-                        img_path = f"images/{image_filename}"
-                        print(f"      [EPUB_CREATOR] >>> КАРТИНКА НАЙДЕНА! Добавляем {img_path} ({len(image_data)} байт)")
-                        
+                        img_name = f"comic_{internal_id}.png"
+                        img_path = f"images/{img_name}"
+                        # Добавляем изображение как отдельный айтем
                         img_item = epub.EpubItem(
-                            uid=f"img_{internal_section_id}",
+                            uid=f"img_{internal_id}",
                             file_name=img_path,
                             content=image_data,
                             media_type="image/png"
                         )
                         book.add_item(img_item)
-                        
-                        # Вычисляем относительный путь в зависимости от вложенности XHTML
-                        # Если в имени файла есть '/', значит он в подпапке
-                        depth = chapter_filename_to_use.count('/')
-                        rel_img_path = ("../" * depth) + img_path
-                        
-                        # Вставляем изображение с более консервативными стилями для мобильных ридеров
-                        image_html = f'<div style="text-align: center; margin: 1em 0;"><img src="{rel_img_path}" alt="Illustration" style="max-width: 100%; border-radius: 5px;"/></div>\n'
-                    else:
-                        print(f"      [EPUB_CREATOR] >>> КАРТИНКА НЕ НАЙДЕНА в базе данных для ID {internal_section_id}")
-                else:
-                    print(f"      [EPUB_CREATOR] >>> ВНИМАНИЕ: Не удалось сопоставить секцию '{section_id}' с ID в базе данных.")
+                        # Вставляем в HTML перед текстом
+                        final_html_body += f'<div style="text-align: center; margin: 1.2em 0;"><img src="{img_path}" alt="Illustration" style="max-width: 100%; height: auto; border-radius: 4px;"/></div>\n'
 
-                final_html_body_content = header_html + image_html
-                
-                section_data = sections_data_map.get(section_id)
-                section_status = section_data.get("status", "unknown") if section_data else "unknown"
-                error_message = section_data.get("error_message") if section_data else None
-                
-                # Получаем перевод из sections_data_map вместо кэша
-                translated_text = section_data.get("translated_text") if section_data else None
-                
-                if translated_text is not None:
-                    # 1. Удаляем служебный маркер (любое кол-во $ от 3 и выше только в конце)
-                    translated_text = re.sub(r'(?:\$\s*){3,}\s*$', '', translated_text).strip()
-                    # Удаляем дублирующийся заголовок из переведенного текста
-                    translated_text = remove_duplicate_title_from_text(translated_text, chapter_title)
-                    # Обработка параграфов и сносок (упрощенная версия)
-                    print(f"      [DEBUG] Обрабатываем сноски для секции {section_id}")
-                    print(f"      [DEBUG] Длина переведенного текста: {len(translated_text)}")
-                    
-                    note_definitions = defaultdict(list)
-                    note_targets_found = set()
-                    note_paragraph_indices = set()
-                    reference_markers_data = []
-                    original_paragraphs = translated_text.split('\n\n')
-                    
-                    print(f"      [DEBUG] Количество параграфов: {len(original_paragraphs)}")
-                    
-                    # Этап 1: Сбор информации о сносках
-                    for para_idx, para_text_raw in enumerate(original_paragraphs):
-                        para_strip_orig = para_text_raw.strip()
-                        if not para_strip_orig:
-                            continue
-                        is_definition_para = False
-                        lines = para_strip_orig.split('\n')
-                        for line in lines:
-                            match_line = NOTE_LINE_START_RE.match(line.strip())
-                            if match_line:
-                                is_definition_para = True
-                                marker = match_line.group(1)
-                                note_text = match_line.group(2).strip()
-                                note_num = get_int_from_superscript(marker)
-                                if note_num > 0:
-                                    note_definitions[note_num].append(note_text)
-                                    note_targets_found.add(note_num)
-                                    # print(f"      [DEBUG] Найдено определение сноски {note_num}: {note_text[:50]}...")
-                        if is_definition_para:
-                            note_paragraph_indices.add(para_idx)
-                        # Ищем ссылки-маркеры
-                        for match in SUPERSCRIPT_MARKER_RE.finditer(para_strip_orig):
-                            marker = match.group(1)
-                            note_num = get_int_from_superscript(marker)
-                            if note_num > 0:
-                                reference_markers_data.append((para_idx, match, note_num))
-                                # print(f"      [DEBUG] Найдена ссылка на сноску {note_num} в параграфе {para_idx}")
-                    
-                    # print(f"      [DEBUG] Найдено определений сносок: {len(note_targets_found)}")
-                    # print(f"      [DEBUG] Найдено ссылок на сноски: {len(reference_markers_data)}")
-                    
-                    # Этап 2: Генерация HTML
-                    final_content_blocks = []
-                    processed_markers_count = 0
-                    reference_occurrence_counters = defaultdict(int)
-                    definition_occurrence_counters = defaultdict(int)
-                    
-                    for para_idx, para_original_raw in enumerate(original_paragraphs):
-                        para_strip = para_original_raw.strip()
-                        if not para_strip:
-                            # Добавляем пустой параграф с неразрывным пробелом, если исходная строка не была пустой
-                            if para_original_raw:
-                                final_content_blocks.append("<p> </p>")
-                            continue # Пропускаем полностью пустые строки
+                # Параграфы и сноски
+                if clean_text:
+                    paragraphs = clean_text.split('\n\n')
+                    for p_raw in paragraphs:
+                        p_strip = p_raw.strip()
+                        if not p_strip: continue
                         
-                        # Проверяем, содержит ли параграф определения сносок
-                        is_footnote_para = False
-                        lines_for_check = para_strip.split('\n')
-                        for line_check in lines_for_check:
-                            if NOTE_LINE_START_RE.match(line_check.strip()):
-                                is_footnote_para = True
-                                break
-                        
-                        if is_footnote_para:
-                            # Обработка параграфа-сноски
-                            # print(f"      [DEBUG] Обрабатываем сноски для секции {section_id}")
-                            footnote_lines_html = []
-                            lines = para_strip.split('\n')
+                        # Простая обработка сносок, если они есть
+                        if NOTE_LINE_START_RE.match(p_strip):
+                            lines = p_strip.split('\n')
+                            f_html = '<div class="footnotes" style="font-size: 0.9em; border-top: 1px solid #eee; margin-top: 2em; padding-top: 1em;">'
                             for line in lines:
-                                line_strip = line.strip()
-                                if not line_strip:
-                                    continue
-                                match_line = NOTE_LINE_START_RE.match(line_strip)
-                                if match_line:
-                                    marker = match_line.group(1)
-                                    note_text = match_line.group(2).strip()
-                                    note_num = get_int_from_superscript(marker)
-                                    if note_num > 0:
-                                        definition_occurrence_counters[note_num] += 1
-                                        occ = definition_occurrence_counters[note_num]
-                                        note_anchor_id = f"note_{section_id}_{note_num}_{occ}"
-                                        ref_id = f"ref_{section_id}_{note_num}_{occ}"
-                                        backlink_html = f' <a class="footnote-backlink" href="#{ref_id}" title="Вернуться к тексту">↩</a>'
-                                        note_text_cleaned = INVALID_XML_CHARS_RE.sub('', note_text)
-                                        note_text_md = BOLD_MD_RE.sub(r'<strong>\1</strong>', note_text_cleaned)
-                                        note_text_md = ITALIC_MD_RE.sub(r'<em>\1</em>', note_text_md)
-                                        footnote_lines_html.append(f'<p class="footnote-definition" id="{note_anchor_id}">{marker} {note_text_md}{backlink_html}</p>')
-                                    else:
-                                        footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
+                                m = NOTE_LINE_START_RE.match(line.strip())
+                                if m:
+                                    marker, note = m.groups()
+                                    f_html += f'<p><sup>{marker}</sup> {html.escape(note)}</p>'
                                 else:
-                                    footnote_lines_html.append(f'<p>{html.escape(line_strip)}</p>')
-                            if footnote_lines_html:
-                                final_content_blocks.append(f'<div class="footnote-block">\n{chr(10).join(footnote_lines_html)}\n</div>')
+                                    f_html += f'<p>{html.escape(line.strip())}</p>'
+                            f_html += '</div>'
+                            final_html_body += f_html
                         else:
-                            # Обработка обычного параграфа
-                            text_normalized = unicodedata.normalize('NFC', para_strip)
-                            text_cleaned_xml = INVALID_XML_CHARS_RE.sub('', text_normalized)
-                            text_with_md_html = BOLD_MD_RE.sub(r'<strong>\1</strong>', text_cleaned_xml)
-                            text_with_md_html = ITALIC_MD_RE.sub(r'<em>\1</em>', text_with_md_html)
-                            
-                            current_para_html = text_with_md_html
-                            offset = 0
-                            markers_in_para = sorted(list(SUPERSCRIPT_MARKER_RE.finditer(text_with_md_html)), key=lambda m: m.start())
-                            
-                            for match in markers_in_para:
-                                marker = match.group(1)
-                                note_num = get_int_from_superscript(marker)
-                                if note_num > 0 and note_num in note_targets_found:
-                                    reference_occurrence_counters[note_num] += 1
-                                    occ = reference_occurrence_counters[note_num]
-                                    start, end = match.start() + offset, match.end() + offset
-                                    note_anchor_id = f"note_{section_id}_{note_num}_{occ}"
-                                    ref_id = f"ref_{section_id}_{note_num}_{occ}"
-                                    replacement = f'<sup class="footnote-ref"><a id="{ref_id}" href="#{note_anchor_id}" title="См. примечание {note_num}">{marker}</a></sup>'
-                                    current_para_html = current_para_html[:start] + replacement + current_para_html[end:]
-                                    offset += len(replacement) - (end - start)
-                                    processed_markers_count += 1
-                                    # print(f"      [DEBUG] Заменен маркер {marker} на ссылку к {note_anchor_id}")
-                                    pass
-                                elif note_num > 0:
-                                    # print(f"      [DEBUG] Маркер {marker} (сноска {note_num}) найден, но определение не найдено")
-                                    pass
-                                    pass
-                            processed_html = current_para_html.replace('\n', '<br/>')
-                            final_para_html = f"<p>{processed_html}</p>"
-                            final_content_blocks.append(final_para_html)
-                    
-                    # После всех циклов для секции
-                    if processed_markers_count > 0:
-                        # print(f"      Заменено маркеров ссылками: {processed_markers_count} для {section_id}")
-                        pass
-                    # Добавляем собранные блоки
-                    final_html_body_content += "\n".join(final_content_blocks)
-                    # Если после всего контент (кроме заголовка) остался пустым, добавим пустой параграф
-                    if not final_content_blocks and translated_text.strip() == "":
-                        final_html_body_content += "<p> </p>"
+                            # Обычный параграф с поддержкой базового Markdown
+                            p_esc = html.escape(p_strip).replace('\n', '<br/>')
+                            p_esc = BOLD_MD_RE.sub(r'<strong>\1</strong>', p_esc)
+                            p_esc = ITALIC_MD_RE.sub(r'<em>\1</em>', p_esc)
+                            final_html_body += f"<p>{p_esc}</p>\n"
                 
-                elif section_status.startswith("error_"):
-                    error_display_text = error_message if error_message else section_status
-                    final_html_body_content += f"\n<p><i>[Ошибка перевода: {html.escape(error_display_text)}]</i></p>"
-                else:
-                    final_html_body_content += f"\n<p><i>[Перевод недоступен (статус: {html.escape(section_status)})]</i></p>"
-                
-                # Определяем имя файла главы (ПРИНУДИТЕЛЬНО .xhtml для FBReader)
-                chapter_filename_to_use = f"chapter_{chapter_index}.xhtml"
-                original_item = original_book.get_item_with_id(section_id)
-                if original_item and original_item.get_type() == ebooklib.ITEM_DOCUMENT:
-                    chapter_filename_to_use = os.path.splitext(original_item.file_name)[0] + ".xhtml"
-                
-                # Создаем и добавляем главу
-                # ПРИНУДИТЕЛЬНО используем .xhtml и чистые имена для лучшей совместимости с FBReader
-                safe_filename = f"chapter_{chapter_index:03d}.xhtml"
-                
-                # Проверяем, не служебная ли это секция (скрываем заголовок)
-                service_titles = ['cover', 'обложка', 'title', 'титульный', 'copyright', 'авторское право', 'contents', 'содержание', 'toc']
-                is_service = any(st in chapter_title.lower() for st in service_titles) or \
-                             any(st in str(section_id).lower() for st in service_titles)
+                if not final_html_body:
+                    final_html_body = "<p> </p>"
 
-                if is_service:
-                    # Для служебных страниц пытаемся сохранить оригинальное имя файла, если оно было
-                    original_item = original_book.get_item_with_id(section_id)
-                    if original_item:
-                        safe_filename = original_item.file_name
-                    header_html = "" # Убираем заголовок <h1>
-                else:
-                    header_html = f"<h1>{chapter_title_escaped}</h1>\n"
-
-                epub_chapter = epub.EpubHtml(
+                # Создание EpubHtml айтема
+                file_name = f"section_{chapter_index:03d}.xhtml"
+                chapter = epub.EpubHtml(
                     title=chapter_title,
-                    file_name=safe_filename,
+                    file_name=file_name,
                     lang=lang_code,
-                    uid=section_id
+                    uid=str(epub_id)
                 )
-                try:
-                    basic_css = "<style>body{line-height:1.5; margin: 1em;} h1{margin-top:0; border-bottom: 1px solid #eee; padding-bottom: 0.2em; margin-bottom: 1em;} p{margin: 0.5em 0; text-indent: 0;} .footnote-block{font-size:0.9em; margin-top: 2em; border-top: 1px solid #eee; padding-top: 0.5em;} .footnote-definition{margin: 0.2em 0;} .footnote-ref a {text-decoration: none; vertical-align: super; font-size: 0.8em;} img { max-width: 100%; height: auto; display: block; margin: 1em auto; border-radius: 4px; }</style>"
-                    # Генерируем чистый XHTML без лишних префиксов, которые смущают FBReader
-                    full_content = f'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang_code}" xml:lang="{lang_code}"><head><meta charset="utf-8"/><title>{chapter_title_escaped}</title>{basic_css}</head><body>{final_html_body_content}</body></html>'
-                    epub_chapter.content = full_content.encode('utf-8', 'xmlcharrefreplace')
-                except Exception as set_content_err:
-                    print(f"  !!! ОШИБКА set_content для '{section_id}': {set_content_err}")
-                    epub_chapter.content = f"<html><body><h1>Error</h1><p>Failed to set content for section {html.escape(section_id)}.</p></body></html>".encode('utf-8')
                 
-                book.add_item(epub_chapter)
-                chapters.append(epub_chapter)
-            
-            print("  Генерация TOC и Spine...")
-            # Создание TOC и Spine
-            book_toc = []
-            processed_toc_items = 0
-            if toc_data:
-                href_to_chapter_map = {ch.file_name: ch for ch in chapters}
-                for item in toc_data:
-                    item_href = item.get('href')
-                    item_title = item.get('translated_title') or item.get('title')
-                    if item_href and item_title:
-                        clean_href = item_href.split('#')[0]
-                        target_chapter = href_to_chapter_map.get(clean_href)
-                        if target_chapter:
-                            link_target = target_chapter.file_name + (f"#{item_href.split('#')[1]}" if '#' in item_href else '')
-                            toc_entry = epub.Link(link_target, item_title, uid=item.get('id', clean_href))
-                            book_toc.append(toc_entry)
-                            processed_toc_items += 1
-            if processed_toc_items > 0:
-                print(f"  TOC с {processed_toc_items} элементами подготовлен.")
-                book.toc = tuple(book_toc)
-            else:
-                print("  [WARN] Не удалось создать TOC из данных, используем плоский список.")
-                book.toc = tuple(chapters[:])
+                # Компактный CSS для лучшей совместимости
+                css = "<style>body{font-family: serif; margin: 1em; line-height: 1.5;} h1{text-align: center; margin-bottom: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 0.5em;} p{margin: 0.5em 0; text-indent: 1.2em;} img{max-width: 100%; display: block; margin: 1em auto; border-radius: 4px;}</style>"
+                
+                # Чистый XHTML
+                xhtml_content = f'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang_code}"><head><title>{html.escape(chapter_title)}</title>{css}</head><body>{final_html_body}</body></html>'
+                chapter.content = xhtml_content.encode('utf-8', 'xmlcharrefreplace')
+                
+                book.add_item(chapter)
+                chapters.append(chapter)
+
+            # 4. Финализация (NCX, NAV, Spine)
+            book.toc = tuple(chapters)
+            book.spine = ['nav'] + chapters
             book.add_item(epub.EpubNcx())
             book.add_item(epub.EpubNav())
-            book.spine = ['nav'] + chapters
-            print(f"  Spine установлен: {len(book.spine)} элементов.")
-            
-            # Запись файла во временный файл
-            print(f"  Запись EPUB во временный файл...")
-            epub_content_bytes = None
-            temp_epub_path = None
+
+            # 5. Сборка в байты
+            t_path = None
             try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".epub", mode='wb') as temp_f:
-                    temp_epub_path = temp_f.name
-                epub.write_epub(temp_epub_path, book, {})
-                print(f"    EPUB записан в {temp_epub_path}")
-                with open(temp_epub_path, 'rb') as f_read:
-                    epub_content_bytes = f_read.read()
-                print(f"    EPUB прочитан ({len(epub_content_bytes)} байт).")
-                return epub_content_bytes
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tf:
+                    t_path = tf.name
+                epub.write_epub(t_path, book, {})
+                with open(t_path, 'rb') as f:
+                    data = f.read()
+                print(f"[EPUB_REBUILD] Файл успешно собран: {len(data)} байт.")
+                return data
             except Exception as e:
-                print(f"  ОШИБКА записи/чтения EPUB: {e}")
+                print(f"[EPUB_REBUILD] Ошибка при финальной записи: {e}")
                 traceback.print_exc()
                 return None
             finally:
-                if temp_epub_path and os.path.exists(temp_epub_path):
-                    try:
-                        os.remove(temp_epub_path)
-                    except OSError as os_err:
-                        print(f"  ОШИБКА удаления temp file {temp_epub_path}: {os_err}")
-                
-                # Явное освобождение памяти
-                print("  Освобождение памяти...")
-                try:
-                    # Очищаем большие объекты
-                    if 'book' in locals():
-                        del book
-                    if 'original_book' in locals():
-                        del original_book
-                    if 'chapters' in locals():
-                        del chapters
-                    if 'epub_book_info' in locals():
-                        del epub_book_info
-                    if 'sections_data_map' in locals():
-                        del sections_data_map
-                    if 'toc_data' in locals():
-                        del toc_data
-                    
-                    # Принудительная сборка мусора
-                    import gc
-                    gc.collect()
-                    print("  Память освобождена")
-                except Exception as mem_err:
-                    print(f"  ОШИБКА при освобождении памяти: {mem_err}")
+                if t_path and os.path.exists(t_path):
+                    try: os.remove(t_path)
+                    except: pass
+                import gc
+                gc.collect()
         
         epub_bytes = create_workflow_epub(epub_book_info, target_language)
         

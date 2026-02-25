@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showEditAnalysisOverlay(bookId, analysisText) {
+        if (!analysisTextArea || !editAnalysisOverlay) return;
         analysisTextArea.value = analysisText || '';
         editAnalysisOverlay.dataset.bookId = bookId;
         hideProgressOverlay();
@@ -56,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function hideEditAnalysisOverlay() {
+        if (!editAnalysisOverlay || !analysisTextArea) return;
         editAnalysisOverlay.style.display = 'none';
         analysisTextArea.value = '';
         delete editAnalysisOverlay.dataset.bookId;
