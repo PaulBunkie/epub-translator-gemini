@@ -1093,18 +1093,24 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
         # Получаем переведенные секции
         for section in sections:
             section_id = section['section_id']
+            epub_id = section['section_epub_id']
             translated_text = workflow_cache_manager.load_section_stage_result(
                 book_id, section_id, 'translate'
             )
             
-            if translated_text is None or not translated_text.strip():
-                print(f"[WorkflowProcessor] Предупреждение: Секция {section_id} не переведена или пуста")
+            # Проверяем наличие картинки, чтобы не пропускать секцию, если есть комикс
+            # ВАЖНО: здесь section_id - это числовой ID из базы
+            has_image = workflow_db_manager.get_comic_image_workflow(section_id) is not None
+            
+            if (translated_text is None or not translated_text.strip()) and not has_image:
+                print(f"[WorkflowProcessor] Пропуск секции {section_id} ({epub_id}): нет перевода и нет комикса.")
                 continue
                 
             translated_sections.append({
                 'section_id': section_id,
-                'section_epub_id': section['section_epub_id'],
-                'translated_text': translated_text
+                'section_epub_id': epub_id,
+                'translated_text': translated_text or "",
+                'has_image': has_image
             })
 
         if not translated_sections:
@@ -1119,10 +1125,11 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
         sections_dict = {}
         
         for section in translated_sections:
-            section_id = section['section_epub_id']
-            sections_dict[section_id] = {
+            epub_id = section['section_epub_id']
+            sections_dict[epub_id] = {
                 'status': 'translated',
-                'translated_text': section['translated_text']
+                'translated_text': section['translated_text'],
+                'internal_section_id': section['section_id'] # Передаем внутренний ID для поиска картинок
             }
         
         epub_book_info = {
@@ -1132,7 +1139,8 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             'target_language': target_language,
             'section_ids_list': section_ids_list,  # Список ID секций в порядке spine
             'sections': sections_dict,  # Словарь с данными секций
-            'toc': []
+            'toc': [],
+            'all_sections_raw': sections # Передаем список всех секций из БД для сопоставления
         }
         
         # Отладочная информация
@@ -1157,6 +1165,7 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             from ebooklib import epub
             import ebooklib
             import os
+            import workflow_db_manager
             import traceback
             import html
             import re
@@ -1317,7 +1326,47 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 chapter_title_escaped = html.escape(chapter_title)
                 # Добавляем заголовок главы как H1 (как в классическом подходе)
                 header_html = f"<h1>{chapter_title_escaped}</h1>\n"
-                final_html_body_content = header_html
+                
+                # Добавляем изображение комикса, если оно есть
+                image_html = ""
+                
+                section_data = sections_data_map.get(section_id)
+                # Пытаемся получить internal_section_id из мапы или из всех секций книги
+                internal_section_id = section_data.get('internal_section_id') if section_data else None
+                
+                # Поиск по всем секциям (all_sections_raw), если в основной мапе пусто
+                if not internal_section_id:
+                    all_sections_raw = book_info.get('all_sections_raw', [])
+                    for s in all_sections_raw:
+                        if str(s.get('section_epub_id')) == str(section_id):
+                            internal_section_id = s.get('section_id')
+                            break
+
+                if internal_section_id:
+                    print(f"      [EPUB_CREATOR] >>> ПОИСК КАРТИНКИ: InternalID={internal_section_id}, EpubID={section_id}")
+                    image_data = workflow_db_manager.get_comic_image_workflow(internal_section_id)
+                    if image_data:
+                        image_filename = f"comic_{internal_section_id}.png"
+                        img_path = f"images/{image_filename}"
+                        print(f"      [EPUB_CREATOR] >>> КАРТИНКА НАЙДЕНА! Добавляем {img_path} ({len(image_data)} байт)")
+                        
+                        img_item = epub.EpubItem(
+                            uid=f"img_{internal_section_id}",
+                            file_name=img_path,
+                            content=image_data,
+                            media_type="image/png"
+                        )
+                        book.add_item(img_item)
+                        # Вставляем изображение с центрированием и отступами
+                        image_html = f'<div style="text-align: center; margin: 30px 0;"><img src="{img_path}" alt="Comic Illustration" style="max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"/></div>\n'
+                    else:
+                        print(f"      [EPUB_CREATOR] >>> КАРТИНКА НЕ НАЙДЕНА в базе данных для ID {internal_section_id}")
+                else:
+                    print(f"      [EPUB_CREATOR] >>> ВНИМАНИЕ: Не удалось сопоставить секцию '{section_id}' с ID в базе данных.")
+
+                final_html_body_content = header_html + image_html
+
+                final_html_body_content = header_html + image_html
                 
                 section_data = sections_data_map.get(section_id)
                 section_status = section_data.get("status", "unknown") if section_data else "unknown"

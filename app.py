@@ -1684,20 +1684,40 @@ def workflow_download_epub(book_id):
     book_stage_statuses = book_info.get('book_stage_statuses', {})
     epub_stage_status = book_stage_statuses.get('epub_creation', {}).get('status')
 
-    if epub_stage_status not in ['completed', 'completed_with_errors']:
-         print(f"  [DownloadEPUB] Этап создания EPUB для книги {book_id} не завершен. Статус: {epub_stage_status}")
-         return f"EPUB creation not complete (Status: {epub_stage_status}).", 409
-
+    # Если затребована пересборка (force_rebuild=1) или файл отсутствует, запускаем процесс заново
+    force_rebuild = request.args.get('force_rebuild') == '1'
+    
     # Формируем путь к переведенному EPUB файлу
     base_name = os.path.splitext(book_info.get('filename', 'book'))[0]
     target_language = book_info.get('target_language', 'russian')
     epub_filename = f"{base_name}_{target_language}.epub"
     epub_filepath = UPLOADS_DIR / "translated" / epub_filename
 
-    # Проверяем существование файла
-    if not epub_filepath.exists():
-        print(f"  [DownloadEPUB] EPUB файл не найден: {epub_filepath}")
-        return "EPUB file not found", 404
+    # Проверяем существование файла и статус
+    file_exists = epub_filepath.exists()
+
+    if force_rebuild or not file_exists or epub_stage_status not in ['completed', 'completed_with_errors']:
+        print(f"  [DownloadEPUB] Запуск (пере)создания EPUB для книги {book_id}. Force: {force_rebuild}, Exists: {file_exists}, Status: {epub_stage_status}")
+        
+        # Проверяем, что перевод вообще готов
+        translate_stage_status = book_stage_statuses.get('translate', {}).get('status')
+        if translate_stage_status not in ['completed', 'completed_with_errors']:
+            return f"Cannot create EPUB: translation not ready (Status: {translate_stage_status})", 400
+
+        # Запускаем генерацию EPUB синхронно (для скачивания) или асинхронно?
+        # Т.к. это запрос на скачивание, лучше подождать завершения, если файл небольшой,
+        # но наш ворклоу обычно асинхронный.
+        # Однако для "аккуратного добавления картинок" нам нужно, чтобы при нажатии кнопки скачивания
+        # пользователь получил актуальный файл.
+        
+        import workflow_processor
+        from flask import current_app
+        # Вызываем функцию создания напрямую
+        workflow_processor.process_book_epub_creation(book_id, admin=(request.args.get('admin') == 'true'))
+        
+        # После завершения проверяем файл еще раз
+        if not epub_filepath.exists():
+            return "Failed to regenerate EPUB file", 500
 
     try:
         # Читаем файл и отправляем его

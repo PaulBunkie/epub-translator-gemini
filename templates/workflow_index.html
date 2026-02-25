@@ -280,6 +280,9 @@
                                             {% endif %}
                                             {% if stage_name == 'epub_creation' and (stage_data.status in ['completed', 'completed_with_errors']) %}
                                                 <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать EPUB</a>
+                                                {% if admin %}
+                                                    <a href="{{ url_for('workflow_download_epub', book_id=book.book_id, force_rebuild=1, admin='true') }}" style="margin-left: 10px; font-size: 0.85em; color: #dc3545;" title="Пересобрать файл с учетом новых картинок">Пересобрать EPUB</a>
+                                                {% endif %}
                                             {% endif %}
                                         </div>
                                     {% endfor %}
