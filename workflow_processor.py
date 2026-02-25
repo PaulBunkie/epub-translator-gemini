@@ -1126,10 +1126,13 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
         
         for section in translated_sections:
             epub_id = section['section_epub_id']
+            # Очищаем текст от маркера $$$$$ строго в конце
+            clean_text = re.sub(r'(?:\$\s*){3,}\s*$', '', section['translated_text']).strip()
+            
             sections_dict[epub_id] = {
                 'status': 'translated',
-                'translated_text': section['translated_text'],
-                'internal_section_id': section['section_id'] # Передаем внутренний ID для поиска картинок
+                'translated_text': clean_text,
+                'internal_section_id': section['section_id']
             }
         
         epub_book_info = {
@@ -1227,8 +1230,11 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             items_to_copy = []
             print("  Копирование ресурсов...")
             for item in original_book.get_items():
+                # НЕ копируем документы, навигацию и старое оглавление - мы создадим их заново
+                is_service = item.get_type() in [ebooklib.ITEM_DOCUMENT, ebooklib.ITEM_NAVIGATION]
                 is_cover = item.get_id() == 'cover' or 'cover' in item.get_name().lower()
-                if item.get_type() != ebooklib.ITEM_DOCUMENT or is_cover:
+                
+                if not is_service or is_cover:
                     item_id = item.get_id()
                     if item_id not in copied_items_ids:
                         items_to_copy.append(item)
@@ -1359,8 +1365,14 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                             media_type="image/png"
                         )
                         book.add_item(img_item)
-                        # Вставляем изображение с центрированием и отступами
-                        image_html = f'<div style="text-align: center; margin: 30px 0;"><img src="{img_path}" alt="Comic Illustration" style="max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"/></div>\n'
+                        
+                        # Вычисляем относительный путь в зависимости от вложенности XHTML
+                        # Если в имени файла есть '/', значит он в подпапке
+                        depth = chapter_filename_to_use.count('/')
+                        rel_img_path = ("../" * depth) + img_path
+                        
+                        # Вставляем изображение с более консервативными стилями для мобильных ридеров
+                        image_html = f'<div style="text-align: center; margin: 1em 0;"><img src="{rel_img_path}" alt="Illustration" style="max-width: 100%; border-radius: 5px;"/></div>\n'
                     else:
                         print(f"      [EPUB_CREATOR] >>> КАРТИНКА НЕ НАЙДЕНА в базе данных для ID {internal_section_id}")
                 else:
@@ -1525,24 +1537,39 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 else:
                     final_html_body_content += f"\n<p><i>[Перевод недоступен (статус: {html.escape(section_status)})]</i></p>"
                 
-                # Определяем имя файла главы
+                # Определяем имя файла главы (ПРИНУДИТЕЛЬНО .xhtml для FBReader)
+                chapter_filename_to_use = f"chapter_{chapter_index}.xhtml"
                 original_item = original_book.get_item_with_id(section_id)
                 if original_item and original_item.get_type() == ebooklib.ITEM_DOCUMENT:
-                    chapter_filename_to_use = original_item.file_name
-                else:
-                    fallback_fname = f"chapter_{chapter_index}.xhtml"
-                    print(f"  [WARN] Не найден оригинальный документ для section_id '{section_id}'. Используем fallback: {fallback_fname}")
-                    chapter_filename_to_use = fallback_fname
+                    chapter_filename_to_use = os.path.splitext(original_item.file_name)[0] + ".xhtml"
                 
                 # Создаем и добавляем главу
+                # ПРИНУДИТЕЛЬНО используем .xhtml и чистые имена для лучшей совместимости с FBReader
+                safe_filename = f"chapter_{chapter_index:03d}.xhtml"
+                
+                # Проверяем, не служебная ли это секция (скрываем заголовок)
+                service_titles = ['cover', 'обложка', 'title', 'титульный', 'copyright', 'авторское право', 'contents', 'содержание', 'toc']
+                is_service = any(st in chapter_title.lower() for st in service_titles) or \
+                             any(st in str(section_id).lower() for st in service_titles)
+
+                if is_service:
+                    # Для служебных страниц пытаемся сохранить оригинальное имя файла, если оно было
+                    original_item = original_book.get_item_with_id(section_id)
+                    if original_item:
+                        safe_filename = original_item.file_name
+                    header_html = "" # Убираем заголовок <h1>
+                else:
+                    header_html = f"<h1>{chapter_title_escaped}</h1>\n"
+
                 epub_chapter = epub.EpubHtml(
                     title=chapter_title,
-                    file_name=chapter_filename_to_use,
+                    file_name=safe_filename,
                     lang=lang_code,
                     uid=section_id
                 )
                 try:
-                    basic_css = "<style>body{line-height:1.5; margin: 1em;} h1{margin-top:0; border-bottom: 1px solid #eee; padding-bottom: 0.2em; margin-bottom: 1em;} p{margin: 0.5em 0; text-indent: 0;} .footnote-block{font-size:0.9em; margin-top: 2em; border-top: 1px solid #eee; padding-top: 0.5em;} .footnote-definition{margin: 0.2em 0;} .footnote-ref a {text-decoration: none; vertical-align: super; font-size: 0.8em;}</style>"
+                    basic_css = "<style>body{line-height:1.5; margin: 1em;} h1{margin-top:0; border-bottom: 1px solid #eee; padding-bottom: 0.2em; margin-bottom: 1em;} p{margin: 0.5em 0; text-indent: 0;} .footnote-block{font-size:0.9em; margin-top: 2em; border-top: 1px solid #eee; padding-top: 0.5em;} .footnote-definition{margin: 0.2em 0;} .footnote-ref a {text-decoration: none; vertical-align: super; font-size: 0.8em;} img { max-width: 100%; height: auto; display: block; margin: 1em auto; border-radius: 4px; }</style>"
+                    # Генерируем чистый XHTML без лишних префиксов, которые смущают FBReader
                     full_content = f'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang_code}" xml:lang="{lang_code}"><head><meta charset="utf-8"/><title>{chapter_title_escaped}</title>{basic_css}</head><body>{final_html_body_content}</body></html>'
                     epub_chapter.content = full_content.encode('utf-8', 'xmlcharrefreplace')
                 except Exception as set_content_err:

@@ -1,6 +1,4 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // console.log('workflow.js loaded.');
-
     // Читаем admin параметр из URL
     const urlParams = new URLSearchParams(window.location.search);
     const admin = urlParams.get('admin') === 'true' || urlParams.get('user') === 'admin';
@@ -19,14 +17,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const activePollingIntervals = new Map();
 
+    // Инициализация существующих книг (запуск поллинга для тех, что в процессе)
+    document.querySelectorAll('.book-item').forEach(item => {
+        const bookId = item.getAttribute('data-book-id');
+        const status = item.querySelector('.book-overall-status').textContent.trim();
+        if (['processing', 'queued'].includes(status)) {
+            startPolling(bookId);
+        }
+    });
+
     if (toggleBookListBtn && bookListContainer) {
         toggleBookListBtn.addEventListener('click', () => {
             bookListContainer.classList.toggle('hidden-list');
             const isHidden = bookListContainer.classList.contains('hidden-list');
             toggleBookListBtn.textContent = isHidden ? 'Books in Workflow ▼' : 'Books in Workflow ▲';
         });
-        bookListContainer.classList.add('hidden-list');
-        toggleBookListBtn.textContent = 'Books in Workflow ▼';
     }
 
     function showProgressOverlay(message = 'Starting...') {
@@ -118,7 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const result = await response.json();
                 if (response.ok && result.book_id) {
                     updateProgressText('File uploaded. Starting workflow...');
-                    location.reload(); // Перезагружаем для чистоты списка
+                    setTimeout(() => location.reload(), 1000); 
                 } else {
                     alert('Upload failed: ' + (result.error || 'Unknown error'));
                     hideProgressOverlay();
@@ -131,9 +136,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startPolling(bookId) {
-        if (activePollingIntervals.has(bookId)) {
-            clearInterval(activePollingIntervals.get(bookId));
-        }
+        if (activePollingIntervals.has(bookId)) return;
+
         const intervalId = setInterval(async () => {
             try {
                 const response = await fetch(`/workflow_book_status/${bookId}`);
@@ -141,6 +145,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     const statusData = await response.json();
                     const bookStatus = statusData.current_workflow_status;
                     
+                    updateBookListItem(bookId, statusData);
+
+                    // Обновляем список секций, если он открыт
+                    const sectionsList = document.getElementById(`sections-${bookId}`);
+                    if (sectionsList && sectionsList.style.display !== 'none') {
+                        loadBookSections(bookId, sectionsList, false);
+                    }
+
                     const analysisStage = statusData.book_stage_statuses ? statusData.book_stage_statuses.analyze : null;
                     if (admin && analysisStage && analysisStage.status === 'awaiting_edit') {
                         clearInterval(intervalId);
@@ -149,22 +161,88 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
 
-                    if (['completed', 'error'].includes(bookStatus) || bookStatus.startsWith('error_')) {
+                    // Если все процессы (включая комикс) завершены, останавливаем поллинг
+                    const isComicBusy = statusData.comic_status === 'processing';
+                    if (!['processing', 'queued'].includes(bookStatus) && !isComicBusy) {
                         clearInterval(intervalId);
                         activePollingIntervals.delete(bookId);
-                        location.reload(); 
                     }
                 }
             } catch (error) {
                 console.error('Polling error:', error);
             }
-        }, 5000);
+        }, 3000);
         activePollingIntervals.set(bookId, intervalId);
     }
 
-    // Делегирование событий клика
+    function updateBookListItem(bookId, statusData) {
+        const bookItem = document.querySelector(`.book-item[data-book-id="${bookId}"]`);
+        if (!bookItem) return;
+
+        const overallStatusSpan = bookItem.querySelector('.book-overall-status');
+        if (overallStatusSpan) overallStatusSpan.textContent = statusData.current_workflow_status;
+
+        // Обновляем статусы этапов и счетчики
+        if (statusData.book_stage_statuses) {
+            for (const [stageName, stageInfo] of Object.entries(statusData.book_stage_statuses)) {
+                const stageSpan = bookItem.querySelector(`.stage-status[data-stage="${stageName}"]`);
+                if (stageSpan) {
+                    let statusText = stageInfo.status || 'pending';
+                    if (stageInfo.is_per_section) {
+                        const processed = statusData['processed_sections_count_' + stageName] || 0;
+                        const total = statusData.total_sections_count || 0;
+                        statusText += ` (${processed} / ${total} секций)`;
+                    }
+                    stageSpan.textContent = statusText;
+                }
+
+                // Кнопка Сделать комикс / Ссылка на комикс
+                if (stageName === 'summarize') {
+                    const summarizeDiv = bookItem.querySelector(`.stage-status[data-stage="summarize"]`).parentElement;
+                    
+                    // Обработка кнопки генерации
+                    let comicBtn = summarizeDiv.querySelector('.generate-comic-button');
+                    if (admin && ['completed', 'completed_empty'].includes(stageInfo.status)) {
+                        if (!summarizeDiv.querySelector('.generate-comic-button') && !summarizeDiv.querySelector('a[href*="comic"]') && statusData.comic_status !== 'processing') {
+                            const newBtn = document.createElement('button');
+                            newBtn.className = 'generate-comic-button';
+                            newBtn.setAttribute('data-book-id', bookId);
+                            newBtn.style.cssText = 'margin-left: 10px; background-color: #6c757d; color: white; border: none; padding: 2px 8px; cursor: pointer; font-size: 0.8em; border-radius: 3px;';
+                            newBtn.innerText = 'Сделать комикс';
+                            summarizeDiv.appendChild(newBtn);
+                        }
+                    }
+
+                    if (statusData.comic_status === 'processing') {
+                        if (comicBtn) {
+                            comicBtn.disabled = true;
+                            comicBtn.innerText = 'В процессе...';
+                        } else if (!summarizeDiv.querySelector('.comic-proc-msg')) {
+                            const span = document.createElement('span');
+                            span.className = 'comic-proc-msg';
+                            span.style.cssText = 'margin-left: 10px; color: orange; font-size: 0.8em;';
+                            span.innerText = '(Комикс в процессе...)';
+                            summarizeDiv.appendChild(span);
+                        }
+                    } else if (statusData.comic_status === 'completed') {
+                        if (comicBtn) comicBtn.remove();
+                        const procMsg = summarizeDiv.querySelector('.comic-proc-msg');
+                        if (procMsg) procMsg.remove();
+                        
+                        if (!summarizeDiv.querySelector('a[href*="comic"]')) {
+                            const link = document.createElement('a');
+                            link.href = `/workflow/book/${bookId}/comic${admin ? '?admin=true' : ''}`;
+                            link.style.cssText = 'margin-left: 10px; color: #6f42c1; font-weight: bold;';
+                            link.innerText = 'Смотреть комикс';
+                            summarizeDiv.appendChild(link);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     document.addEventListener('click', function(e) {
-        // Раскрытие секций
         const toggleLink = e.target.closest('.toggle-sections-link');
         if (toggleLink) {
             e.preventDefault();
@@ -175,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sectionsList.style.display === 'none') {
                 sectionsList.style.display = 'block';
                 if (icon) icon.textContent = '▼';
-                loadBookSections(bookId, sectionsList);
+                loadBookSections(bookId, sectionsList, true);
             } else {
                 sectionsList.style.display = 'none';
                 if (icon) icon.textContent = '▶';
@@ -183,7 +261,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Повторный перевод секции
         if (e.target.classList.contains('retranslate-btn')) {
             const bookId = e.target.getAttribute('data-book-id');
             const sectionId = e.target.getAttribute('data-section-id');
@@ -191,7 +268,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Удаление книги
         const delBtn = e.target.closest('.delete-book-button');
         if (delBtn) {
             const bookId = delBtn.getAttribute('data-book-id');
@@ -202,7 +278,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Кнопка Сделать комикс
         if (e.target.classList.contains('generate-comic-button')) {
             const bookId = e.target.getAttribute('data-book-id');
             if (confirm('Запустить генерацию комикса?')) {
@@ -212,14 +287,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetch(`/workflow/api/book/${bookId}/generate_comic`, { method: 'POST' })
                 .then(r => r.json())
                 .then(d => {
-                    alert(d.status === 'success' ? 'Запущено! Обновите страницу через пару минут.' : 'Ошибка: ' + d.message);
-                    if (d.status !== 'success') { btn.disabled = false; btn.innerText = 'Сделать комикс'; }
+                    if (d.status === 'success') startPolling(bookId);
+                    else { alert('Ошибка: ' + d.message); btn.disabled = false; btn.innerText = 'Сделать комикс'; }
                 });
             }
             return;
         }
 
-        // Кнопка Start Workflow
         if (e.target.classList.contains('start-workflow-button')) {
             const bookId = e.target.getAttribute('data-book-id');
             showProgressOverlay('Starting workflow...');
@@ -237,8 +311,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    function loadBookSections(bookId, container) {
-        container.innerHTML = '<div style="padding:10px;text-align:center;"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';
+    function loadBookSections(bookId, container, showSpinner) {
+        if (showSpinner) container.innerHTML = '<div style="padding:10px;text-align:center;"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';
+        
         fetch(`/workflow/api/book/${bookId}/sections`)
             .then(r => r.json())
             .then(sections => {
@@ -256,11 +331,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     const rightPart = document.createElement('div');
                     const status = document.createElement('span');
-                    status.textContent = `[${s.status}]`;
-                    status.style.cssText = `font-size:0.8em;font-weight:bold;margin-right:10px;color:${s.status==='completed'?'green':(s.status==='error'?'red':'orange')}`;
+                    const sText = typeof s.status === 'object' ? (s.status.status || 'pending') : s.status;
+                    status.textContent = `[${sText}]`;
+                    status.style.cssText = `font-size:0.8em;font-weight:bold;margin-right:10px;color:${sText==='completed'?'green':(sText==='error'?'red':'orange')}`;
                     rightPart.appendChild(status);
 
-                    if (admin && (s.status === 'completed' || s.status === 'error')) {
+                    if (admin && (sText === 'completed' || sText === 'error' || sText === 'completed_empty')) {
                         const btn = document.createElement('button');
                         btn.textContent = 'Повторить';
                         btn.className = 'retranslate-btn';
@@ -278,17 +354,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function retranslateSection(bookId, sectionId, button) {
         if (!confirm('Перевести эту секцию заново?')) return;
-        const oldHtml = button.innerHTML;
         button.disabled = true; button.innerText = '...';
         fetch(`/workflow/api/book/${bookId}/retranslate_section/${sectionId}?admin=true`, { method: 'POST' })
         .then(r => r.json())
         .then(d => {
             if (d.status === 'success') {
-                button.innerText = 'В процессе';
-                button.style.background = '#ffc107';
+                startPolling(bookId);
             } else {
                 alert('Ошибка: ' + d.message);
-                button.disabled = false; button.innerHTML = oldHtml;
+                button.disabled = false; button.innerText = 'Повторить';
             }
         });
     }

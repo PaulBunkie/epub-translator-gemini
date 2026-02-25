@@ -1375,11 +1375,11 @@ def workflow_api_get_book_sections(book_id):
         statuses = workflow_db_manager.get_section_stage_statuses_workflow(s['section_id'])
         translate_stage_data = statuses.get('translate')
         
-        # Извлекаем только строку статуса, если это объект из БД
+        # ГАРАНТИРУЕМ, ЧТО СТАТУС - ЭТО СТРОКА (убираем [object Object])
         if isinstance(translate_stage_data, dict):
-            translate_status = translate_stage_data.get('status', 'pending')
+            translate_status = str(translate_stage_data.get('status', 'pending'))
         else:
-            translate_status = translate_stage_data or 'pending'
+            translate_status = str(translate_stage_data or 'pending')
             
         result.append({
             'section_id': s['section_id'],
