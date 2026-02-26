@@ -82,7 +82,12 @@ def translate_toc_titles_workflow(titles: List[str], target_language: str, admin
     """
     Переводит заголовки оглавления с retry логикой для workflow.
     Использует отдельный operation_type 'translate_toc' с собственными моделями и промптами.
+    Если target_language == 'none', возвращает оригинальные заголовки.
     """
+    if target_language == 'none':
+        print(f"[WorkflowProcessor] Опция 'БЕЗ ПЕРЕВОДА'. Возвращаем оригинальные заголовки TOC.")
+        return titles
+
     if not titles:
         return []
     
@@ -438,6 +443,8 @@ def update_overall_workflow_book_status(book_id):
             all_completed = False
     if has_error:
         final_status = 'error'
+    elif any(s.get('status') == 'awaiting_edit' for s in book_stage_statuses.values()):
+        final_status = 'awaiting_edit'
     elif has_processing:
         final_status = 'processing'
     elif all_pending:
@@ -762,76 +769,91 @@ def process_book_analysis(book_id: str, admin: bool = False):
         # 3. Вызываем модель анализа с ретраями
         target_language = book_info['target_language']
         model_name = None  # Будет взята из workflow_model_config.py
-        # ANALYSIS_PROMPT_TEMPLATE already contains the English instruction.
-
+        
         analysis_result = None
-        # status and error_message are already initialized as 'error' and 'Unknown error'
+        used_model = None
 
-        for attempt in range(MAX_RETRIES + 1):
-            print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для анализа книги {book_id}...")
-            try:
-                 print(f"[WorkflowProcessor] Вызов analyze_with_summarization для анализа книги {book_id} ({model_name} -> {target_language})")
-                 result = workflow_translation_module.analyze_with_summarization(
-                     text_to_analyze=collected_summary_text, # Pass the collected summary text
-                     target_language=target_language,
-                     model_name=model_name,
-                     prompt_ext="", # prompt_ext всегда пустой для анализа
-                     dict_data=None, # dict_data не нужен для анализа
-                     summarization_model=None, # Будет взята из workflow_model_config.py
-                     book_id=book_id, # Передаем book_id для сохранения суммаризации в кэш
-                     return_model=True,
-                     admin=admin
-                 )
-                 
-                 # Получаем результат и модель
-                 if isinstance(result, tuple) and len(result) == 2:
-                     analysis_result, used_model = result
-                 else:
-                     analysis_result = result
-                     used_model = None
-                     
-                 print(f"[WorkflowProcessor] Результат analyze_with_summarization: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
-                 if used_model:
-                     print(f"[WorkflowProcessor] Использована модель: {used_model}")
+        # --- СПЕЦИАЛЬНЫЙ СЛУЧАЙ: БЕЗ ПЕРЕВОДА -> Визуальный анализ (Cast-лист) ---
+        if target_language == 'none':
+            print(f"[WorkflowProcessor] Режим 'БЕЗ ПЕРЕВОДА'. Выполняем визуальный анализ (Cast-лист) вместо глоссария.")
+            from comic_generator import ComicGenerator
+            from workflow_db_manager import get_sections_for_book_workflow
+            
+            sections = get_sections_for_book_workflow(book_id)
+            cg = ComicGenerator()
+            # _run_visual_analysis сам сохраняет в БД в поле visual_bible
+            analysis_result = cg._run_visual_analysis(book_id, sections)
+            used_model = "visual_analysis_model"
+            
+            if analysis_result:
+                status = 'completed'
+                error_message = None
+                # Также сохраняем в кэш для единообразия с глоссарием
+                import workflow_cache_manager
+                workflow_cache_manager.save_book_stage_result(book_id, ANALYSIS_STAGE_NAME, analysis_result)
+            else:
+                status = 'error'
+                error_message = "Не удалось выполнить визуальный анализ."
+        else:
+            # СТАНДАРТНЫЙ СЛУЧАЙ: Литературный анализ (Глоссарий)
+            for attempt in range(MAX_RETRIES + 1):
+                print(f"[WorkflowProcessor] Попытка {attempt + 1}/{MAX_RETRIES + 1} вызова модели для анализа книги {book_id}...")
+                try:
+                    print(f"[WorkflowProcessor] Вызов analyze_with_summarization для анализа книги {book_id} ({model_name} -> {target_language})")
+                    result = workflow_translation_module.analyze_with_summarization(
+                        text_to_analyze=collected_summary_text,
+                        target_language=target_language,
+                        model_name=model_name,
+                        prompt_ext="",
+                        dict_data=None,
+                        summarization_model=None,
+                        book_id=book_id,
+                        return_model=True,
+                        admin=admin
+                    )
+                    
+                    if isinstance(result, tuple) and len(result) == 2:
+                        analysis_result, used_model = result
+                    else:
+                        analysis_result = result
+                        used_model = None
+                        
+                    print(f"[WorkflowProcessor] Результат analyze_with_summarization: {analysis_result[:100] if analysis_result else 'None'}... (длина {len(analysis_result) if analysis_result is not None else 'None'})")
+                    if used_model:
+                        print(f"[WorkflowProcessor] Использована модель: {used_model}")
 
-                 if analysis_result is not None and analysis_result.strip() != "":
-                      status = 'completed'
-                      error_message = None
-                      print(f"[WorkflowProcessor] Модель вернула непустой результат на попытке {attempt + 1}.")
-                      break # Success, exit retry loop
-                 elif analysis_result == workflow_translation_module.EMPTY_RESPONSE_ERROR:
-                      error_message = "API returned EMPTY_RESPONSE_ERROR."
-                      print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR on attempt {attempt + 1}.")
-                 elif analysis_result == workflow_translation_module.CONTEXT_LIMIT_ERROR:
-                      status = 'error' # Context limit is not retried
-                      error_message = "API returned CONTEXT_LIMIT_ERROR."
-                      print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR on attempt {attempt + 1}. No retry.")
-                      break
-                 elif analysis_result and len(collected_summary_text) > 5000:
-                      # Проверяем размер анализа только для больших текстов
-                      # TODO: Нужно получить размер исходного текста
-                      # Пока что используем размер собранного текста как приближение
-                      if len(analysis_result) > len(collected_summary_text):
-                          error_message = "Анализ больше исходного текста."
-                          print(f"[WorkflowProcessor] Error: Анализ ({len(analysis_result)}) больше исходного текста ({len(collected_summary_text)}) на попытке {attempt + 1}. Ретрай.")
-                          # Продолжаем ретрай с фоллбэками
-                          continue
-                 else: # None or empty string after stripping whitespace
-                     error_message = "Model returned empty result (None or empty string)."
-                     print(f"[WorkflowProcessor] Warning: Model returned empty result on attempt {attempt + 1}.")
+                    if analysis_result is not None and analysis_result.strip() != "":
+                        status = 'completed'
+                        error_message = None
+                        print(f"[WorkflowProcessor] Модель вернула непустой результат на попытке {attempt + 1}.")
+                        break
+                    elif analysis_result == workflow_translation_module.EMPTY_RESPONSE_ERROR:
+                        error_message = "API returned EMPTY_RESPONSE_ERROR."
+                        print(f"[WorkflowProcessor] Warning: Model returned EMPTY_RESPONSE_ERROR on attempt {attempt + 1}.")
+                    elif analysis_result == workflow_translation_module.CONTEXT_LIMIT_ERROR:
+                        status = 'error'
+                        error_message = "API returned CONTEXT_LIMIT_ERROR."
+                        print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR on attempt {attempt + 1}. No retry.")
+                        break
+                    elif analysis_result and len(collected_summary_text) > 5000:
+                        if len(analysis_result) > len(collected_summary_text):
+                            error_message = "Анализ больше исходного текста."
+                            print(f"[WorkflowProcessor] Error: Анализ ({len(analysis_result)}) больше исходного текста ({len(collected_summary_text)}) на попытке {attempt + 1}. Ретрай.")
+                            continue
+                    else:
+                        error_message = "Model returned empty result."
+                        print(f"[WorkflowProcessor] Warning: Model returned empty result on attempt {attempt + 1}.")
 
-            except Exception as e:
-                 status = 'error' # Catch other exceptions
-                 error_message = f"Exception during model call: {e}"
-                 print(f"[WorkflowProcessor] ERROR calling model for book analysis {book_id} on attempt {attempt + 1}: {e}")
-                 traceback.print_exc()
-                 # Continue retrying if not a Context Limit Error
-                 # TODO: Better check for specific exceptions from translation_module
-                 if not (isinstance(e, ValueError) and "Context limit" in str(e)):
-                      time.sleep(1) # Wait before next attempt
-                      continue
-                 else:
-                      break # Do not retry on context limit error
+                except Exception as e:
+                    status = 'error'
+                    error_message = f"Exception during model call: {e}"
+                    print(f"[WorkflowProcessor] ERROR calling model for book analysis {book_id} on attempt {attempt + 1}: {e}")
+                    traceback.print_exc()
+                    if not (isinstance(e, ValueError) and "Context limit" in str(e)):
+                        time.sleep(1)
+                        continue
+                    else:
+                        break
 
         # 4. Сохраняем результат анализа книги
         if status == 'completed':
@@ -890,6 +912,7 @@ def process_book_analysis(book_id: str, admin: bool = False):
 def process_section_translate(book_id: str, section_id: int, admin: bool = False):
     """
     Процессит перевод одной секции.
+    Если target_language == 'none', просто сохраняет оригинальный текст в кеш перевода.
     """
     from epub_parser import extract_section_text
     import workflow_cache_manager
@@ -903,7 +926,7 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
     error_message = 'Unknown error'
     translated_text = None
     try:
-        # 1. Обновляем статус секции на 'processing' (это установит start_time)
+        # 1. Обновляем статус секции на 'processing'
         workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'processing', error_message=None)
 
         # 2. Извлекаем текст секции
@@ -913,15 +936,20 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
             print(f"[WorkflowProcessor] {error_message}")
             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=error_message)
             return False
-        section_epub_id = section_info['section_epub_id']
+        
         book_info = workflow_db_manager.get_book_workflow(book_id)
         if not book_info:
             error_message = f"Book {book_id} not found in workflow DB."
             print(f"[WorkflowProcessor] {error_message}")
             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', 'error', error_message=error_message)
             return False
+            
+        target_language = book_info.get('target_language', 'russian')
+        section_epub_id = section_info['section_epub_id']
         epub_path = book_info['filepath']
         toc_data = book_info.get('toc', [])
+        
+        # Извлекаем оригинальный текст (он очищенный)
         section_text = extract_section_text(epub_path, section_epub_id, toc_data)
         
         if not section_text or not section_text.strip():
@@ -931,12 +959,30 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
             workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "")
             return True
 
+        # --- СПЕЦИАЛЬНЫЙ СЛУЧАЙ: БЕЗ ПЕРЕВОДА ---
+        if target_language == 'none':
+            print(f"[WorkflowProcessor] Опция 'БЕЗ ПЕРЕВОДА'. Копируем оригинал для секции {section_id}.")
+            # Сохраняем оригинальный очищенный текст как результат "перевода"
+            if workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', section_text):
+                status = 'completed'
+                error_message = None
+                used_model = 'original_copy'
+            else:
+                status = 'error_caching'
+                error_message = "Ошибка сохранения в кеш"
+                used_model = None
+            
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, model_name=used_model, error_message=error_message)
+            recalculate_book_stage_status(book_id, 'translate')
+            update_overall_workflow_book_status(book_id)
+            return status == 'completed'
+        # --- КОНЕЦ СПЕЦИАЛЬНОГО СЛУЧАЯ ---
+
         # 3. Загружаем глоссарий и рекомендации из анализа
-        # (должны быть сохранены после этапа анализа)
         analysis_data = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
         dict_data = {'glossary_data': analysis_data} if analysis_data else None
-        # 4. Получаем язык и модель
-        target_language = book_info.get('target_language', 'russian')
+        
+        # 4. Получаем модель
         model_name = None  # Будет взята из workflow_model_config.py
 
         # 5. Вызываем перевод
@@ -1014,6 +1060,12 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
         # --- ВМЕСТО копирования статуса из одной секции ---
         recalculate_book_stage_status(book_id, 'translate')
         update_overall_workflow_book_status(book_id)
+        
+        # Явное освобождение памяти
+        if translated_text:
+            del translated_text
+        import gc
+        gc.collect()
         # --- КОНЕЦ ДОБАВЛЕНИЯ ---
 
         return status in ['completed', 'completed_empty', 'cached']

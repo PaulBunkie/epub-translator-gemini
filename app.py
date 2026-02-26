@@ -1687,7 +1687,13 @@ def workflow_download_analysis(book_id):
     analysis_result = None
     try:
         analysis_result = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
-        if analysis_result is None or not analysis_result.strip():
+        
+        # Если нет в кэше, проверяем visual_bible в БД (для режима "БЕЗ ПЕРЕВОДА")
+        if not analysis_result or not analysis_result.strip():
+            if book_info and book_info.get('visual_bible'):
+                analysis_result = book_info['visual_bible']
+
+        if not analysis_result or not analysis_result.strip():
             # Если результат пустой или только пробелы, возможно, анализ завершился как completed_empty
             # Или файл не найден / пустой, но статус в БД completed/completed_with_errors
             print(f"  [DownloadAnalysis] Результат анализа для книги {book_id} пуст или не найден в кеше.")
@@ -2085,10 +2091,26 @@ def workflow_start_existing_book(book_id):
         if continue_after_edit and edited_analysis:
             try:
                 import workflow_cache_manager
-                workflow_cache_manager.save_book_stage_result(book_id, 'analyze', edited_analysis)
-                # Обновляем статус анализа на completed
                 import workflow_db_manager
+                import json
+                
+                # 1. Всегда сохраняем в кэш этапа 'analyze' (для глоссария)
+                workflow_cache_manager.save_book_stage_result(book_id, 'analyze', edited_analysis)
+                
+                # 2. Пытаемся сохранить в visual_bible, если это похоже на JSON каст-листа
+                if edited_analysis.strip().startswith('{'):
+                    try:
+                        # Проверяем валидность JSON перед сохранением в спец. колонку
+                        json.loads(edited_analysis)
+                        workflow_db_manager.update_book_visual_bible_workflow(book_id, edited_analysis)
+                        current_app.logger.info(f"Visual Bible обновлен для книги {book_id}")
+                    except:
+                        pass # Просто текст, не JSON
+                
+                # 3. Обновляем статус анализа на completed
                 workflow_db_manager.update_book_stage_status_workflow(book_id, 'analyze', 'completed')
+                # Явно вызываем пересчет общего статуса книги
+                workflow_processor.update_overall_workflow_book_status(book_id)
                 current_app.logger.info(f"Отредактированный анализ сохранен для книги {book_id}")
             except Exception as e:
                 current_app.logger.error(f"Ошибка сохранения отредактированного анализа для книги {book_id}: {e}")

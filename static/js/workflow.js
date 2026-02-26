@@ -48,8 +48,20 @@ document.addEventListener('DOMContentLoaded', () => {
         progressText.textContent = message;
     }
 
-    function showEditAnalysisOverlay(bookId, analysisText) {
+    function showEditAnalysisOverlay(bookId, analysisText, targetLanguage) {
         if (!analysisTextArea || !editAnalysisOverlay) return;
+        
+        const titleEl = document.getElementById('editOverlayTitle');
+        const descEl = document.getElementById('editOverlayDescription');
+        
+        if (targetLanguage === 'none') {
+            if (titleEl) titleEl.textContent = 'Редактирование Cast-листа';
+            if (descEl) descEl.textContent = 'Проверьте описания персонажей для комикса. Можете добавить детали или изменить внешность.';
+        } else {
+            if (titleEl) titleEl.textContent = 'Редактирование анализа';
+            if (descEl) descEl.textContent = 'Проверьте результаты анализа (глоссарий и рекомендации) перед продолжением.';
+        }
+
         analysisTextArea.value = analysisText || '';
         editAnalysisOverlay.dataset.bookId = bookId;
         hideProgressOverlay();
@@ -63,13 +75,13 @@ document.addEventListener('DOMContentLoaded', () => {
         delete editAnalysisOverlay.dataset.bookId;
     }
 
-    async function loadAnalysisForEdit(bookId) {
+    async function loadAnalysisForEdit(bookId, targetLanguage) {
         try {
             showProgressOverlay('Загружаем результаты анализа...');
             const response = await fetch(`/workflow_download_analysis/${bookId}`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const analysisText = await response.text();
-            showEditAnalysisOverlay(bookId, analysisText);
+            showEditAnalysisOverlay(bookId, analysisText, targetLanguage);
         } catch (error) {
             console.error('Error loading analysis:', error);
             updateProgressText(`Ошибка загрузки: ${error.message}`);
@@ -99,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
                 if (data.status === 'success') {
                     updateProgressText('Анализ сохранен. Продолжаем...');
+                    setTimeout(hideProgressOverlay, 1000);
                     startPolling(bookId);
                 } else {
                     alert('Ошибка: ' + data.message);
@@ -149,17 +162,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     updateBookListItem(bookId, statusData);
 
+                    // Скрываем блокирующий оверлей, если процесс пошел или уже завершен
+                    if (bookStatus !== 'uploaded' && progressOverlay.style.display !== 'none') {
+                        hideProgressOverlay();
+                    }
+
                     // Обновляем список секций только если он реально открыт (display: block)
                     const sectionsList = document.getElementById(`sections-${bookId}`);
                     if (sectionsList && sectionsList.style.display === 'block') {
                         loadBookSections(bookId, sectionsList, false);
                     }
 
-                    const analysisStage = statusData.book_stage_statuses ? statusData.book_stage_statuses.analyze : null;
-                    if (admin && analysisStage && analysisStage.status === 'awaiting_edit') {
+                    const bookStages = statusData.book_stage_statuses || {};
+                    const analyzeStage = bookStages.analyze;
+                    
+                    // Если анализ в статусе awaiting_edit - показываем форму редактирования
+                    if (admin && analyzeStage && analyzeStage.status === 'awaiting_edit') {
                         clearInterval(intervalId);
                         activePollingIntervals.delete(bookId);
-                        loadAnalysisForEdit(bookId);
+                        loadAnalysisForEdit(bookId, statusData.target_language);
                         return;
                     }
 
@@ -306,8 +327,12 @@ document.addEventListener('DOMContentLoaded', () => {
             })
             .then(r => r.json())
             .then(d => {
-                if (d.status === 'success') startPolling(bookId);
-                else { alert('Error: ' + d.message); hideProgressOverlay(); }
+                if (d.status === 'success') {
+                    startPolling(bookId);
+                } else {
+                    alert('Error: ' + d.message);
+                    hideProgressOverlay();
+                }
             });
             return;
         }

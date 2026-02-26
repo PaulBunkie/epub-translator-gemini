@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+j<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -231,6 +231,7 @@
                         <option value="german">German</option>
                         <option value="french">French</option>
                         <option value="spanish">Spanish</option>
+                        <option value="none">БЕЗ ПЕРЕВОДА</option>
                     </select>
                     <button type="submit">Upload and Start Workflow</button>
                 </form>
@@ -328,8 +329,8 @@
     <!-- Оверлей для редактирования анализа персонажей (Visual Bible) -->
     <div id="editAnalysisOverlay" class="workflow-overlay" style="display: none; background: rgba(0,0,0,0.85);">
         <div class="workflow-overlay-content" style="max-width: 800px; width: 90%;">
-            <h2>Редактирование Cast-листа</h2>
-            <p style="color: #ccc; font-size: 0.9em; margin-bottom: 15px;">Проверьте описания персонажей для комикса. Можете добавить детали или изменить внешность.</p>
+            <h2 id="editOverlayTitle">Редактирование анализа</h2>
+            <p id="editOverlayDescription" style="color: #ccc; font-size: 0.9em; margin-bottom: 15px;">Проверьте результаты анализа перед продолжением.</p>
             <textarea id="analysisTextArea" style="width: 100%; height: 400px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; padding: 15px; border: 1px solid #444; background: #1e1e1e; color: #ddd; border-radius: 5px; resize: vertical;"></textarea>
             <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button id="cancelEdit" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Отмена</button>
