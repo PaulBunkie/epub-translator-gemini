@@ -455,7 +455,7 @@ class TopTubeManager:
             }
             
             payload = {
-                "model": "google/gemma-3-27b-it:free",  # Используем бесплатную модель
+                "model": "openrouter/free",  # Используем бесплатную модель
                 "messages": [
                     {
                         "role": "user", 
@@ -572,7 +572,7 @@ class TopTubeManager:
             }
             
             payload = {
-                "model": "microsoft/mai-ds-r1:free",  # Та же модель
+                "model": "openrouter/free",  # Та же модель
                 "messages": [
                     {
                         "role": "user", 
