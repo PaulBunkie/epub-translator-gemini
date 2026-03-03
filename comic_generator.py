@@ -340,32 +340,51 @@ Book Summaries:
 
             for section in sections:
                 section_id = section['section_id']
-                if workflow_db_manager.get_comic_image_workflow(section_id):
+                # ВАЖНО: не загружаем BLOB, иначе растит RSS и может привести к OOM
+                if workflow_db_manager.check_comic_image_exists(section_id):
                     continue
 
                 summary = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
                 if not summary or len(summary.strip()) < 50:
                     continue
+                prompt = None
+                image_data = None
+                error = None
+                try:
+                    for attempt in range(2):
+                        if attempt == 0:
+                            prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
+                        else:
+                            print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id} due to failure/filter...")
+                            prompt = f"Dynamic modern comic illustration, Studio Ghibli inspired style, safe for all ages.\n\n{visual_bible_prompt}\n\nSCENE: {summary}"
 
-                for attempt in range(2):
-                    if attempt == 0:
-                        prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
-                    else:
-                        print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id} due to failure/filter...")
-                        prompt = f"Dynamic modern comic illustration, Studio Ghibli inspired style, safe for all ages.\n\n{visual_bible_prompt}\n\nSCENE: {summary}"
-
-                    image_data, error = self.generate_image(prompt, book_id, section_id)
-                    
-                    if image_data:
-                        workflow_db_manager.save_comic_image_workflow(book_id, section_id, image_data)
-                        print(f"[ComicGenerator] Successfully saved comic to DB for section {section_id}")
-                        break
-                    elif error == "IMAGE_SAFETY" and attempt == 0:
-                        continue
-                    else:
-                        print(f"[ComicGenerator] Permanent failure for section {section_id}. Saving CENSORED.")
-                        self._save_censored_placeholder(book_id, section_id)
-                        break
+                        image_data, error = self.generate_image(prompt, book_id, section_id)
+                        
+                        if image_data:
+                            workflow_db_manager.save_comic_image_workflow(book_id, section_id, image_data)
+                            print(f"[ComicGenerator] Successfully saved comic to DB for section {section_id}")
+                            break
+                        elif error == "IMAGE_SAFETY" and attempt == 0:
+                            continue
+                        else:
+                            print(f"[ComicGenerator] Permanent failure for section {section_id}. Saving CENSORED.")
+                            self._save_censored_placeholder(book_id, section_id)
+                            break
+                finally:
+                    # Явно освобождаем крупные объекты, чтобы не накапливать RSS на длинных задачах
+                    try:
+                        if prompt is not None:
+                            del prompt
+                        if summary is not None:
+                            del summary
+                        if image_data is not None:
+                            del image_data
+                        if error is not None:
+                            del error
+                        import gc
+                        gc.collect()
+                    except Exception:
+                        pass
                 
                 time.sleep(30 + random.randint(1, 5))
 

@@ -1647,6 +1647,15 @@ def start_comic_generation_task(book_id: str, app_instance):
     Запускает фоновую задачу генерации комикса.
     """
     print(f"[WorkflowProcessor] Запуск генерации комикса для книги {book_id}")
+    # Защита от параллельного запуска генерации для одной книги
+    try:
+        book_info = workflow_db_manager.get_book_workflow(book_id)
+        if book_info and str(book_info.get('comic_status')) == 'processing':
+            print(f"[WorkflowProcessor] Генерация комикса для книги {book_id} уже в статусе processing. Новый запуск пропущен.")
+            return True
+    except Exception:
+        pass
+
     workflow_db_manager.update_book_comic_status_workflow(book_id, 'processing')
     
     def task_wrapper():
@@ -1660,8 +1669,16 @@ def start_comic_generation_task(book_id: str, app_instance):
             traceback.print_exc()
             with app_instance.app_context():
                 workflow_db_manager.update_book_comic_status_workflow(book_id, 'error')
+        finally:
+            try:
+                if 'generator' in locals():
+                    del generator
+                import gc
+                gc.collect()
+            except Exception:
+                pass
 
-    thread = threading.Thread(target=task_wrapper)
+    thread = threading.Thread(target=task_wrapper, daemon=True)
     thread.start()
     return True
 
