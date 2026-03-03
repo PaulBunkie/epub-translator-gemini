@@ -194,6 +194,15 @@
         </div>
         
         <div class="content">
+            <!-- Важная плашка о качестве моделей OpenRouter -->
+            <div class="telegram-info" style="background: #fff7e6; border-color: #ffe5b4; margin-top: 0;">
+                <h3 style="margin-top: 0; color: #d48806;">⚠️ Предупреждение</h3>
+                <p style="margin-bottom: 0; color: #8c6b1f;">
+                    Большие модели в OpenRouter могут быть временно недоступны. В этом случае сервис использует более простые модели, 
+                    и качество перевода может быть ниже обычного.
+                </p>
+            </div>
+            
             <!-- Универсальный блок с названием книги, скрыт по умолчанию -->
             <div class="telegram-info" id="bookInfoBlock" style="display: none;">
                 <h3 id="bookTitleHeader">📖 ...</h3>
@@ -355,6 +364,18 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Кнопка связи с разработчиком -->
+            <div style="text-align: center; margin: 18px 0 6px 0;">
+                <button
+                    type="button"
+                    id="openFeedbackBtn"
+                    style="display: inline-block; width: auto; padding: 10px 14px; border-radius: 8px; border: 1px solid #e1e5e9; background: #f8f9fa; color: #667eea; cursor: pointer; font-size: 14px;"
+                    title="Сообщить о проблеме или оставить пожелание"
+                >
+                    Написать разработчику
+                </button>
+            </div>
         </div>
     </div>
     
@@ -375,6 +396,26 @@
             </div>
         </div>
     </div>
+
+    <!-- Overlay для сообщения разработчику -->
+    <div id="userFeedbackOverlay" style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.65); z-index: 1100; justify-content: center; align-items: center;">
+        <div style="background-color: #ffffff; padding: 24px 24px 18px 24px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); width: 90%; max-width: 520px;">
+            <h2 style="margin-top: 0; margin-bottom: 8px; font-size: 20px;">Сообщение разработчику</h2>
+            <p style="margin-top: 0; margin-bottom: 12px; font-size: 14px; color: #555;">
+                Опишите проблему, идею или пожелание. К сообщению автоматически добавится информация о книге и браузере.
+            </p>
+            <textarea id="userFeedbackText" style="width: 100%; height: 140px; resize: vertical; border-radius: 8px; border: 1px solid #ced4da; padding: 10px; font-family: inherit; font-size: 14px;"></textarea>
+            <div id="userFeedbackStatus" style="margin-top: 10px; font-size: 13px; color: #666;"></div>
+            <div style="margin-top: 14px; text-align: right;">
+                <button type="button" onclick="closeUserFeedback()" style="padding: 8px 14px; margin-right: 8px; border-radius: 6px; border: 1px solid #ced4da; background: #f8f9fa; cursor: pointer; font-size: 14px;">
+                    Отмена
+                </button>
+                <button type="button" onclick="sendUserFeedback()" style="padding: 8px 16px; border-radius: 6px; border: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; cursor: pointer; font-size: 14px;">
+                    Отправить
+                </button>
+            </div>
+        </div>
+    </div>
     
     <script type="text/javascript">
         // @ts-nocheck
@@ -382,6 +423,59 @@
         var bookInfo = "{{ book_info | tojson | default('') | safe }}";
         var admin = document.body.getAttribute('data-admin') === 'true';
         if (bookInfo === "" || bookInfo === "null") { bookInfo = null; } else { bookInfo = JSON.parse(bookInfo); }
+
+        // Обработчики для сообщения разработчику
+        (function setupUserFeedback() {
+            const btn = document.getElementById('openFeedbackBtn');
+            const overlay = document.getElementById('userFeedbackOverlay');
+            if (!btn || !overlay) return;
+            btn.addEventListener('click', function () {
+                document.getElementById('userFeedbackText').value = '';
+                document.getElementById('userFeedbackStatus').textContent = '';
+                overlay.style.display = 'flex';
+            });
+        })();
+
+        function closeUserFeedback() {
+            const overlay = document.getElementById('userFeedbackOverlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
+        async function sendUserFeedback() {
+            const textarea = document.getElementById('userFeedbackText');
+            const statusEl = document.getElementById('userFeedbackStatus');
+            const message = (textarea.value || '').trim();
+            if (!message) {
+                statusEl.style.color = '#dc3545';
+                statusEl.textContent = 'Пожалуйста, напишите сообщение перед отправкой.';
+                return;
+            }
+            statusEl.style.color = '#666';
+            statusEl.textContent = 'Отправляем сообщение...';
+            try {
+                const payload = {
+                    message: message,
+                    access_token: accessToken || null,
+                    book_id: bookInfo && bookInfo.book_id ? bookInfo.book_id : null,
+                    admin: admin
+                };
+                const resp = await fetch('/api/user_feedback', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || data.status !== 'success') {
+                    throw new Error(data.message || 'Не удалось отправить сообщение');
+                }
+                statusEl.style.color = '#28a745';
+                statusEl.textContent = 'Сообщение отправлено. Спасибо!';
+                setTimeout(closeUserFeedback, 1200);
+            } catch (e) {
+                statusEl.style.color = '#dc3545';
+                statusEl.textContent = 'Ошибка при отправке: ' + e.message;
+            }
+        }
         // Обработка формы загрузки
         document.getElementById('epubForm').addEventListener('submit', async function(event) {
             event.preventDefault();

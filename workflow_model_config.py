@@ -6,18 +6,18 @@
 MODEL_CONFIG = {
     'summarize': {
         'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
-        'fallback_level1': 'vertex/gemini-3-flash-preview', #'models/gemma-3-27b-it:free',
+        'fallback_level1': 'models/gemini-3-flash-preview', #'models/gemma-3-27b-it:free',
         'fallback_level2': 'openrouter/free'
     },
     'analyze': {
         'primary': 'deepseek/deepseek-r1-0528:free',
-        'fallback_level1': 'vertex/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'arcee-ai/trinity-large-preview:free',
         'fallback_level3': 'openrouter/free'
     },
     'translate': {
         'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'deepseek/deepseek-r1-0528:free', 
+        'fallback_level1': 'models/gemini-3-flash-preview', 
         'fallback_level2': 'arcee-ai/trinity-large-preview:free', 
         'fallback_level3': 'openrouter/free'
     },
@@ -28,34 +28,34 @@ MODEL_CONFIG = {
     },
     'translate_toc': {
         'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'arcee-ai/trinity-large-preview:free',
         'fallback_level3': 'openrouter/free'
     },
     'video_analyze': {
-        'primary': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'google/gemma-3-27b-it:free', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'openrouter/free',
-        'fallback_level2': 'arcee-ai/trinity-large-preview:free',
+        'fallback_level2': 'arcee-ai/trinity-large-preview:free'
     },
     'video_chat': {
-        'primary': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level1': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level2': 'openrouter/free',
+        'fallback_level2': 'openrouter/free'
     },
     'title_translate': {
-        'primary': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level1': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level2': 'openrouter/free',
+        'primary': 'arcee-ai/trinity-large-preview:free',
+        'fallback_level1': 'openrouter/free',
+        'fallback_level2': 'models/gemini-3-flash-preview' #'tngtech/deepseek-r1t2-chimera:free',
     },
     'football_predict': {
         'primary': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level1': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },
     'bet_risk_analysis': {
         'primary': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level1': 'deepseek/deepseek-r1-0528:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },

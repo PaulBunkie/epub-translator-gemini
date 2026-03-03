@@ -58,6 +58,7 @@ from workflow_model_config import get_model_for_operation
 import toptube10
 import video_db
 import football
+from telegram_notifier import telegram_notifier
 
 # Импорт Telegram бота
 try:
@@ -1898,6 +1899,50 @@ def get_workflow_book_status(book_id):
     if response_data is None:
         return jsonify({"error": "Book not found"}), 404
     return jsonify(response_data)
+
+
+@app.route('/api/user_feedback', methods=['POST'])
+def api_user_feedback():
+    """
+    Принимает сообщение от пользователя со страницы /user и отправляет его разработчику в Telegram.
+    """
+    try:
+        data = request.get_json() or {}
+        text = (data.get('message') or '').strip()
+        if not text:
+            return jsonify({'status': 'error', 'message': 'Пустое сообщение'}), 400
+
+        access_token = data.get('access_token') or None
+        book_id = data.get('book_id') or None
+        is_admin = bool(data.get('admin'))
+
+        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        user_agent = request.headers.get('User-Agent', '')
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        tg_message = f"""
+📩 <b>Сообщение от пользователя EPUB Translator</b>
+
+⏰ <b>Время (UTC):</b> {ts}
+🔑 <b>Access token:</b> {access_token or '—'}
+📘 <b>Book ID:</b> {book_id or '—'}
+👤 <b>Admin flag:</b> {"true" if is_admin else "false"}
+🌐 <b>IP:</b> {ip or '—'}
+🖥 <b>User-Agent:</b> {user_agent or '—'}
+
+💬 <b>Сообщение:</b>
+{text}
+        """.strip()
+
+        ok = telegram_notifier.send_message(tg_message)
+        if not ok:
+            return jsonify({'status': 'error', 'message': 'Не удалось отправить сообщение в Telegram'}), 500
+
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        print(f"[UserFeedback] Ошибка обработки сообщения пользователя: {e}")
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': 'Внутренняя ошибка сервера'}), 500
 
 def get_workflow_book_status_old(book_id):
     # Импорты workflow_db_manager, json, Response, jsonify должны быть на верхнем уровне
