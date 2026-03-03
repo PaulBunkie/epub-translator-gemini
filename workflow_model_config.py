@@ -10,16 +10,16 @@ MODEL_CONFIG = {
         'fallback_level2': 'openrouter/free'
     },
     'analyze': {
-        'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level3': 'openrouter/free'
+        'primary': 'models/gemini-3-flash-preview',
+        'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'openrouter/free',
+        'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'translate': {
-        'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'models/gemini-3-flash-preview', 
-        'fallback_level2': 'arcee-ai/trinity-large-preview:free', 
-        'fallback_level3': 'openrouter/free'
+        'primary': 'models/gemini-3-flash-preview',
+        'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'openrouter/free',
+        'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'reduce': {
         'primary': 'models/gemma-3-27b-it:free', 
@@ -27,10 +27,10 @@ MODEL_CONFIG = {
         'fallback_level2': 'openrouter/free'
     },
     'translate_toc': {
-        'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level3': 'openrouter/free'
+        'primary': 'models/gemini-3-flash-preview',
+        'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'openrouter/free',
+        'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'video_analyze': {
         'primary': 'google/gemma-3-27b-it:free', #'tngtech/deepseek-r1t2-chimera:free',
