@@ -3755,7 +3755,7 @@ class FootballManager:
 
             # Задержка между запросами к SofaScore (2-5 секунд) для избежания бана
             delay_between_requests = random.uniform(2.0, 5.0)
-            print(f"[Football] Задержка {delay_between_requests:.1f} сек перед запросом статистики для матча {fixture_id}")
+            #print(f"[Football] Задержка {delay_between_requests:.1f} сек перед запросом статистики для матча {fixture_id}")
             time.sleep(delay_between_requests)
 
             # Получаем статистику с SofaScore
@@ -4581,14 +4581,14 @@ X2 ИГНОРИРУЕМ
                 # Приоритет: normaltime (обычное время) > current > display
                 score_away = away_score_obj.get('normaltime') or away_score_obj.get('current') or away_score_obj.get('display')
 
-            if score_home is None or score_away is None:
-                print(f"[Football] Не удалось извлечь счет из данных SofaScore для event_id {sofascore_event_id}")
-                print(f"[Football] Доступные поля в event: {list(event.keys()) if event else 'N/A'}")
-                print(f"[Football] Доступные поля в корне: {list(event_data.keys())}")
-                # Попробуем вывести всю структуру для отладки
-                import json
-                print(f"[Football] Полная структура данных (первые 2000 символов): {json.dumps(event_data, indent=2, ensure_ascii=False)[:2000]}")
-                return
+            # if score_home is None or score_away is None:
+            #     print(f"[Football] Не удалось извлечь счет из данных SofaScore для event_id {sofascore_event_id}")
+            #     print(f"[Football] Доступные поля в event: {list(event.keys()) if event else 'N/A'}")
+            #     print(f"[Football] Доступные поля в корне: {list(event_data.keys())}")
+            #     # Попробуем вывести всю структуру для отладки
+            #     import json
+            #     print(f"[Football] Полная структура данных (первые 2000 символов): {json.dumps(event_data, indent=2, ensure_ascii=False)[:2000]}")
+            #     return
 
             # Преобразуем счет в целые числа
             try:
