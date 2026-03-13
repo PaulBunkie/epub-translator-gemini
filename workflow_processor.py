@@ -1153,8 +1153,8 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             )
             
             # Проверяем наличие картинки, чтобы не пропускать секцию, если есть комикс
-            # ВАЖНО: здесь section_id - это числовой ID из базы
-            has_image = workflow_db_manager.get_comic_image_workflow(section_id) is not None
+            # ВАЖНО: не загружаем BLOB (иначе рост RSS и риск OOM)
+            has_image = workflow_db_manager.check_comic_image_exists(section_id)
             
             if (translated_text is None or not translated_text.strip()) and not has_image:
                 print(f"[WorkflowProcessor] Пропуск секции {section_id} ({epub_id}): нет перевода и нет комикса.")
@@ -1232,7 +1232,10 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             import re
             import unicodedata
             import tempfile
+            import io
+            import uuid
             from collections import defaultdict
+            from PIL import Image
             
             # --- START OF UTILITIES ---
             INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
@@ -1263,6 +1266,61 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                     return '\n\n'.join(paragraphs[1:]).strip()
                 return text
             # --- END OF UTILITIES ---
+
+            def _compress_image_to_jpeg_bytes(
+                raw_bytes: bytes,
+                tmp_dir: str,
+                target_max_bytes: int = 100 * 1024,
+                max_width_px: int = 800
+            ) -> bytes:
+                """
+                Сжимает картинку до JPEG ≤ target_max_bytes:
+                - сохраняем исходные bytes во временный файл (как просили: на диск),
+                - ресайз до max_width_px по ширине (с сохранением пропорций),
+                - перекодируем в JPEG с подбором quality.
+                """
+                if not raw_bytes:
+                    return raw_bytes
+
+                src_path = os.path.join(tmp_dir, f"comic_src_{uuid.uuid4().hex}")
+                out_path = os.path.join(tmp_dir, f"comic_out_{uuid.uuid4().hex}.jpg")
+                try:
+                    with open(src_path, "wb") as f:
+                        f.write(raw_bytes)
+
+                    with Image.open(src_path) as im:
+                        im = im.convert("RGB")
+                        w, h = im.size
+                        if w > max_width_px and w > 0:
+                            new_h = max(1, int(h * (max_width_px / float(w))))
+                            im = im.resize((max_width_px, new_h), Image.Resampling.LANCZOS)
+
+                        # Подбираем качество до нужного размера
+                        quality_steps = [70, 60, 50, 40, 35, 30, 25]
+                        best_bytes = None
+
+                        for q in quality_steps:
+                            buf = io.BytesIO()
+                            im.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
+                            data = buf.getvalue()
+                            best_bytes = data
+                            if len(data) <= target_max_bytes:
+                                break
+
+                        # Также пишем финал на диск (для соответствия "кладем во временную папку")
+                        with open(out_path, "wb") as f:
+                            f.write(best_bytes or b"")
+                        return best_bytes if best_bytes is not None else raw_bytes
+                except Exception as e:
+                    print(f"[EPUB_REBUILD] Ошибка сжатия картинки: {e}. Используем оригинал.")
+                    return raw_bytes
+                finally:
+                    for p in (src_path, out_path):
+                        try:
+                            if p and os.path.exists(p):
+                                os.remove(p)
+                        except Exception:
+                            pass
 
             print(f"[EPUB_REBUILD] Начат процесс для книги: {book_info.get('filename')}")
             
@@ -1344,16 +1402,29 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 if internal_id:
                     image_data = workflow_db_manager.get_comic_image_workflow(internal_id)
                     if image_data:
-                        img_name = f"comic_{internal_id}.png"
+                        # Сжимаем изображение по одному: ≤100KB, ширина ≤800px, JPEG
+                        # Временная папка создается на весь EPUB build и используется для всех картинок
+                        if 'tmp_img_dir' not in locals():
+                            tmp_img_dir_obj = tempfile.TemporaryDirectory(prefix="epub_comic_")
+                            tmp_img_dir = tmp_img_dir_obj.name
+                        compressed = _compress_image_to_jpeg_bytes(image_data, tmp_img_dir)
+
+                        img_name = f"comic_{internal_id}.jpg"
                         img_path = f"images/{img_name}"
                         img_item = epub.EpubItem(
                             uid=f"img_{internal_id}",
                             file_name=img_path,
-                            content=image_data,
-                            media_type="image/png"
+                            content=compressed,
+                            media_type="image/jpeg"
                         )
                         book.add_item(img_item)
                         final_html_body += f'<div style="text-align: center; margin: 1.2em 0;"><img src="{img_path}" alt="Illustration" style="max-width: 100%; height: auto; border-radius: 4px;"/></div>\n'
+                        # освобождаем ссылки как можно раньше
+                        try:
+                            del compressed
+                            del image_data
+                        except Exception:
+                            pass
 
                 # --- FOOTNOTE LOGIC ---
                 if clean_text:
@@ -1479,6 +1550,12 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 if t_path and os.path.exists(t_path):
                     try: os.remove(t_path)
                     except: pass
+                # Закрываем временную папку для картинок (если создавали)
+                try:
+                    if 'tmp_img_dir_obj' in locals():
+                        tmp_img_dir_obj.cleanup()
+                except Exception:
+                    pass
                 import gc
                 gc.collect()
         

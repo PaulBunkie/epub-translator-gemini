@@ -1514,8 +1514,24 @@ def workflow_api_comic_image(section_id):
     image_data = workflow_db_manager.get_comic_image_workflow(section_id)
     if not image_data:
         return "Image not found", 404
-    
-    return Response(image_data, mimetype='image/jpeg')
+
+    # Определяем тип по сигнатуре (чтобы браузер корректно декодировал)
+    mimetype = 'application/octet-stream'
+    try:
+        if isinstance(image_data, (bytes, bytearray)) and len(image_data) >= 4:
+            if image_data[:8] == b"\x89PNG\r\n\x1a\n":
+                mimetype = 'image/png'
+            elif image_data[:3] == b"\xff\xd8\xff":
+                mimetype = 'image/jpeg'
+            elif image_data[:4] == b"RIFF" and image_data[8:12] == b"WEBP":
+                mimetype = 'image/webp'
+    except Exception:
+        mimetype = 'application/octet-stream'
+
+    resp = Response(image_data, mimetype=mimetype)
+    # Разрешаем браузеру кэшировать и не перетягивать заново при скролле/возврате на страницу
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
 
 @app.route('/admin/system_status')
 def admin_system_status():

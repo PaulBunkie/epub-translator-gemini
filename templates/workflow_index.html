@@ -276,7 +276,7 @@
                                                     <div class="sections-loading">Загрузка секций...</div>
                                                 </div>
                                             {% endif %}
-                                            {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty']) %}
+                                            {% if stage_name == 'summarize' and (stage_data.status in ['completed', 'completed_empty', 'completed_with_errors']) %}
                                                 <a href="{{ url_for('workflow_download_summary', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать суммаризацию</a>
                                                 
                                                 {% if admin %}
