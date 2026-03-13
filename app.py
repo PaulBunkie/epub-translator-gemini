@@ -169,7 +169,7 @@ if True:  # is_fly_io:
     scheduler.add_job(
         toptube10.full_workflow_task,
         trigger='interval',
-        hours=8,  # Полный рабочий процесс каждые 8 часов
+        hours=2,  # Полный рабочий процесс каждые 2 часа
         id='toptube_full_workflow_job',
         replace_existing=True,
         misfire_grace_time=1800  # 30 минут grace time для длительного процесса

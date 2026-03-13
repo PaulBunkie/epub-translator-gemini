@@ -789,6 +789,7 @@ def process_book_analysis(book_id: str, admin: bool = False):
                 status = 'completed'
                 error_message = None
                 # Также сохраняем в кэш для единообразия с глоссарием
+                import workflow_cache_manager
                 workflow_cache_manager.save_book_stage_result(book_id, ANALYSIS_STAGE_NAME, analysis_result)
             else:
                 status = 'error'
