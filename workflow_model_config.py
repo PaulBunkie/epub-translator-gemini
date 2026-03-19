@@ -12,14 +12,14 @@ MODEL_CONFIG = {
     'analyze': {
         'primary': 'models/gemini-3-flash-preview',
         'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'openrouter/free',
+        'fallback_level2': 'openrouter/hunter-alpha',
         'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'translate': {
-        'primary': 'models/gemini-3-flash-preview',
-        'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'openrouter/free',
-        'fallback_level3': 'vertex/gemini-3-flash-preview'
+        'primary': 'vertex/gemini-3-flash-preview',
+        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level2': 'openrouter/hunter-alpha',
+        'fallback_level3': 'arcee-ai/trinity-large-preview:free'
     },
     'reduce': {
         'primary': 'models/gemma-3-27b-it:free', 
