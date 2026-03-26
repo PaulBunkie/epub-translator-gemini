@@ -1340,7 +1340,7 @@ def workflow_index():
                 "db_size_mb": round(db_size / (1024**2), 2),
                 "queue_size": q_size,
                 "active_books": active_book_names,
-                "total_active": q_size + len(active_book_names)
+                "total_active": len(active_book_names) # processing_books уже включает и очередь, и работу
             }
             print(f"[AdminStatus] Calculated status: {system_status}")
         except Exception as e:
