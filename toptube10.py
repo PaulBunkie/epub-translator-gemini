@@ -173,21 +173,39 @@ class TopTubeManager:
         print(f"[TopTube] После базовой фильтрации: {len(filtered_videos)} видео")
         
         # НОВАЯ ЛОГИКА: дополнительная фильтрация серьезного контента
-        # Сначала фильтруем по длительности (минимум 30 минут)
+        # Теперь применяем те же лимиты (1M сабов, 100K просмотров) и длительность (30+ мин)
         videos_for_serious = []
         for video in all_videos:
             try:
+                # 1. Проверяем длительность (минимум 30 минут)
                 duration_str = video["contentDetails"]["duration"]
                 duration = isodate.parse_duration(duration_str)
                 duration_seconds = duration.total_seconds()
                 
-                if duration_seconds >= 1800:  # 30 минут = 1800 секунд
-                    videos_for_serious.append(video)
+                if duration_seconds < 1800:  # 30 минут = 1800 секунд
+                    continue
+
+                # 2. Проверяем количество подписчиков (минимум 1 миллион)
+                channel_id = video["snippet"]["channelId"]
+                channel_info = channels_dict.get(channel_id)
+                if not channel_info:
+                    continue
+                
+                subs = int(channel_info["statistics"].get("subscriberCount", 0))
+                if subs < 1_000_000:
+                    continue
+                
+                # 3. Проверяем количество просмотров (минимум 100 тысяч)
+                views = int(video["statistics"].get("viewCount", 0))
+                if views < 100_000:
+                    continue
+
+                videos_for_serious.append(video)
             except Exception as e:
-                print(f"[TopTube] Ошибка при проверке длительности видео: {e}")
+                print(f"[TopTube] Ошибка при предварительной фильтрации видео для LLM: {e}")
                 continue
         
-        print(f"[TopTube] Для LLM-фильтрации серьезного контента: {len(videos_for_serious)} видео (длительность 30+ мин)")
+        print(f"[TopTube] Для LLM-фильтрации серьезного контента: {len(videos_for_serious)} видео (30+ мин, 1M+ саб, 100K+ просм)")
         
         # Теперь применяем LLM-фильтрацию к отфильтрованным по длительности
         serious_videos = self._filter_serious_content_with_llm(videos_for_serious)
