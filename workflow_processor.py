@@ -556,7 +556,6 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
                 for section in sections:
                     section_id = section['section_id']
                     workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, stage_name, 'pending', model_name=None, error_message=None)
-                    import workflow_cache_manager
                     workflow_cache_manager.delete_section_stage_result(book_id, section_id, stage_name)
                 # Пересчитываем статус этапа на уровне книги после сброса секций
                 recalculate_book_stage_status(book_id, stage_name)
@@ -565,7 +564,6 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = False):
             else:
                 # Сброс book-level этапа
                 workflow_db_manager.update_book_stage_status_workflow(book_id, stage_name, 'pending', model_name=None, error_message=None)
-                import workflow_cache_manager
                 workflow_cache_manager.delete_book_stage_result(book_id, stage_name)
                 # print(f"[WorkflowProcessor] Сброшен book-level этап: {stage_name}")
         
@@ -789,7 +787,6 @@ def process_book_analysis(book_id: str, admin: bool = False):
                 status = 'completed'
                 error_message = None
                 # Также сохраняем в кэш для единообразия с глоссарием
-                import workflow_cache_manager
                 workflow_cache_manager.save_book_stage_result(book_id, ANALYSIS_STAGE_NAME, analysis_result)
             else:
                 status = 'error'
@@ -915,9 +912,6 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
     Если target_language == 'none', просто сохраняет оригинальный текст в кеш перевода.
     """
     from epub_parser import extract_section_text
-    import workflow_cache_manager
-    import workflow_db_manager
-    import workflow_translation_module
 
     TRANSLATION_PROMPT_EXT = ""  # Константа, можно будет подтянуть из конфига
 
@@ -1656,7 +1650,6 @@ def recalculate_book_stage_status(book_id, stage_name):
 def send_telegram_notification(book_id: str, status: str = 'completed'):
     print(f"[DEBUG] Вызвана send_telegram_notification для книги {book_id} со статусом {status}")
     try:
-        import workflow_db_manager
         from telegram_notifier import telegram_notifier
         
         # Получаем информацию о книге
@@ -1764,8 +1757,6 @@ def retrigger_section_translation(book_id: str, section_id: int):
     Удаляет кэш перевода для секции и запускает перевод заново.
     """
     try:
-        import workflow_cache_manager
-        import workflow_db_manager
         import threading
         from flask import current_app
         
