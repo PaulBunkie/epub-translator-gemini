@@ -137,13 +137,25 @@ class LocationFinderAI:
                 print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Reset: {response.headers['X-Ratelimit-Reset']}")
             
             if response.status_code == 200:
-                data = response.json()
+                try:
+                    data = response.json()
+                except Exception as e_json:
+                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Ошибка парсинга JSON: {e_json}")
+                    return None
+
                 if 'choices' in data and len(data['choices']) > 0:
-                    content = data['choices'][0]['message']['content'].strip()
+                    message = data['choices'][0].get('message', {})
+                    raw_content = message.get('content')
+                    
+                    if raw_content is None:
+                        print(f"{LF_PRINT_PREFIX} [OpenRouter] Поле 'content' отсутствует или равно None в ответе")
+                        return None
+                        
+                    content = raw_content.strip()
                     print(f"{LF_PRINT_PREFIX} [OpenRouter] Ответ от {model_name}: '{content}'")
                     return self._parse_location_response(content, person_name)
                 else:
-                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Неверный формат ответа от {model_name}")
+                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Поле 'choices' отсутствует или пусто в ответе: {data}")
                     return None
             else:
                 print(f"{LF_PRINT_PREFIX} [OpenRouter] HTTP ошибка {response.status_code} от {model_name}")
@@ -223,8 +235,15 @@ Location:"""
         Анализирует локацию с fallback логикой.
         Сначала пробует основную модель, затем резервные.
         """
-        # Список моделей для попыток (основная + резервная)
-        models_to_try = [self.primary_model, self.fallback_model]
+        # Список моделей для попыток (основная + резервная + дополнительные бесплатные)
+        models_to_try = [
+            self.primary_model, 
+            self.fallback_model,
+            "google/gemini-2.0-flash-exp:free", # OpenRouter
+            "gemini-1.5-flash"                  # Google Direct
+        ]
+        
+        last_unknown_result = None
         
         for model in models_to_try:
             print(f"{LF_PRINT_PREFIX} Пробуем модель: {model}")
@@ -232,6 +251,7 @@ Location:"""
             # Определяем источник API
             api_source = self._get_api_source(model)
             
+            result = None
             if api_source == "google":
                 result = self._analyze_with_google(person_name, news_summaries_text, model)
             elif api_source == "openrouter":
@@ -240,13 +260,20 @@ Location:"""
                 print(f"{LF_PRINT_PREFIX} Неизвестный источник API для модели {model}")
                 continue
             
-            if result:
-                print(f"{LF_PRINT_PREFIX} Успешный анализ с моделью {model}")
+            if result and result.get("location_name") != "Unknown":
+                print(f"{LF_PRINT_PREFIX} Успешный анализ с моделью {model}: {result.get('location_name')}")
                 return result
+            elif result and result.get("location_name") == "Unknown":
+                print(f"{LF_PRINT_PREFIX} Модель {model} ответила 'Unknown', пробуем следующую для уточнения")
+                last_unknown_result = result
             else:
-                print(f"{LF_PRINT_PREFIX} Модель {model} не дала результата, пробуем следующую")
+                print(f"{LF_PRINT_PREFIX} Модель {model} не дала результата (ошибка или пустой ответ), пробуем следующую")
         
-        print(f"{LF_PRINT_PREFIX} Все модели не сработали")
+        if last_unknown_result:
+            print(f"{LF_PRINT_PREFIX} Все модели ответили 'Unknown'. Возвращаем окончательный результат 'Unknown'.")
+            return last_unknown_result
+            
+        print(f"{LF_PRINT_PREFIX} Все модели не сработали (ошибки API)")
         return None
 
 # Глобальный экземпляр LocationFinderAI
@@ -539,18 +566,20 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
             save_cached_location(person_name_key, final_data_for_person, source_summary=news_summaries_text_for_cache)
         elif had_good_stale_cache and cached_entry and not force_fresh:
             # Используем старый кэш только если НЕ принудительное обновление
-            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие'. Используем старый 'хороший' кэш для '{person_name_cleaned}'.")
+            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие' или отсутствуют. Продлеваем старый 'хороший' кэш для '{person_name_cleaned}'.")
             final_data_for_person = {
                 "location_name": cached_entry["location_name"],
                 "lat": cached_entry["lat"], "lon": cached_entry["lon"],
                 "error": cached_entry["error"],
-                "last_updated": cached_entry["last_updated"]
+                "last_updated": int(current_time_unix) # Обновляем время, чтобы не долбиться в API
             }
+            save_cached_location(person_name_key, final_data_for_person, source_summary=f"Stale cache extended (AI failed). Original summary: {news_summaries_text_for_cache}")
         else:
             print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет или принудительное обновление.")
             if cached_entry and cached_entry.get("location_name") not in ("Error", None, "Unknown"):
                 # При проблемах с API используем ЛЮБОЙ старый кэш, даже очень устаревший
-                print(f"{LF_PRINT_PREFIX} API недоступен - используем старый кэш для '{person_name_cleaned}' (возраст: {cache_age_hours:.1f}ч).")
+                cache_age_h = (current_time_unix - cached_entry["last_updated"]) / 3600
+                print(f"{LF_PRINT_PREFIX} API недоступен - используем старый кэш для '{person_name_cleaned}' (возраст: {cache_age_h:.1f}ч).")
                 final_data_for_person = {
                     "location_name": cached_entry["location_name"],
                     "lat": cached_entry["lat"], "lon": cached_entry["lon"],

@@ -92,6 +92,8 @@ with app.app_context():
      video_db.init_video_db()
      # Инициализируем БД для футбольных матчей
      football.init_football_db()
+     # Возобновляем незавершенные воркфлоу
+     workflow_processor.resume_all_workflows(app)
 
 # --- Настраиваем API перевода ---
 try:
@@ -1027,11 +1029,11 @@ def workflow_upload_file():
              })
              order_in_book += 1
 
-        # --- ГЕНЕРИРУЕМ ТОКЕН ДО СОЗДАНИЯ КНИГИ ---
+         # ГЕНЕРИРУЕМ ТОКЕН ДО СОЗДАНИЯ КНИГИ
         access_token = workflow_db_manager.generate_access_token()
-        # Создаем запись о книге в новой БД сразу с access_token
-        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language, access_token):
-             print(f"  Книга '{book_id}' сохранена в Workflow DB.")
+        # Создаем запись о книге в новой БД сразу с access_token и admin_mode
+        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language, access_token, admin_mode=admin):
+             print(f"  Книга '{book_id}' сохранена в Workflow DB (admin={admin}).")
 
              # --- ДОБАВЛЯЕМ ИНИЦИАЛИЗАЦИЮ СТАТУСОВ ЭТАПОВ КНИГИ ---
              workflow_db_manager._initialize_book_stage_statuses(book_id)
@@ -1050,21 +1052,9 @@ def workflow_upload_file():
                        sec_created_count += 1
              print(f"  Создано {sec_created_count} записей о секциях в Workflow DB.")
 
-             # --- Запускаем рабочий процесс для книги ---
-             # Запускаем в отдельном потоке, чтобы запрос не висел
-             # TODO: Использовать более надежный способ запуска фоновых задач, например, очередь задач (Celery, Redis Queue)
-             # Пока используем простой поток для демонстрации
-             import threading
-             # --- ИЗМЕНЕНИЕ: Запускаем поток с контекстом приложения ---
-             def run_workflow_in_context(book_id):
-                 with app.app_context(): # 'app' is the global Flask app instance
-                     current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
-                     # Теперь start_book_workflow принимает только app_instance.
-                     # Workflow автоматически определяет, с какого этапа начать.
-                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), admin=admin)
-             threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
-             # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-             print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
+             # --- Запускаем рабочий процесс для книги через очередь ---
+             workflow_processor.workflow_queue_manager.add_book_to_queue(book_id, app, admin=admin)
+             print(f"  Книга ID {book_id} поставлена в очередь обработки.")
 
              # --- СОЗДАЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
              session_id = workflow_db_manager.create_user_session(access_token)
@@ -1192,10 +1182,10 @@ def user_upload_file():
              })
              order_in_book += 1
 
-        # Генерируем токен и создаем книгу
+        # Генерируем токен и создаем книгу (с сохранением admin_mode)
         access_token = workflow_db_manager.generate_access_token()
-        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language, access_token):
-             print(f"  Книга '{book_id}' сохранена в Workflow DB.")
+        if workflow_db_manager.create_book_workflow(book_id, original_filename, filepath, toc, target_language, access_token, admin_mode=admin):
+             print(f"  Книга '{book_id}' сохранена в Workflow DB (admin={admin}).")
 
              workflow_db_manager._initialize_book_stage_statuses(book_id)
 
@@ -1211,14 +1201,9 @@ def user_upload_file():
                        sec_created_count += 1
              print(f"  Создано {sec_created_count} записей о секциях в Workflow DB.")
 
-             # Запускаем рабочий процесс
-             import threading
-             def run_workflow_in_context(book_id):
-                 with app.app_context():
-                     current_app.logger.info(f"Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
-                     workflow_processor.start_book_workflow(book_id, current_app._get_current_object(), admin=admin)
-             threading.Thread(target=run_workflow_in_context, args=(book_id,)).start()
-             print(f"  Запущен рабочий процесс для книги ID {book_id} в отдельном потоке.")
+             # Запускаем рабочий процесс через очередь
+             workflow_processor.workflow_queue_manager.add_book_to_queue(book_id, app, admin=admin)
+             print(f"  Книга ID {book_id} поставлена в очередь обработки.")
 
              # Создаем сессию пользователя
              session_id = workflow_db_manager.create_user_session(access_token)
@@ -2177,12 +2162,9 @@ def workflow_start_existing_book(book_id):
                 current_app.logger.error(f"Ошибка сохранения отредактированного анализа для книги {book_id}: {e}")
                 return jsonify({'status': 'error', 'message': f'Ошибка сохранения анализа: {str(e)}'}), 500
         
-        from app import app as global_app
-        def run_workflow_in_context(book_id):
-            with global_app.app_context():
-                workflow_processor.start_book_workflow(book_id, global_app, admin=admin)
-        executor.submit(run_workflow_in_context, book_id)
-        return jsonify({'status': 'success', 'message': 'Workflow started in background'}), 200
+        # Запускаем через очередь
+        workflow_processor.workflow_queue_manager.add_book_to_queue(book_id, app, admin=admin)
+        return jsonify({'status': 'success', 'message': 'Workflow added to queue'}), 200
     except Exception as e:
         current_app.logger.error(f"Ошибка при запуске рабочего процесса для книги {book_id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500

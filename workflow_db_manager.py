@@ -60,9 +60,20 @@ def init_workflow_db():
                     workflow_error_message TEXT,
                     generated_prompt_ext TEXT,
                     manual_prompt_ext TEXT,
-                    access_token TEXT UNIQUE
+                    access_token TEXT UNIQUE,
+                    admin_mode INTEGER DEFAULT 0
                 );
             ''')
+
+            # Миграция: Добавление admin_mode в books если его нет
+            cursor = db.execute("PRAGMA table_info(books);")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'admin_mode' not in columns:
+                try:
+                    db.execute("ALTER TABLE books ADD COLUMN admin_mode INTEGER DEFAULT 0;")
+                    print("[WorkflowDB] Колонка admin_mode добавлена в таблицу books")
+                except Exception as e:
+                    print(f"[WorkflowDB] ОШИБКА добавления admin_mode: {e}")
 
             # Миграция: Добавление comic_status в books если его нет
             cursor = db.execute("PRAGMA table_info(books);")
@@ -226,9 +237,22 @@ def init_workflow_db():
         traceback.print_exc()
 
 
+def reset_stuck_workflow_tasks():
+    """Сбрасывает статусы 'processing' и 'queued' в 'pending' для всех секций и книг."""
+    db = get_workflow_db()
+    try:
+        with db:
+            db.execute("UPDATE section_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
+            db.execute("UPDATE book_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
+        print("[WorkflowDB] Статусы 'processing' и 'queued' сброшены в 'pending'.")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА при сбросе зависших задач: {e}")
+        return False
+
 # --- Функции работы с книгами (общая информация) ---
 
-def create_book_workflow(book_id, filename, filepath, toc_data, target_language, access_token):
+def create_book_workflow(book_id, filename, filepath, toc_data, target_language, access_token, admin_mode=0):
     """Создает новую запись о книге в таблице books."""
     print(f"[WorkflowDB] Попытка создания записи для книги ID: {book_id}")
     db = get_workflow_db()
@@ -240,9 +264,9 @@ def create_book_workflow(book_id, filename, filepath, toc_data, target_language,
             return False # Книга уже существует
 
         db.execute('''
-            INSERT INTO books (book_id, filename, filepath, toc, target_language, current_workflow_status, access_token)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (book_id, filename, filepath, json.dumps(toc_data), target_language, 'uploaded', access_token))
+            INSERT INTO books (book_id, filename, filepath, toc, target_language, current_workflow_status, access_token, admin_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (book_id, filename, filepath, json.dumps(toc_data), target_language, 'uploaded', access_token, int(admin_mode)))
         db.commit()  # Явный коммит после создания книги
         print(f"[WorkflowDB] Книга '{book_id}' добавлена в БД со статусом 'uploaded'. (commit)")
 
@@ -279,7 +303,7 @@ def get_book_workflow(book_id, include_sections=True):
             SELECT book_id, filename, filepath, current_workflow_status,
                    target_language, upload_time, workflow_error_message,
                    generated_prompt_ext, manual_prompt_ext, access_token,
-                   comic_status, visual_bible, toc
+                   comic_status, visual_bible, toc, admin_mode
             FROM books WHERE book_id = ?
         ''', (book_id,))
         row = cursor.fetchone()
@@ -322,7 +346,7 @@ def get_all_books_workflow():
         cursor = db.execute('''
             SELECT book_id, filename, filepath, current_workflow_status,
                    target_language, upload_time, workflow_error_message,
-                   access_token, comic_status
+                   access_token, comic_status, admin_mode
             FROM books
             ORDER BY upload_time DESC
         ''')
