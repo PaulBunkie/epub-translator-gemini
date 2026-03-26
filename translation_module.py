@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 import requests
 import json
 import time
+import workflow_model_config
 
 # Константа для обозначения ошибки лимита контекста
 CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
@@ -764,7 +765,7 @@ def translate_text(text_to_translate: str, target_language: str = "russian",
     Определяет источник модели и вызывает соответствующий класс-транслятор.
     """
     if not model_name:
-        model_name = "meta-llama/llama-4-maverick:free"
+        model_name = workflow_model_config.DEFAULT_MODEL
 
     # Шаг 1: Получить ПОЛНЫЙ список моделей, чтобы найти источник по имени.
     # Бэкенд должен уметь работать с любой валидной моделью, независимо от режима UI.

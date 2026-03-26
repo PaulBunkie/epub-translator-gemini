@@ -10,6 +10,7 @@ import google.generativeai as genai # Импорт для Google API
 import google.auth
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part, FinishReason, SafetySetting, HarmCategory, HarmBlockThreshold
+import workflow_model_config
 
 # Константа для обозначения ошибки лимита контекста
 # TODO: Возможно, стоит перенести в класс или конфиг
@@ -654,7 +655,7 @@ class WorkflowTranslator:
         """
         Определяет тип API на основе имени модели.
         """
-        if not model_name:
+        if not model_name or model_name == workflow_model_config.DEFAULT_MODEL:
             return "openrouter"
             
         if model_name.startswith('vertex/'):

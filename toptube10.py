@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional
 import video_db
 import video_analyzer
 
+import workflow_model_config
+
 # Константы
 DAYS = 5
 Q_TEMPLATE = "interview|интервью|беседа|обзор|разговор|репортаж|редакция|investigation|расследование|путешествие|travel"
@@ -473,7 +475,7 @@ class TopTubeManager:
             }
             
             payload = {
-                "model": "openrouter/free",  # Используем бесплатную модель
+                "model": workflow_model_config.DEFAULT_MODEL,
                 "messages": [
                     {
                         "role": "user", 
@@ -590,7 +592,7 @@ class TopTubeManager:
             }
             
             payload = {
-                "model": "openrouter/free",  # Та же модель
+                "model": workflow_model_config.DEFAULT_MODEL,
                 "messages": [
                     {
                         "role": "user", 

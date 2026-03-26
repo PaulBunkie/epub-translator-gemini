@@ -9,6 +9,7 @@ import datetime
 from typing import Optional
 
 from db_manager import get_cached_location, save_cached_location
+import workflow_model_config
 
 NEWS_API_KEY = "2126e6e18adb478fb9ade262cb1102af"
 NEWS_API_URL = 'https://newsapi.org/v2/everything'
@@ -18,7 +19,7 @@ LOCATION_CACHE_TTL_SECONDS = 4000
 USER_REQUEST_CACHE_TTL_SECONDS = 86400  # 24 часа для пользовательских запросов
 
 # Модели для анализа локаций (как в video_analyzer.py)
-PRIMARY_MODEL = os.getenv("LOCATION_FINDER_PRIMARY_MODEL", "openrouter/free")
+PRIMARY_MODEL = os.getenv("LOCATION_FINDER_PRIMARY_MODEL", workflow_model_config.DEFAULT_MODEL)
 FALLBACK_MODEL = os.getenv("LOCATION_FINDER_FALLBACK_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free")
 
 _gemini_model_instance = None
@@ -233,20 +234,17 @@ Location:"""
     def analyze_location(self, person_name: str, news_summaries_text: str) -> Optional[dict]:
         """
         Анализирует локацию с fallback логикой.
-        Сначала пробует основную модель, затем резервные.
+        Использует модели из workflow_model_config.
         """
-        # Список моделей для попыток (основная + резервная + дополнительные бесплатные)
-        models_to_try = [
-            self.primary_model, 
-            self.fallback_model,
-            "google/gemini-2.0-flash-exp:free", # OpenRouter
-            "gemini-1.5-flash"                  # Google Direct
-        ]
-        
+        levels = ['primary', 'fallback_level1', 'fallback_level2']
         last_unknown_result = None
         
-        for model in models_to_try:
-            print(f"{LF_PRINT_PREFIX} Пробуем модель: {model}")
+        for level in levels:
+            model = workflow_model_config.get_model_for_operation('person_locations', level)
+            if not model:
+                continue
+                
+            print(f"{LF_PRINT_PREFIX} Пробуем модель ({level}): {model}")
             
             # Определяем источник API
             api_source = self._get_api_source(model)

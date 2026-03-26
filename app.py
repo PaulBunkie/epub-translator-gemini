@@ -54,7 +54,7 @@ import workflow_cache_manager
 import html
 import video_analyzer
 import video_chat_handler
-from workflow_model_config import get_model_for_operation
+from workflow_model_config import get_model_for_operation, DEFAULT_MODEL
 import toptube10
 import video_db
 import football
@@ -135,7 +135,7 @@ scheduler = BackgroundScheduler(daemon=True)
 is_fly_io = os.getenv("FLY_APP_NAME") is not None
 
 # Модель для перевода новостей, настраиваемая через переменные окружения
-NEWS_MODEL_NAME = os.getenv("NEWS_TRANSLATION_MODEL", "openrouter/free")
+NEWS_MODEL_NAME = os.getenv("NEWS_TRANSLATION_MODEL", DEFAULT_MODEL)
 
 # --- ФОНОВЫЕ ЗАДАЧИ ТОЛЬКО НА FLY.IO ---
 # ВРЕМЕННО ВКЛЮЧЕНО ДЛЯ ЛОКАЛЬНОГО ТЕСТИРОВАНИЯ
@@ -365,7 +365,7 @@ def index():
 
     print("Загрузка главной страницы...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'openrouter/free')
+    selected_model = session.get('model_name', DEFAULT_MODEL)
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     
     # Получаем список моделей, учитывая режим администратора
@@ -374,9 +374,9 @@ def index():
     if not available_models:
         available_models = [
             {
-                'name': 'openrouter/free',
-                'display_name': 'openrouter/free',
-                'description': 'openrouter/free'
+                'name': DEFAULT_MODEL,
+                'display_name': DEFAULT_MODEL,
+                'description': DEFAULT_MODEL
             }
         ]
         print("  WARN: Не удалось получить список моделей от API.")
@@ -453,7 +453,7 @@ def upload_file():
         translated_toc_titles = {}
         if toc_titles_for_translation:
              print(f"Перевод {len(toc_titles_for_translation)} заголовков TOC...")
-             toc_model = session.get('model_name', 'openrouter/free')
+             toc_model = session.get('model_name', DEFAULT_MODEL)
              titles_text = "\n|||---\n".join(toc_titles_for_translation)
              # Здесь мы не передаем operation_type, потому что это всегда просто перевод названий TOC
              translated_titles_text = translate_text(titles_text, target_language, toc_model, prompt_ext=None)
@@ -3007,16 +3007,16 @@ def books():
 
     print("Загрузка страницы /books...")
     default_language = session.get('target_language', 'russian')
-    selected_model = session.get('model_name', 'openrouter/free')
+    selected_model = session.get('model_name', DEFAULT_MODEL)
     print(f"  Параметры сессии: lang='{default_language}', model='{selected_model}'")
     is_admin_mode = session.get('admin_mode', False)
     available_models = get_models_list(show_all_models=is_admin_mode)
     if not available_models:
         available_models = [
             {
-                'name': 'openrouter/free',
-                'display_name': 'openrouter/free',
-                'description': 'openrouter/free'
+                'name': DEFAULT_MODEL,
+                'display_name': DEFAULT_MODEL,
+                'description': DEFAULT_MODEL
             }
         ]
         print("  WARN: Не удалось получить список моделей от API.")

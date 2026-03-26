@@ -198,6 +198,12 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
     print(f"[WorkflowProcessor] Начат процесс суммаризации для секции {section_id} книги {book_id}")
 
     try:
+        # 1. Получаем информацию о секции и книге из БД
+        section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id) 
+        if not section_info:
+            print(f"[WorkflowProcessor] Ошибка: Секция с ID {section_id} не найдена в БД.")
+            return False
+
         book_info = workflow_db_manager.get_book_workflow(book_id)
         if not book_info:
             print(f"[WorkflowProcessor] Ошибка: Книга с ID {book_id} для секции {section_id} не найдена в БД.")
@@ -226,8 +232,7 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
         if not section_content:
             print(f"[WorkflowProcessor] Предупреждение: Контент секции {section_epub_id} (ID: {section_id}) пуст или не может быть извлечен. Помечаем как completed_empty.")
             # Если контент пуст, считаем этап завершенным с пустым результатом
-            with current_app.app_context():
-                 workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'completed_empty', error_message='Empty section content')
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'completed_empty', error_message='Empty section content')
             return True # Возвращаем True, так как это не ошибка, а ожидаемое состояние
 
         # --- НОВОЕ: Проверка длины текста после очистки от HTML (но сохранение Markdown) ---
@@ -237,10 +242,9 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
         
         if len(temp_clean_text) < MIN_SECTION_LENGTH:
             print(f"[WorkflowProcessor] Секция {section_epub_id} (ID: {section_id}) слишком короткая ({len(temp_clean_text)} < {MIN_SECTION_LENGTH} символов). Пропускаем суммаризацию.")
-            with current_app.app_context():
-                workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(temp_clean_text)} chars)')
-                # Сохраняем пустой результат в кэш для единообразия
-                workflow_cache_manager.save_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME, "") # Сохраняем пустой результат
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, 'skipped', error_message=f'Section too short ({len(temp_clean_text)} chars)')
+            # Сохраняем пустой результат в кэш для единообразия
+            workflow_cache_manager.save_section_stage_result(book_id, section_id, SUMMARIZATION_STAGE_NAME, "") # Сохраняем пустой результат
             return True # Секция успешно пропущена
         # --- КОНЕЦ НОВОГО БЛОКА ---
 
@@ -284,13 +288,12 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
                         print(f"[WorkflowProcessor] Использована модель: {used_model}")
                     # Проверка времени после обновления статуса
                     try:
-                        with current_app.app_context():
-                            updated_section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
-                            if updated_section_info and 'stage_statuses' in updated_section_info and SUMMARIZATION_STAGE_NAME in updated_section_info['stage_statuses']:
-                                status_info = updated_section_info['stage_statuses'][SUMMARIZATION_STAGE_NAME]
-                                print(f"[DEBUG_TIME_CHECK] Секция {section_id}, Этап {SUMMARIZATION_STAGE_NAME}, Статус {status}: start_time={status_info.get('start_time')}, end_time={status_info.get('end_time')}")
-                            else:
-                                print(f"[DEBUG_TIME_CHECK] Не удалось получить обновленный статус для секции {section_id}.")
+                        updated_section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
+                        if updated_section_info and 'stage_statuses' in updated_section_info and SUMMARIZATION_STAGE_NAME in updated_section_info['stage_statuses']:
+                            status_info = updated_section_info['stage_statuses'][SUMMARIZATION_STAGE_NAME]
+                            print(f"[DEBUG_TIME_CHECK] Секция {section_id}, Этап {SUMMARIZATION_STAGE_NAME}, Статус {status}: start_time={status_info.get('start_time')}, end_time={status_info.get('end_time')}")
+                        else:
+                            print(f"[DEBUG_TIME_CHECK] Не удалось получить обновленный статус для секции {section_id}.")
                     except Exception as time_check_err:
                         print(f"[DEBUG_TIME_CHECK] Ошибка при проверке времени для секции {section_id}: {time_check_err}")
                     break # Успех, выходим из цикла ретраев
@@ -348,13 +351,12 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
                       print(f"[WorkflowProcessor] ОШИБКА сохранения пустого результата в кеш для {book_id}/{section_id}: {error_message}")
                  # Проверка времени после обновления статуса
                  try:
-                     with current_app.app_context():
-                         updated_section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
-                         if updated_section_info and 'stage_statuses' in updated_section_info and SUMMARIZATION_STAGE_NAME in updated_section_info['stage_statuses']:
-                             status_info = updated_section_info['stage_statuses'][SUMMARIZATION_STAGE_NAME]
-                             print(f"[DEBUG_TIME_CHECK] Секция {section_id}, Этап {SUMMARIZATION_STAGE_NAME}, Статус {status}: start_time={status_info.get('start_time')}, end_time={status_info.get('end_time')}")
-                         else:
-                             print(f"[DEBUG_TIME_CHECK] Не удалось получить обновленный статус для секции {section_id}.")
+                     updated_section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
+                     if updated_section_info and 'stage_statuses' in updated_section_info and SUMMARIZATION_STAGE_NAME in updated_section_info['stage_statuses']:
+                         status_info = updated_section_info['stage_statuses'][SUMMARIZATION_STAGE_NAME]
+                         print(f"[DEBUG_TIME_CHECK] Секция {section_id}, Этап {SUMMARIZATION_STAGE_NAME}, Статус {status}: start_time={status_info.get('start_time')}, end_time={status_info.get('end_time')}")
+                     else:
+                         print(f"[DEBUG_TIME_CHECK] Не удалось получить обновленный статус для секции {section_id}.")
                  except Exception as time_check_err:
                      print(f"[DEBUG_TIME_CHECK] Ошибка при проверке времени для секции {section_id}: {time_check_err}")
              else:
@@ -363,22 +365,20 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
                  print(f"[WorkflowProcessor] Модель вернула пустой результат после ретраев. DEBUG_ALLOW_EMPTY=False. Статус: error для секции {section_id}.")
                  # Проверка времени после обновления статуса
                  try:
-                     with current_app.app_context():
-                         updated_section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
-                         if updated_section_info and 'stage_statuses' in updated_section_info and SUMMARIZATION_STAGE_NAME in updated_section_info['stage_statuses']:
-                             status_info = updated_section_info['stage_statuses'][SUMMARIZATION_STAGE_NAME]
-                             print(f"[DEBUG_TIME_CHECK] Секция {section_id}, Этап {SUMMARIZATION_STAGE_NAME}, Статус {status}: start_time={status_info.get('start_time')}, end_time={status_info.get('end_time')}")
-                         else:
-                             print(f"[DEBUG_TIME_CHECK] Не удалось получить обновленный статус для секции {section_id}.")
+                     updated_section_info = workflow_db_manager.get_section_by_id_workflow(book_id, section_id)
+                     if updated_section_info and 'stage_statuses' in updated_section_info and SUMMARIZATION_STAGE_NAME in updated_section_info['stage_statuses']:
+                         status_info = updated_section_info['stage_statuses'][SUMMARIZATION_STAGE_NAME]
+                         print(f"[DEBUG_TIME_CHECK] Секция {section_id}, Этап {SUMMARIZATION_STAGE_NAME}, Статус {status}: start_time={status_info.get('start_time')}, end_time={status_info.get('end_time')}")
+                     else:
+                         print(f"[DEBUG_TIME_CHECK] Не удалось получить обновленный статус для секции {section_id}.")
                  except Exception as time_check_err:
                      print(f"[DEBUG_TIME_CHECK] Ошибка при проверке времени для секции {section_id}: {time_check_err}")
 
 
         # 6. Обновляем статус секции в БД
-        with current_app.app_context():
-            # Если у нас есть информация о реальной модели, используем её
-            model_to_save = used_model if 'used_model' in locals() and used_model else None
-            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, status, model_name=model_to_save, error_message=error_message)
+        # Если у нас есть информация о реальной модели, используем её
+        model_to_save = used_model if 'used_model' in locals() and used_model else None
+        workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, SUMMARIZATION_STAGE_NAME, status, model_name=model_to_save, error_message=error_message)
 
         print(f"[WorkflowProcessor] Суммаризация для секции ID {section_id} книги {book_id} завершена со статусом: {status}.")
 

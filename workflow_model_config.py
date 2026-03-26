@@ -3,6 +3,8 @@
 # Уровень 2: fallback_level1 - первая резервная модель  
 # Уровень 3: fallback_level2 - вторая резервная модель (последняя попытка)
 
+DEFAULT_MODEL = "openrouter/free"
+
 MODEL_CONFIG = {
     'summarize': {
         'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
@@ -12,14 +14,14 @@ MODEL_CONFIG = {
     'analyze': {
         'primary': 'models/gemini-3-flash-preview',
         'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'openrouter/hunter-alpha',
+        'fallback_level2': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'translate': {
         'primary': 'vertex/gemini-3-flash-preview',
         'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'openrouter/hunter-alpha',
-        'fallback_level3': 'arcee-ai/trinity-large-preview:free'
+        'fallback_level2': 'arcee-ai/trinity-large-preview:free',
+        'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
     },
     'reduce': {
         'primary': 'models/gemma-3-27b-it:free', 
@@ -66,8 +68,13 @@ MODEL_CONFIG = {
     },
     'visual_analysis': {
         'primary': 'vertex/gemini-3-flash-preview', 
-        'fallback_level1': 'deepseek/deepseek-r1-0528:free',
+        'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'arcee-ai/trinity-large-preview:free'
+    },
+    'person_locations': {
+        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
+        'fallback_level1': 'models/gemma-3-27b-it:free',
+        'fallback_level2': 'openrouter/free'
     }
 }
 
