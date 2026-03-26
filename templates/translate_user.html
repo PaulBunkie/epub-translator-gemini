@@ -623,9 +623,13 @@
                     let statusText = stageData.status || 'pending';
                     if (stageData.is_per_section && data.sections_status_summary && data.sections_status_summary[stageName]) {
                         const summary = data.sections_status_summary[stageName];
-                        const completed = (summary.completed || 0) + (summary.completed_empty || 0) + (summary.skipped || 0);
+                        const completed = (summary.completed || 0) + (summary.completed_empty || 0) + (summary.skipped || 0) + (summary.passed || 0);
+                        const processing = (summary.current_processing_count || 0);
                         const total = summary.total || 0;
-                        statusText += ` (${completed}/${total} секций)`;
+                        
+                        // Если есть что-то в процессе, показываем это как "+1" в прогрессе для пользователя
+                        const displayProcessed = processing > 0 ? (completed + 1) : completed;
+                        statusText += ` (${Math.min(displayProcessed, total)} / ${total} секций)`;
                     }
                     
                     stageDiv.innerHTML = `<strong>${displayName}:</strong> <span class="stage-status" data-stage="${stageName}">${statusText}</span>`;

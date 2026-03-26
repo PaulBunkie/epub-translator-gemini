@@ -1270,10 +1270,20 @@ def get_workflow_book_status(book_id: str) -> dict:
                 stage_summaries[st_name] = {
                     'total': total_sections, 'completed': 0, 'completed_empty': 0,
                     'processing': 0, 'queued': 0, 'error': 0, 'skipped': 0,
-                    'pending': 0, 'cached': 0
+                    'pending': 0, 'cached': 0, 'passed': 0
                 }
             if st_status in stage_summaries[st_name]:
                 stage_summaries[st_name][st_status] = count
+            elif st_status.startswith('error'): # Группируем все ошибки в один счетчик для простоты фронта
+                stage_summaries[st_name]['error'] += count
+            elif st_status == 'passed':
+                stage_summaries[st_name]['passed'] = count
+            
+            # --- УМНАЯ ЛОГИКА: Считаем прогресс включая текущую обрабатываемую секцию ---
+            if st_status in ('processing', 'queued'):
+                if 'current_processing_count' not in stage_summaries[st_name]:
+                    stage_summaries[st_name]['current_processing_count'] = 0
+                stage_summaries[st_name]['current_processing_count'] += count
 
         # Формируем ответ
         response_data = {
@@ -1287,6 +1297,13 @@ def get_workflow_book_status(book_id: str) -> dict:
             "total_sections_count": total_sections,
             "sections_status_summary": stage_summaries
         }
+        
+        # Добавляем инфо о посекционности
+        stages_config = get_all_stages_ordered_workflow()
+        for stage in stages_config:
+            st_name = stage['stage_name']
+            if st_name in response_data['book_stage_statuses']:
+                response_data['book_stage_statuses'][st_name]['is_per_section'] = stage['is_per_section']
         
         return response_data
         

@@ -212,8 +212,16 @@
                 </div>
                 <div style="border-left: 2px solid #cbd5e0; padding-left: 25px;" title="Размер файла workflow.db">
                     <i class="fas fa-database" style="color: #4a5568; margin-right: 8px;"></i>
-                    <strong>База данных:</strong> 
+                    <strong>БД:</strong> 
                     <span style="color: #2d3748; font-weight: bold;">{{ system_status.db_size_mb }} MB</span>
+                </div>
+                <div style="border-left: 2px solid #cbd5e0; padding-left: 25px;" title="Очередь задач">
+                    <i class="fas fa-tasks" style="color: #4a5568; margin-right: 8px;"></i>
+                    <strong>Задач:</strong> 
+                    <span style="color: #2d3748; font-weight: bold;">{{ system_status.total_active }}</span>
+                    {% if system_status.active_books %}
+                        <small style="color: #718096; margin-left: 5px;">(В работе: {{ system_status.active_books|join(', ') }})</small>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}

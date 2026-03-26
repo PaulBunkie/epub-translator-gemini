@@ -211,10 +211,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const stageSpan = bookItem.querySelector(`.stage-status[data-stage="${stageName}"]`);
                 if (stageSpan) {
                     let statusText = stageInfo.status || 'pending';
-                    if (stageInfo.is_per_section) {
-                        const processed = statusData['processed_sections_count_' + stageName] || 0;
-                        const total = statusData.total_sections_count || 0;
-                        statusText += ` (${processed} / ${total} секций)`;
+                    if (stageInfo.is_per_section && statusData.sections_status_summary && statusData.sections_status_summary[stageName]) {
+                        const summary = statusData.sections_status_summary[stageName];
+                        const completed = (summary.completed || 0) + (summary.completed_empty || 0) + (summary.skipped || 0) + (summary.passed || 0);
+                        const processing = (summary.current_processing_count || 0);
+                        const total = summary.total || 0;
+                        
+                        // Если есть что-то в процессе, показываем это как "+1" в прогрессе для пользователя
+                        const displayProcessed = processing > 0 ? (completed + 1) : completed;
+                        statusText += ` (${Math.min(displayProcessed, total)} / ${total} секций)`;
                     }
                     stageSpan.textContent = statusText;
                 }

@@ -1316,10 +1316,31 @@ def workflow_index():
             if WORKFLOW_DB_FILE.exists():
                 db_size = WORKFLOW_DB_FILE.stat().st_size
                 
+            # Определяем размер очереди безопасно
+            q_size = 0
+            active_book_names = []
+            try:
+                # В Python ThreadPoolExecutor использует _work_queue (Queue)
+                if hasattr(workflow_processor.workflow_queue_manager.executor, '_work_queue'):
+                    q_size = workflow_processor.workflow_queue_manager.executor._work_queue.qsize()
+                
+                # Получаем названия книг для активных задач
+                for b_id in workflow_processor.workflow_queue_manager.processing_books:
+                    b_info = workflow_db_manager.get_book_workflow(b_id, include_sections=False)
+                    if b_info:
+                        active_book_names.append(b_info.get('filename', b_id))
+                    else:
+                        active_book_names.append(b_id)
+            except:
+                pass
+
             system_status = {
                 "free_gb": round(usage.free / (1024**3), 2),
                 "used_percent": round((usage.used / usage.total) * 100, 1),
-                "db_size_mb": round(db_size / (1024**2), 2)
+                "db_size_mb": round(db_size / (1024**2), 2),
+                "queue_size": q_size,
+                "active_books": active_book_names,
+                "total_active": q_size + len(active_book_names)
             }
             print(f"[AdminStatus] Calculated status: {system_status}")
         except Exception as e:
