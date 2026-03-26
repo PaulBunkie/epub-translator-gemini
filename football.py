@@ -3338,6 +3338,9 @@ class FootballManager:
                 if response.status_code == 200:
                     data = response.json()
                     return data
+                elif response.status_code == 404:
+                    print(f"[Football SofaScore] Статистика не найдена (404) для event_id={sofascore_event_id}")
+                    return None
                 elif response.status_code == 403:
                     print(f"[Football SofaScore] 403 Forbidden при запросе статистики для event_id={sofascore_event_id}, попытка {attempt + 1}/{max_retries}")
                     attempt += 1
@@ -4603,15 +4606,19 @@ X2 ИГНОРИРУЕМ
             fav_team_id = match['fav_team_id']
             fav_won = None
 
-            if score_home > score_away:
-                # Домашняя команда выиграла
-                fav_won = 1 if fav_team_id == 1 else 0
-            elif score_away > score_home:
-                # Гостевая команда выиграла
-                fav_won = 1 if fav_team_id == 0 else 0
+            if score_home is not None and score_away is not None:
+                if score_home > score_away:
+                    # Домашняя команда выиграла
+                    fav_won = 1 if fav_team_id == 1 else 0
+                elif score_away > score_home:
+                    # Гостевая команда выиграла
+                    fav_won = 1 if fav_team_id == 0 else 0
+                else:
+                    # Ничья
+                    fav_won = 0
             else:
-                # Ничья
-                fav_won = 0
+                print(f"[Football] Невозможно определить результат (счет содержит None): {score_home}-{score_away}")
+                return
 
             # Сохраняем
             conn = get_football_db_connection()
