@@ -224,7 +224,7 @@
         .news-header h2 {
             margin: 0;
             color: #667eea;
-            font-size: 1.5em;
+            font-size: 1.3em;
         }
         .news-close {
             background: none;
@@ -233,11 +233,13 @@
             cursor: pointer;
             color: #999;
             transition: color 0.2s;
+            padding: 0 5px;
         }
         .news-close:hover {
             color: #333;
         }
         .news-body {
+            min-height: 150px;
             max-height: 400px;
             overflow-y: auto;
             font-size: 15px;
@@ -254,21 +256,70 @@
         }
         .news-footer {
             margin-top: 25px;
-            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .news-nav {
+            display: flex;
+            gap: 10px;
+        }
+        .nav-btn {
+            background: #eef2ff;
+            border: 1px solid #e0e7ff;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+            color: #4f46e5;
+        }
+        .nav-btn:hover:not(:disabled) {
+            background: #e0e7ff;
+            border-color: #c7d2fe;
+            transform: scale(1.05);
+        }
+        .nav-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .news-counter {
+            font-size: 13px;
+            color: #888;
         }
     </style>
 </head>
 <body data-admin="{% if admin %}true{% else %}false{% endif %}">
+    <!-- Скрытый контейнер для передачи данных в JS без синтаксических ошибок -->
+    <div id="js-data-bridge" 
+         data-access-token="{{ access_token or '' }}"
+         data-book-info='{% if book_info %}{{ book_info | tojson | safe }}{% else %}null{% endif %}'
+         data-all-news='{% if news_content %}{{ news_content | tojson | safe }}{% else %}[]{% endif %}'
+         style="display: none;">
+    </div>
+
     {% if news_content %}
     <div id="newsOverlay" class="news-overlay">
         <div class="news-popup">
             <div class="news-header">
-                <h2>🗞️ Свежие новости</h2>
+                <h2 id="newsTitle">🗞️ Свежие новости</h2>
                 <button class="news-close" onclick="closeNews()">&times;</button>
             </div>
-            <div class="news-body">{{ news_content }}</div>
+            <div id="newsBody" class="news-body"></div>
             <div class="news-footer">
-                <button class="btn" onclick="closeNews()">Понятно, спасибо!</button>
+                <div class="news-nav">
+                    <button id="prevNews" class="nav-btn" onclick="changeNews(-1)">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <button id="nextNews" class="nav-btn" onclick="changeNews(1)">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <span id="newsCounter" class="news-counter" style="margin-left: 10px; align-self: center;"></span>
+                </div>
+                <button class="btn" style="width: auto; margin: 0;" onclick="closeNews()">Закрыть</button>
             </div>
         </div>
     </div>
@@ -509,10 +560,22 @@
     
     <script type="text/javascript">
         // @ts-nocheck
-        var accessToken = "{{ access_token if access_token and access_token != 'None' else '' }}";
-        var bookInfo = "{{ book_info | tojson | default('') | safe }}";
+        
+        // Получаем данные через bridge-элемент, чтобы избежать ошибок линтера VS Code
+        const dataBridge = document.getElementById('js-data-bridge');
+        var accessToken = dataBridge ? dataBridge.dataset.accessToken : '';
+        var bookInfo = null;
+        var allNews = [];
+        
+        try {
+            bookInfo = dataBridge && dataBridge.dataset.bookInfo ? JSON.parse(dataBridge.dataset.bookInfo) : null;
+            allNews = dataBridge && dataBridge.dataset.allNews ? JSON.parse(dataBridge.dataset.allNews) : [];
+        } catch (e) {
+            console.error("Error parsing JS data bridge:", e);
+        }
+
         var admin = document.body.getAttribute('data-admin') === 'true';
-        if (bookInfo === "" || bookInfo === "null") { bookInfo = null; } else { bookInfo = JSON.parse(bookInfo); }
+        var currentNewsIndex = 0;
 
         // Обработчики для сообщения разработчику
         (function setupUserFeedback() {
@@ -684,12 +747,12 @@
                 bookTitleHeader.textContent = '📖 ' + bookTitle;
             }
             
-            const statusText = document.getElementById('statusText');
             const statusMessage = document.getElementById('statusMessage');
             const progressFill = document.getElementById('progressFill');
             const stageStatuses = document.getElementById('stageStatuses');
             const stageDetails = document.getElementById('stageDetails');
             const toggleStages = document.getElementById('toggleStages');
+            const bookInfoBlock = document.getElementById('bookInfoBlock');
 
             // Показываем блок с названием книги, если он еще скрыт
             if (bookInfoBlock) {
@@ -1017,7 +1080,6 @@
 
         // Проверка подписки на Telegram
         async function checkTelegramSubscription() {
-            const accessToken = "{{ access_token }}";
             try {
                 const resp = await fetch(`/check_telegram_subscription?access_token=${accessToken}`);
                 const data = await resp.json();
@@ -1036,18 +1098,50 @@
             document.getElementById('tgErrorOverlay').style.display = 'flex';
         }
         // Logic for news popup
+        function updateNewsDisplay() {
+            if (!allNews || !allNews.length) return;
+            const news = allNews[currentNewsIndex];
+            const titleEl = document.getElementById('newsTitle');
+            const bodyEl = document.getElementById('newsBody');
+            const counterEl = document.getElementById('newsCounter');
+            const prevBtn = document.getElementById('prevNews');
+            const nextBtn = document.getElementById('nextNews');
+
+            if (titleEl) titleEl.textContent = news.title || '🗞️ Новости';
+            if (bodyEl) bodyEl.textContent = news.content || '';
+            if (counterEl) counterEl.textContent = `${currentNewsIndex + 1} из ${allNews.length}`;
+            
+            if (prevBtn) prevBtn.disabled = currentNewsIndex === 0;
+            if (nextBtn) nextBtn.disabled = currentNewsIndex === allNews.length - 1;
+        }
+
+        function changeNews(dir) {
+            currentNewsIndex += dir;
+            if (currentNewsIndex < 0) currentNewsIndex = 0;
+            if (currentNewsIndex >= allNews.length) currentNewsIndex = allNews.length - 1;
+            updateNewsDisplay();
+        }
+
         function closeNews() {
             const overlay = document.getElementById('newsOverlay');
             if (overlay) overlay.style.display = 'none';
-            // Mark as seen in localStorage
-            localStorage.setItem('news_seen', 'true');
+            // Mark last seen news ID in localStorage
+            if (allNews.length) {
+                localStorage.setItem('last_news_id', allNews[0].id);
+            }
         }
 
-        // Show news if not seen yet
+        // Show news if new news available
         document.addEventListener('DOMContentLoaded', function() {
             const newsOverlay = document.getElementById('newsOverlay');
-            if (newsOverlay && !localStorage.getItem('news_seen')) {
-                newsOverlay.style.display = 'flex';
+            if (newsOverlay && allNews && allNews.length) {
+                const lastSeenId = localStorage.getItem('last_news_id');
+                // Show if never seen or if the newest news ID is different
+                if (!lastSeenId || lastSeenId != allNews[0].id) {
+                    currentNewsIndex = 0;
+                    updateNewsDisplay();
+                    newsOverlay.style.display = 'flex';
+                }
             }
             
             document.getElementById('tgSubscribeBtn').addEventListener('click', function() {

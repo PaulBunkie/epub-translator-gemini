@@ -1809,15 +1809,15 @@ def workflow_download_epub(book_id):
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ПЕРЕВОДА ---
 def get_news_content():
-    """Читает содержимое файла Newsline.txt"""
+    """Читает содержимое файла Newsline.json"""
     try:
-        news_file = os.path.join(os.path.dirname(__file__), 'Newsline.txt')
+        news_file = os.path.join(os.path.dirname(__file__), 'Newsline.json')
         if os.path.exists(news_file):
             with open(news_file, 'r', encoding='utf-8') as f:
-                return f.read().strip()
+                return json.load(f)
     except Exception as e:
-        print(f"[News] Ошибка чтения Newsline.txt: {e}")
-    return None
+        print(f"[News] Ошибка чтения Newsline.json: {e}")
+    return []
 
 @app.route('/translate/<access_token>', methods=['GET'])
 def translate_page(access_token):
