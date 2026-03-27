@@ -184,9 +184,95 @@
             margin-top: 0;
             color: #667eea;
         }
+
+        /* Styles for news popup */
+        .news-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(5px);
+        }
+        .news-popup {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            position: relative;
+            animation: slideUp 0.4s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .news-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #f0f2f5;
+            padding-bottom: 10px;
+        }
+        .news-header h2 {
+            margin: 0;
+            color: #667eea;
+            font-size: 1.5em;
+        }
+        .news-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+            transition: color 0.2s;
+        }
+        .news-close:hover {
+            color: #333;
+        }
+        .news-body {
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 15px;
+            color: #444;
+            white-space: pre-wrap;
+            padding-right: 10px;
+        }
+        .news-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        .news-body::-webkit-scrollbar-thumb {
+            background: #e1e5e9;
+            border-radius: 3px;
+        }
+        .news-footer {
+            margin-top: 25px;
+            text-align: center;
+        }
     </style>
 </head>
 <body data-admin="{% if admin %}true{% else %}false{% endif %}">
+    {% if news_content %}
+    <div id="newsOverlay" class="news-overlay">
+        <div class="news-popup">
+            <div class="news-header">
+                <h2>🗞️ Свежие новости</h2>
+                <button class="news-close" onclick="closeNews()">&times;</button>
+            </div>
+            <div class="news-body">{{ news_content }}</div>
+            <div class="news-footer">
+                <button class="btn" onclick="closeNews()">Понятно, спасибо!</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     <div class="container">
         <div class="header">
             <h1>📚 EPUB Translator</h1>
@@ -949,8 +1035,21 @@
             document.getElementById('tgErrorText').textContent = msg;
             document.getElementById('tgErrorOverlay').style.display = 'flex';
         }
-        // После возврата на страницу пробуем проверить подписку
+        // Logic for news popup
+        function closeNews() {
+            const overlay = document.getElementById('newsOverlay');
+            if (overlay) overlay.style.display = 'none';
+            // Mark as seen in localStorage
+            localStorage.setItem('news_seen', 'true');
+        }
+
+        // Show news if not seen yet
         document.addEventListener('DOMContentLoaded', function() {
+            const newsOverlay = document.getElementById('newsOverlay');
+            if (newsOverlay && !localStorage.getItem('news_seen')) {
+                newsOverlay.style.display = 'flex';
+            }
+            
             document.getElementById('tgSubscribeBtn').addEventListener('click', function() {
                 setTimeout(checkTelegramSubscription, 2000);
             });

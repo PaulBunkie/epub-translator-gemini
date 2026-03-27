@@ -1808,6 +1808,17 @@ def workflow_download_epub(book_id):
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ EPUB ---
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ПЕРЕВОДА ---
+def get_news_content():
+    """Читает содержимое файла Newsline.txt"""
+    try:
+        news_file = os.path.join(os.path.dirname(__file__), 'Newsline.txt')
+        if os.path.exists(news_file):
+            with open(news_file, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+    except Exception as e:
+        print(f"[News] Ошибка чтения Newsline.txt: {e}")
+    return None
+
 @app.route('/translate/<access_token>', methods=['GET'])
 def translate_page(access_token):
     """Универсальная страница для пользователей - показывает форму загрузки или прогресс/результат"""
@@ -1836,6 +1847,7 @@ def translate_page(access_token):
     
     # Проверяем есть ли файл с этим токеном
     book_info = workflow_db_manager.get_book_by_access_token(effective_token)
+    news_content = get_news_content()
     
     if book_info:
         # Показываем прогресс/результат
@@ -1845,10 +1857,12 @@ def translate_page(access_token):
         access_token = None
         if book_info and book_info.get('access_token'):
             access_token = book_info['access_token']
-        return render_template('translate_user.html', 
+        
+        response = render_template('translate_user.html', 
                              access_token=effective_token, 
-                             book_info=None,
-                             admin=admin)
+                             book_info=book_info,
+                             admin=admin,
+                             news_content=news_content)
         
         if not session_id and effective_token == access_token:
             # Создаем новую сессию для пользователя
@@ -1873,9 +1887,8 @@ def translate_page(access_token):
         return render_template('translate_user.html', 
                              access_token=effective_token, 
                              book_info=None,
-                             admin=admin)
-
-# --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ---
+                             admin=admin,
+                             news_content=news_content)
 
 @app.route('/user', methods=['GET'])
 def user_main_page():
@@ -1888,6 +1901,7 @@ def user_main_page():
     
     # --- ПРОВЕРЯЕМ СЕССИЮ ПОЛЬЗОВАТЕЛЯ ---
     session_id = request.cookies.get('user_session')
+    news_content = get_news_content()
     
     if session_id:
         print(f"Найдена сессия пользователя: {session_id}")
@@ -1902,13 +1916,13 @@ def user_main_page():
         else:
             print(f"Сессия истекла или недействительна: {session_id}")
             # Очищаем недействительную сессию из cookie
-            response = make_response(render_template('translate_user.html', access_token=None, book_info=None, admin=admin))
+            response = make_response(render_template('translate_user.html', access_token=None, book_info=None, admin=admin, news_content=news_content))
             response.delete_cookie('user_session')
             return response
     
     # Если нет активной сессии, показываем форму загрузки
     print("Нет активной сессии, показываем форму загрузки")
-    return render_template('translate_user.html', access_token=None, book_info=None, admin=admin)
+    return render_template('translate_user.html', access_token=None, book_info=None, admin=admin, news_content=news_content)
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА ДЛЯ ГЛАВНОЙ СТРАНИЦЫ ПОЛЬЗОВАТЕЛЯ ---
 
