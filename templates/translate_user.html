@@ -1108,7 +1108,13 @@
             const nextBtn = document.getElementById('nextNews');
 
             if (titleEl) titleEl.textContent = news.title || '🗞️ Новости';
-            if (bodyEl) bodyEl.textContent = news.content || '';
+            
+            if (bodyEl) {
+                // Если контент - массив, соединяем строки. Если строка - оставляем как есть.
+                const content = Array.isArray(news.content) ? news.content.join('\n') : (news.content || '');
+                bodyEl.textContent = content;
+            }
+            
             if (counterEl) counterEl.textContent = `${currentNewsIndex + 1} из ${allNews.length}`;
             
             if (prevBtn) prevBtn.disabled = currentNewsIndex === 0;
