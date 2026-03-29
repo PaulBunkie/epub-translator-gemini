@@ -21,7 +21,7 @@ MODEL_CONFIG = {
         'primary': 'vertex/gemini-3-flash-preview',
         'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
+        'fallback_level3': 'stepfun/step-3.5-flash:free' #'nvidia/nemotron-3-super-120b-a12b:free'
     },
     'reduce': {
         'primary': 'models/gemma-3-27b-it:free', 
