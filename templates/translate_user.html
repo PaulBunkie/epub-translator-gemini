@@ -723,7 +723,7 @@
                         return;
                     }
                     
-                    if (data.current_workflow_status === 'completed') {
+                    if (data.current_workflow_status === 'completed' || data.current_workflow_status === 'completed_with_errors') {
                         clearInterval(progressInterval);
                         showResult();
                     } else if (data.current_workflow_status === 'error') {
@@ -862,7 +862,7 @@
             
             if (summaryLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
                 const summarizeStatus = bookInfo.book_stage_statuses.summarize.status;
-                if (['completed', 'completed_empty'].includes(summarizeStatus)) {
+                if (['completed', 'completed_empty', 'completed_with_errors'].includes(summarizeStatus)) {
                     summaryLink.style.display = 'block';
                     summaryLink.querySelector('a').href = `/workflow_download_summary/${bookInfo.book_id}`;
                 }
@@ -870,7 +870,7 @@
             
             if (analysisLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
                 const analysisStatus = bookInfo.book_stage_statuses.analyze.status;
-                if (['completed', 'completed_empty'].includes(analysisStatus)) {
+                if (['completed', 'completed_empty', 'completed_with_errors'].includes(analysisStatus)) {
                     analysisLink.style.display = 'block';
                     analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
                 }
@@ -880,7 +880,7 @@
             const epubLink = document.getElementById('epubLink');
             if (epubLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.epub_creation) {
                 const epubStatus = bookInfo.book_stage_statuses.epub_creation.status;
-                if (['completed', 'completed_empty'].includes(epubStatus)) {
+                if (['completed', 'completed_empty', 'completed_with_errors'].includes(epubStatus)) {
                     epubLink.style.display = 'block';
                     epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
                 }
@@ -895,16 +895,16 @@
         }
         
         // Если книга уже загружена, начинаем отслеживание
-        if (bookInfo && bookInfo.current_workflow_status !== 'completed') {
+        if (bookInfo && (bookInfo.current_workflow_status !== 'completed' && bookInfo.current_workflow_status !== 'completed_with_errors')) {
             startProgressTracking(bookInfo.book_id);
-        } else if (bookInfo && bookInfo.current_workflow_status === 'completed') {
+        } else if (bookInfo && (bookInfo.current_workflow_status === 'completed' || bookInfo.current_workflow_status === 'completed_with_errors')) {
             // Если книга уже завершена, настраиваем ссылки
             const summaryLink = document.getElementById('summaryLink');
             const analysisLink = document.getElementById('analysisLink');
             
             if (summaryLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
                 const summarizeStatus = bookInfo.book_stage_statuses.summarize.status;
-                if (['completed', 'completed_empty'].includes(summarizeStatus)) {
+                if (['completed', 'completed_empty', 'completed_with_errors'].includes(summarizeStatus)) {
                     summaryLink.style.display = 'block';
                     summaryLink.querySelector('a').href = `/workflow_download_summary/${bookInfo.book_id}`;
                 }
@@ -912,7 +912,7 @@
             
             if (analysisLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
                 const analysisStatus = bookInfo.book_stage_statuses.analyze.status;
-                if (['completed', 'completed_empty'].includes(analysisStatus)) {
+                if (['completed', 'completed_empty', 'completed_with_errors'].includes(analysisStatus)) {
                     analysisLink.style.display = 'block';
                     analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
                 }
@@ -922,7 +922,7 @@
             const epubLink = document.getElementById('epubLink');
             if (epubLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.epub_creation) {
                 const epubStatus = bookInfo.book_stage_statuses.epub_creation.status;
-                if (['completed', 'completed_empty'].includes(epubStatus)) {
+                if (['completed', 'completed_empty', 'completed_with_errors'].includes(epubStatus)) {
                     epubLink.style.display = 'block';
                     epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
                 }

@@ -74,7 +74,7 @@ def resume_all_workflows(app):
         all_books = workflow_db_manager.get_all_books_workflow()
         for book in all_books:
             status = book.get('current_workflow_status')
-            if status not in ['completed', 'completed_with_errors', 'awaiting_edit']:
+            if status not in ['completed', 'awaiting_edit']:
                 print(f"[WorkflowProcessor] Книга {book['book_id']} ({status}) ставится в очередь на возобновление.")
                 workflow_queue_manager.add_book_to_queue(book['book_id'], app)
 
@@ -531,14 +531,17 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
         print(f"[WorkflowProcessor] Книга {book_id} не найдена в Workflow DB. Прерывание.")
         return False
     
-    # 2. Определяем режим админа (если не передан, берем из БД)
+    # 2. Определяем режим админа
+    # ui_admin_mode определяет, нужно ли останавливаться для редактирования (зависит от того, кто запустил)
+    # book_admin_mode определяет доступ к моделям (зависит от настроек самой книги)
+    book_admin_mode = bool(book_info.get('admin_mode', 0))
     if admin is None:
-        admin = bool(book_info.get('admin_mode', 0))
-        print(f"[WorkflowProcessor] Используем admin_mode из БД: {admin}")
+        admin = book_admin_mode
+    ui_admin_mode = admin
 
     # 3. Получаем список этапов
     stages = workflow_db_manager.get_all_stages_ordered_workflow()
-    print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]}")
+    print(f"[WorkflowProcessor] Определены этапы рабочего процесса: {[stage['stage_name'] for stage in stages]} (UI Admin: {ui_admin_mode}, Book Admin: {book_admin_mode})")
     
     # Последовательно обрабатываем этапы
     for stage in stages:
@@ -572,9 +575,9 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
                 if section_stage_status in ['completed', 'completed_empty', 'skipped', 'passed']:
                     continue
                 if stage_name == 'summarize':
-                    result = process_section_summarization(book_id, section_id, admin=admin)
+                    result = process_section_summarization(book_id, section_id, admin=book_admin_mode)
                 elif stage_name == 'translate':
-                    result = process_section_translate(book_id, section_id, admin=admin)
+                    result = process_section_translate(book_id, section_id, admin=book_admin_mode)
                 else:
                     result = True  # Для других этапов по умолчанию не останавливаем
                 
@@ -592,15 +595,15 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
             # Книжный этап (анализ, создание epub, сокращение и т.д.)
             result = True
             if stage_name == 'analyze':
-                result = process_book_analysis(book_id, admin=admin)
-                # Проверяем флаг admin после завершения анализа
-                if result and admin:
-                    print(f"[WorkflowProcessor] Анализ завершен. Останавливаем workflow для редактирования.")
+                result = process_book_analysis(book_id, admin=book_admin_mode)
+                # Проверяем флаг ui_admin_mode после завершения анализа
+                if result and ui_admin_mode:
+                    print(f"[WorkflowProcessor] Анализ завершен. Останавливаем workflow для редактирования (UI Admin mode).")
                     workflow_db_manager.update_book_stage_status_workflow(book_id, 'analyze', 'awaiting_edit')
                     update_overall_workflow_book_status(book_id)
                     return True
             elif stage_name == 'epub_creation':
-                result = process_book_epub_creation(book_id, admin=admin)
+                result = process_book_epub_creation(book_id, admin=book_admin_mode)
             elif stage_name == 'reduce_text':
                 workflow_db_manager.update_book_stage_status_workflow(book_id, 'reduce_text', 'passed', error_message='Этап упразднен')
                 result = True
