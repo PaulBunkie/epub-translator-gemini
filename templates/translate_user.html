@@ -374,7 +374,7 @@
             </div>       
             
             <!-- Секция прогресса -->
-            <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status != 'completed' %}active{% endif %}">
+            <div id="progressSection" class="progress-section {% if book_info and book_info.current_workflow_status not in ['completed', 'completed_with_errors'] %}active{% endif %}">
                 <div class="telegram-info">
                     <!-- Новый красивый блок статуса -->
                     <div class="progress-bar">
@@ -442,9 +442,6 @@
                     <button id="tgSubscribedBtn" class="btn" style="max-width: 350px; margin-bottom: 8px; background: #28a745; display: none;" disabled>✅ Вы подписаны</button>
                     <p style="font-size: 13px; color: #888; margin-bottom: 0;">Бот отправит вам ссылку, когда перевод завершится.</p>
                 </div>                                            
-                
-                <!-- QR-код для мобильного доступа -->
-                <!-- УДАЛЕНО: Блок QR-кода -->
             </div>
             
             <!-- Секция результата -->
@@ -856,34 +853,32 @@
             document.getElementById('progressSection').classList.remove('active');
             document.getElementById('resultSection').classList.add('active');
             
-            // Настраиваем ссылки на суммаризацию и анализ
+            if (!bookInfo) return;
+
+            // Настраиваем ссылки
             const summaryLink = document.getElementById('summaryLink');
             const analysisLink = document.getElementById('analysisLink');
+            const epubLink = document.getElementById('epubLink');
             
-            if (summaryLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
-                const summarizeStatus = bookInfo.book_stage_statuses.summarize.status;
-                if (['completed', 'completed_empty', 'completed_with_errors'].includes(summarizeStatus)) {
+            // Показываем ссылки, если соответствующие этапы не в состоянии pending
+            if (summaryLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
+                if (bookInfo.book_stage_statuses.summarize.status !== 'pending') {
                     summaryLink.style.display = 'block';
                     summaryLink.querySelector('a').href = `/workflow_download_summary/${bookInfo.book_id}`;
                 }
             }
             
-            if (analysisLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
-                const analysisStatus = bookInfo.book_stage_statuses.analyze.status;
-                if (['completed', 'completed_empty', 'completed_with_errors'].includes(analysisStatus)) {
+            if (analysisLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
+                if (bookInfo.book_stage_statuses.analyze.status !== 'pending') {
                     analysisLink.style.display = 'block';
                     analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
                 }
             }
 
-            // Показываем ссылку на скачивание EPUB
-            const epubLink = document.getElementById('epubLink');
-            if (epubLink && bookInfo && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.epub_creation) {
-                const epubStatus = bookInfo.book_stage_statuses.epub_creation.status;
-                if (['completed', 'completed_empty', 'completed_with_errors'].includes(epubStatus)) {
-                    epubLink.style.display = 'block';
-                    epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
-                }
+            if (epubLink) {
+                // Для EPUB показываем кнопку всегда, если мы в секции результата
+                epubLink.style.display = 'block';
+                epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
             }
         }
         
@@ -898,34 +893,28 @@
         if (bookInfo && (bookInfo.current_workflow_status !== 'completed' && bookInfo.current_workflow_status !== 'completed_with_errors')) {
             startProgressTracking(bookInfo.book_id);
         } else if (bookInfo && (bookInfo.current_workflow_status === 'completed' || bookInfo.current_workflow_status === 'completed_with_errors')) {
-            // Если книга уже завершена, настраиваем ссылки
+            // Если книга уже завершена (даже с ошибками), настраиваем ссылки
             const summaryLink = document.getElementById('summaryLink');
             const analysisLink = document.getElementById('analysisLink');
+            const epubLink = document.getElementById('epubLink');
             
             if (summaryLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.summarize) {
-                const summarizeStatus = bookInfo.book_stage_statuses.summarize.status;
-                if (['completed', 'completed_empty', 'completed_with_errors'].includes(summarizeStatus)) {
+                if (bookInfo.book_stage_statuses.summarize.status !== 'pending') {
                     summaryLink.style.display = 'block';
                     summaryLink.querySelector('a').href = `/workflow_download_summary/${bookInfo.book_id}`;
                 }
             }
             
             if (analysisLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.analyze) {
-                const analysisStatus = bookInfo.book_stage_statuses.analyze.status;
-                if (['completed', 'completed_empty', 'completed_with_errors'].includes(analysisStatus)) {
+                if (bookInfo.book_stage_statuses.analyze.status !== 'pending') {
                     analysisLink.style.display = 'block';
                     analysisLink.querySelector('a').href = `/workflow_download_analysis/${bookInfo.book_id}`;
                 }
             }
 
-            // Показываем ссылку на скачивание EPUB
-            const epubLink = document.getElementById('epubLink');
-            if (epubLink && bookInfo.book_stage_statuses && bookInfo.book_stage_statuses.epub_creation) {
-                const epubStatus = bookInfo.book_stage_statuses.epub_creation.status;
-                if (['completed', 'completed_empty', 'completed_with_errors'].includes(epubStatus)) {
-                    epubLink.style.display = 'block';
-                    epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
-                }
+            if (epubLink) {
+                epubLink.style.display = 'block';
+                epubLink.querySelector('a').href = `/workflow_download_epub/${bookInfo.book_id}`;
             }
         } else if (!bookInfo && accessToken && accessToken !== "" && accessToken !== "None" && accessToken !== "null") {
             // Если bookInfo нет, но есть accessToken — ждём появления книги

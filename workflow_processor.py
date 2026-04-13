@@ -616,11 +616,6 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
         update_overall_workflow_book_status(book_id)
     
     # ФИНАЛЬНОЕ ОБНОВЛЕНИЕ СТАТУСА КНИГИ
-    update_overall_workflow_book_status(book_id)
-    print(f"[WorkflowProcessor] Рабочий процесс для книги ID: {book_id} завершен.")
-    return True
-    
-    # --- ФИНАЛЬНОЕ ОБНОВЛЕНИЕ СТАТУСА КНИГИ ---
     # После завершения всех этапов проверяем, что все этапы завершены успешно
     book_info = workflow_db_manager.get_book_workflow(book_id)
     if book_info:
@@ -650,7 +645,7 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
         else:
             print(f"[WorkflowProcessor] Не все этапы завершены. Статус книги {book_id} остается текущим.")
     
-    print(f"[WorkflowProcessor] Рабочий процесс start_book_workflow для книги ID: {book_id} завершен (основная функция). Финальный статус книги: {book_info.get('current_workflow_status') if book_info else 'unknown'}.")
+    print(f"[WorkflowProcessor] Рабочий процесс для книги ID: {book_id} завершен. Финальный статус: {book_info.get('current_workflow_status') if book_info else 'unknown'}.")
     return True
 
 # --- New function to collect summarized text for a book ---
