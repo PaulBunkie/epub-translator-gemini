@@ -1130,10 +1130,20 @@
         document.addEventListener('DOMContentLoaded', function() {
             const newsOverlay = document.getElementById('newsOverlay');
             if (newsOverlay && allNews && allNews.length) {
-                const lastSeenId = localStorage.getItem('last_news_id');
-                // Show if never seen or if the newest news ID is different
-                if (!lastSeenId || lastSeenId != allNews[0].id) {
-                    currentNewsIndex = 0;
+                const lastSeenId = parseInt(localStorage.getItem('last_news_id') || '0');
+                
+                // Находим индексы всех непрочитанных новостей (ID > lastSeenId)
+                // Новости в allNews идут от новых (индекс 0) к старым (последний индекс)
+                let firstUnreadIndex = -1;
+                for (let i = allNews.length - 1; i >= 0; i--) {
+                    if (allNews[i].id > lastSeenId) {
+                        firstUnreadIndex = i; // Это будет самая старая непрочитанная новость
+                        break;
+                    }
+                }
+
+                if (firstUnreadIndex !== -1) {
+                    currentNewsIndex = firstUnreadIndex;
                     updateNewsDisplay();
                     newsOverlay.style.display = 'flex';
                 }

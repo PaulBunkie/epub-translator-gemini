@@ -1814,7 +1814,10 @@ def get_news_content():
         news_file = os.path.join(os.path.dirname(__file__), 'Newsline.json')
         if os.path.exists(news_file):
             with open(news_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                news = json.load(f)
+                if isinstance(news, list):
+                    return news[::-1] # Самые новые новости в начале
+                return news
     except Exception as e:
         print(f"[News] Ошибка чтения Newsline.json: {e}")
     return []
