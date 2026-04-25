@@ -870,7 +870,7 @@ class WorkflowTranslator:
                         
                         if 'choices' in response_json and len(response_json['choices']) > 0:
                             choice = response_json['choices'][0]
-                            if 'message' in choice and 'content' in choice['message']:
+                            if 'message' in choice and choice['message'].get('content') is not None:
                                 output_content = choice['message']['content'].strip()
                                 
                                 # Сохраняем результат в файл для отладки (СРАЗУ после получения ответа!)
