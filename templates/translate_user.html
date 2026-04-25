@@ -1122,7 +1122,7 @@
             if (overlay) overlay.style.display = 'none';
             // Mark last seen news ID in localStorage
             if (allNews.length) {
-                localStorage.setItem('last_news_id', allNews[0].id);
+                localStorage.setItem('last_news_id', allNews[allNews.length - 1].id);
             }
         }
 
@@ -1132,12 +1132,12 @@
             if (newsOverlay && allNews && allNews.length) {
                 const lastSeenId = parseInt(localStorage.getItem('last_news_id') || '0');
                 
-                // Находим индексы всех непрочитанных новостей (ID > lastSeenId)
-                // Новости в allNews идут от новых (индекс 0) к старым (последний индекс)
+                // Находим индекс первой непрочитанной новости (ID > lastSeenId)
+                // Новости в allNews идут от старых (индекс 0) к новым (последний индекс)
                 let firstUnreadIndex = -1;
-                for (let i = allNews.length - 1; i >= 0; i--) {
+                for (let i = 0; i < allNews.length; i++) {
                     if (allNews[i].id > lastSeenId) {
-                        firstUnreadIndex = i; // Это будет самая старая непрочитанная новость
+                        firstUnreadIndex = i; // Это будет первая непрочитанная новость
                         break;
                     }
                 }
