@@ -12,24 +12,24 @@ MODEL_CONFIG = {
         'fallback_level2': 'openrouter/free'
     },
     'analyze': {
-        'primary': 'models/gemini-3-flash-preview',
+        'primary': 'tencent/hy3-preview:free', 
         'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'translate': {
         'primary': 'vertex/gemini-3-flash-preview',
-        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tencent/hy3-preview:free', #'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'arcee-ai/trinity-large-preview:free',
         'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
     },
     'reduce': {
-        'primary': 'models/gemma-3-27b-it:free', 
+        'primary': 'tencent/hy3-preview:free',  
         'fallback_level1': 'google/gemma-3-27b-it:free',
         'fallback_level2': 'openrouter/free'
     },
     'translate_toc': {
-        'primary': 'models/gemini-3-flash-preview',
+        'primary': 'tencent/hy3-preview:free',
         'fallback_level1': 'arcee-ai/trinity-large-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-flash-preview'
@@ -51,13 +51,13 @@ MODEL_CONFIG = {
     },
     'football_predict': {
         'primary': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tencent/hy3-preview:free', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },
     'bet_risk_analysis': {
         'primary': 'arcee-ai/trinity-large-preview:free',
-        'fallback_level1': 'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'tencent/hy3-preview:free', #'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },
