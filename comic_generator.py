@@ -28,7 +28,7 @@ CRITICAL RULES:
 2. For each, provide a detailed visual description in ENGLISH.
 3. Focus on: age, gender, ethnicity, build, hair style/color, distinctive facial features, typical clothing style, and specific accessories.
 4. IMPORTANT: If the text doesn't specify visual details, INFER them logically based on the character's role, personality, and context.
-5. STYLE ADHERENCE: All descriptions must be compatible with a "Modern European Digital Comic / Bande Dessinée" style.
+5. STYLE ADHERENCE: All descriptions must be compatible with a "Cinematic Live-Action Film / High-end HBO/Netflix production" style.
 6. Return ONLY a JSON object where keys are character names and values are their visual descriptions.
 
 Example Output:
@@ -328,14 +328,22 @@ Book Summaries:
                 except:
                     pass
 
+            # BASE_PROMPT = (
+            #     "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
+            #     "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
+            #     "Do not use evenly spaced rectangular panels. Use an asymmetrical, contemporary layout with varied panel sizes, "
+            #     "angled or overlapping frames, and occasional full-bleed panels. "
+            #     "Tell the story through action, movement, body language, lighting, environment, and cinematic camera shifts "
+            #     "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
+            #     "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
+            # )
             BASE_PROMPT = (
-                "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
-                "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
-                "Do not use evenly spaced rectangular panels. Use an asymmetrical, contemporary layout with varied panel sizes, "
-                "angled or overlapping frames, and occasional full-bleed panels. "
-                "Tell the story through action, movement, body language, lighting, environment, and cinematic camera shifts "
-                "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
-                "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
+                "A sequence of cinematic live-action film frames, modern asymmetric panel layout, visual storytelling through multiple connected scenes, "
+                "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
+                "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
+                "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
+                "No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
+                "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
             )
 
             for section in sections:
@@ -356,7 +364,7 @@ Book Summaries:
                             prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
                         else:
                             print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id} due to failure/filter...")
-                            prompt = f"Dynamic modern comic illustration, Studio Ghibli inspired style, safe for all ages.\n\n{visual_bible_prompt}\n\nSCENE: {summary}"
+                            prompt = f"Cinematic live-action film frame, photorealistic, realistic skin texture, dramatic lighting, high-end production look.\n\n{visual_bible_prompt}\n\nSCENE: {summary}"
 
                         image_data, error = self.generate_image(prompt, book_id, section_id)
                         
