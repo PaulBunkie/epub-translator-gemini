@@ -1120,9 +1120,13 @@
         function closeNews() {
             const overlay = document.getElementById('newsOverlay');
             if (overlay) overlay.style.display = 'none';
-            // Mark last seen news ID in localStorage
-            if (allNews.length) {
-                localStorage.setItem('last_news_id', allNews[allNews.length - 1].id);
+            // Mark current news ID as seen in localStorage
+            if (allNews.length && currentNewsIndex >= 0) {
+                const currentId = allNews[currentNewsIndex].id;
+                const lastSeenId = parseInt(localStorage.getItem('last_news_id') || '0');
+                if (currentId > lastSeenId) {
+                    localStorage.setItem('last_news_id', currentId);
+                }
             }
         }
 
@@ -1132,18 +1136,17 @@
             if (newsOverlay && allNews && allNews.length) {
                 const lastSeenId = parseInt(localStorage.getItem('last_news_id') || '0');
                 
-                // Находим индекс первой непрочитанной новости (ID > lastSeenId)
-                // Новости в allNews идут от старых (индекс 0) к новым (последний индекс)
-                let firstUnreadIndex = -1;
-                for (let i = 0; i < allNews.length; i++) {
+                // Находим индекс последней непрочитанной новости (самой свежей)
+                let lastUnreadIndex = -1;
+                for (let i = allNews.length - 1; i >= 0; i--) {
                     if (allNews[i].id > lastSeenId) {
-                        firstUnreadIndex = i; // Это будет первая непрочитанная новость
+                        lastUnreadIndex = i;
                         break;
                     }
                 }
 
-                if (firstUnreadIndex !== -1) {
-                    currentNewsIndex = firstUnreadIndex;
+                if (lastUnreadIndex !== -1) {
+                    currentNewsIndex = lastUnreadIndex;
                     updateNewsDisplay();
                     newsOverlay.style.display = 'flex';
                 }
