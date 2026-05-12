@@ -741,6 +741,53 @@ class OpenRouterTranslator(BaseTranslator):
         final_prompt = final_prompt.replace("\n\n\n", "\n\n").strip()
         return final_prompt, estimated_non_text_char_length
 
+class LiteRouterTranslator(OpenRouterTranslator):
+    LITEROUTER_API_URL = "https://api.literouter.com/v1"
+
+    def __init__(self):
+        self.api_key = os.getenv("LITEROUTER_API_KEY")
+        if not self.api_key:
+            raise ValueError("Не установлена переменная окружения LITEROUTER_API_KEY")
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+    def get_available_models(self) -> List[Dict[str, Any]]:
+        """
+        Возвращает список доступных моделей от LiteRouter.
+        """
+        try:
+            # LiteRouter API OpenAI-совместимый, поэтому пробуем получить список моделей
+            response = requests.get(f"{self.LITEROUTER_API_URL}/models", headers=self.headers, timeout=self.API_TIMEOUT)
+            response.raise_for_status()
+            models_data = response.json().get('data', [])
+            
+            processed_models = []
+            for model in models_data:
+                processed_models.append({
+                    'name': model['id'],
+                    'display_name': model.get('name', model['id']),
+                    'input_token_limit': model.get('context_length', 4096),
+                    'output_token_limit': model.get('max_completion_tokens', 4096),
+                    'is_free': False, # LiteRouter обычно платный
+                    'source': 'literouter'
+                })
+            return processed_models
+        except Exception as e:
+            print(f"Ошибка при получении списка моделей LiteRouter: {e}")
+            return []
+
+    def translate_chunk(self, *args, **kwargs):
+        # Используем базовую логику OpenRouter, но с нашим URL
+        # Временно подменяем OPENROUTER_API_URL
+        original_url = self.OPENROUTER_API_URL
+        self.__class__.OPENROUTER_API_URL = self.LITEROUTER_API_URL
+        try:
+            return super().translate_chunk(*args, **kwargs)
+        finally:
+            self.__class__.OPENROUTER_API_URL = original_url
+
 def configure_api() -> None:
     """
     Проверяет наличие необходимых ключей API в переменных окружения.
@@ -748,13 +795,16 @@ def configure_api() -> None:
     """
     google_key = os.getenv("GOOGLE_API_KEY")
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    literouter_key = os.getenv("LITEROUTER_API_KEY")
 
-    if not google_key and not openrouter_key:
-        raise ValueError("Необходимо установить хотя бы одну переменную окружения: GOOGLE_API_KEY или OPENROUTER_API_KEY")
+    if not google_key and not openrouter_key and not literouter_key:
+        raise ValueError("Необходимо установить хотя бы одну переменную окружения: GOOGLE_API_KEY, OPENROUTER_API_KEY или LITEROUTER_API_KEY")
     if not openrouter_key:
         print("ПРЕДУПРЕЖДЕНИЕ: OPENROUTER_API_KEY не установлен. Модели OpenRouter не будут доступны.")
     if not google_key:
         print("ПРЕДУПРЕЖДЕНИЕ: GOOGLE_API_KEY не установлен. Модели Google не будут доступны.")
+    if not literouter_key:
+        print("ПРЕДУПРЕЖДЕНИЕ: LITEROUTER_API_KEY не установлен. Модели LiteRouter не будут доступны.")
 
 
 def translate_text(text_to_translate: str, target_language: str = "russian",
@@ -794,6 +844,8 @@ def translate_text(text_to_translate: str, target_language: str = "russian",
             translator = GoogleTranslator()
         elif source == "openrouter":
             translator = OpenRouterTranslator()
+        elif source == "literouter":
+            translator = LiteRouterTranslator()
         else:
             print(f"ОШИБКА: Неизвестный источник '{source}' для модели '{model_name}'.")
             return None
@@ -870,6 +922,15 @@ def get_models_list(show_all_models: bool = False) -> List[Dict[str, Any]]:
         except Exception as e:
             print(f"Ошибка при получении списка моделей OpenRouter: {e}")
 
+    if os.getenv("LITEROUTER_API_KEY"):
+        try:
+            literouter_translator = LiteRouterTranslator()
+            literouter_models = literouter_translator.get_available_models()
+            all_provider_models.extend(literouter_models)
+            print(f"Получено {len(literouter_models)} моделей от LiteRouter API")
+        except Exception as e:
+            print(f"Ошибка при получении списка моделей LiteRouter: {e}")
+
     # --- Создаем и кэшируем оба списка: "all" и "free" ---
     # Кэш "all" - это все, что мы получили, отсортированное
     _cached_models['all'] = sorted(all_provider_models, key=lambda x: x.get('display_name', x.get('name', '')).lower())
@@ -900,25 +961,57 @@ def load_models_on_startup():
 
 def get_context_length(model_name: str) -> int:
     """Получает максимальный размер контекста для модели."""
+    if not model_name: return 4096
+    
+    # Специфическая обработка для LiteRouter
+    if model_name.startswith('literouter/'):
+        return 128000
+    
     all_models = get_models_list(show_all_models=True)
     model_info = next((m for m in all_models if m.get('name') == model_name), None)
+    
     if model_info:
-        # Теперь используем только input_token_limit
         if 'input_token_limit' in model_info:
             return model_info['input_token_limit']
-        print(f"Предупреждение: Для модели '{model_name}' не найден ключ 'input_token_limit'. Возвращено 0.")
-    return 0
+    
+    # Резервные значения для популярных моделей, если они не найдены в списке
+    if "claude-3-5" in model_name or "claude-sonnet" in model_name or "claude-haiku" in model_name or "claude-opus" in model_name: return 200000
+    if "claude-3" in model_name: return 200000
+    if "llama-3.1" in model_name or "llama-3.3" in model_name: return 128000
+    if "gemini-2" in model_name or "gemini-1.5" in model_name or "gemini-pro" in model_name: return 1000000
+    if "gpt-4o" in model_name: return 128000
+    if "deepseek-v3" in model_name: return 64000
+    if "deepseek-v4" in model_name: return 64000
+    
+    # Если модель содержит gpt-4 или gpt-5 и при этом от literouter (без префикса)
+    if "gpt-4" in model_name or "gpt-5" in model_name: return 128000
+    
+    print(f"Предупреждение: Для модели '{model_name}' не найден лимит контекста. Возвращено 4096.")
+    return 4096
 
 def get_model_output_token_limit(model_name: str) -> int:
     """Получает максимальный размер ответа для модели."""
+    if not model_name: return 4096
+    
     all_models = get_models_list(show_all_models=True)
     model_info = next((m for m in all_models if m.get('name') == model_name), None)
+    
     if model_info:
-        # Теперь используем только output_token_limit
         output_limit = model_info.get('output_token_limit')
         if output_limit:
             return output_limit
-        print(f"Предупреждение: Для модели '{model_name}' не найден ключ 'output_token_limit'. Возвращено 0.")
-    return 0
+            
+    # Резервные значения
+    if "claude" in model_name: return 8192
+    if "llama-3" in model_name: return 8192
+    if "gemini" in model_name: return 8192
+    if "gpt-4" in model_name: return 4096
+    
+    # Специфическая обработка для LiteRouter: если лимит не найден, возвращаем 64к (половину контекста)
+    if model_name.startswith('literouter/'):
+        return 64000
+    
+    print(f"Предупреждение: Для модели '{model_name}' не найден лимит вывода. Возвращено 4096.")
+    return 4096
 
 # --- END OF FILE translation_module.py ---

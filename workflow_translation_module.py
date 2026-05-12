@@ -206,6 +206,7 @@ Text to Analyze:
 # --- НОВЫЙ КЛАСС WorkflowTranslator ---
 class WorkflowTranslator:
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
+    LITEROUTER_API_URL = "https://api.literouter.com/v1"
     # TODO: Добавить URL для Google API, если будем его реализовывать здесь же
     
     # Конфигурация моделей импортируется из workflow_model_config
@@ -219,6 +220,15 @@ class WorkflowTranslator:
         except Exception as e:
             print(f"[WorkflowTranslator] ОШИБКА при получении OPENROUTER_API_KEY: {e}")
             self.openrouter_api_key = None
+
+        # Инициализация API ключа LiteRouter
+        try:
+            self.literouter_api_key = os.getenv("LITEROUTER_API_KEY")
+            if not self.literouter_api_key:
+                print("Предупреждение: Переменная окружения LITEROUTER_API_KEY не установлена.")
+        except Exception as e:
+            print(f"[WorkflowTranslator] ОШИБКА при получении LITEROUTER_API_KEY: {e}")
+            self.literouter_api_key = None
         
         # Инициализация Vertex AI (Google Cloud)
         try:
@@ -662,6 +672,8 @@ class WorkflowTranslator:
             return "vertex"
         elif model_name.startswith('models/'):
             return "google"
+        elif model_name.startswith('literouter/'):
+            return "literouter"
         else:
             return "openrouter"
 
@@ -677,7 +689,7 @@ class WorkflowTranslator:
         #temperature: float = 0.3,
         max_retries: int = 3, # Количество попыток
         retry_delay_seconds: int = 5 # Начальная задержка
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
         """
         Вызывает API модели (Google или OpenRouter) с заданным списком сообщений.
         Реализует логику вызова OpenRouter API и Google API.
@@ -690,7 +702,7 @@ class WorkflowTranslator:
             retry_delay_seconds: Начальная задержка между попытками.
 
         Returns:
-            Текст ответа модели или специальные константы ошибок/None.
+            Кортеж (текст ответа модели или специальные константы ошибок/None, имя реально использованной модели).
         """
         # Определяем тип API на основе имени модели
         api_type = self._determine_api_type(model_name)
@@ -699,7 +711,7 @@ class WorkflowTranslator:
         if api_type == "vertex":
             if not self.vertex_available:
                 print("[WorkflowTranslator] ОШИБКА: Vertex AI не инициализирован (нет GCP_CREDENTIALS).")
-                return None
+                return None, model_name
 
             # Убираем префикс vertex/ для вызова API
             actual_model_name = model_name.replace('vertex/', '')
@@ -728,23 +740,23 @@ class WorkflowTranslator:
                 
                 if not response.text:
                     print("[WorkflowTranslator] Vertex AI вернул пустой ответ.")
-                    return None
+                    return None, model_name
                 
                 print(f"[WorkflowTranslator] Vertex AI ответ получен успешно.")
                 # Удаляем служебный маркер $$$$$ только в конце (любое количество $ от 3 и выше)
-                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip()
+                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip(), model_name
 
             except Exception as e:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Vertex AI: {e}")
                 error_str = str(e).lower()
                 if "context window" in error_str:
-                    return CONTEXT_LIMIT_ERROR
-                return None
+                    return CONTEXT_LIMIT_ERROR, model_name
+                return None, model_name
 
         elif api_type == "google":
             if not self.google_api_key:
                 print("[WorkflowTranslator] ОШИБКА: GOOGLE_API_KEY не установлен.")
-                return None
+                return None, model_name
 
             # Преобразуем messages в формат Google API
             prompt = ""
@@ -771,238 +783,218 @@ class WorkflowTranslator:
                 # Проверка на пустой ответ
                 if not response.text:
                     print("[WorkflowTranslator] Google API вернул пустой ответ.")
-                    return None
+                    return None, model_name
                 
                 print(f"[WorkflowTranslator] Google API ответ получен успешно.")
                 # Удаляем служебный маркер $$$$$ только в конце (любое количество $ от 3 и выше)
-                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip()
+                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip(), model_name
 
             except Exception as e:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Google API: {e}")
                 if "context window" in str(e).lower():
-                    return CONTEXT_LIMIT_ERROR
+                    return CONTEXT_LIMIT_ERROR, model_name
                 
                 # Определяем, нужен ли ретрай или сразу переходить на следующий уровень
                 error_str = str(e).lower()
                 if any(keyword in error_str for keyword in ['400', '401', '403', '404', '500', '503', 'user location']):
                     # Критические ошибки - не ретраим, сразу на следующий уровень
                     print(f"[WorkflowTranslator] Критическая ошибка API, переход на следующий уровень")
-                    return None
+                    return None, model_name
                 else:
                     # Другие ошибки - можно ретраить
                     print(f"[WorkflowTranslator] Ошибка API, будет ретрай")
-                    return None
+                    return None, model_name
 
-        elif api_type == "openrouter":
-            if not self.openrouter_api_key:
-                 print("[WorkflowTranslator] ОШИБКА: OPENROUTER_API_KEY не установлен.")
-                 return None # Или специальная ошибка конфигурации
+        elif api_type == "openrouter" or api_type == "literouter":
+            if api_type == "openrouter":
+                if not self.openrouter_api_key:
+                     print("[WorkflowTranslator] ОШИБКА: OPENROUTER_API_KEY не установлен.")
+                     return None, model_name
+                url = f"{self.OPENROUTER_API_URL}/chat/completions"
+                api_key = self.openrouter_api_key
+                log_prefix = "[OpenRouter]"
+            else:
+                if not self.literouter_api_key:
+                     print("[WorkflowTranslator] ОШИБКА: LITEROUTER_API_KEY не установлен.")
+                     return None, model_name
+                
+                url = f"{self.LITEROUTER_API_URL}/chat/completions"
+                api_key = self.literouter_api_key
+                log_prefix = "[LiteRouter]"
 
-            url = f"{self.OPENROUTER_API_URL}/chat/completions"
             headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000"), # Требуется openrouter.ai
-                # "X-Title": os.getenv("YOUR_APP_NAME", "EPUB Translator"), # Optional: Replace with your app name
+                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000"),
             }
 
-            # --- Новый блок: расчёт max_tokens для OpenRouter ---
-            # Получаем лимиты модели
+            # --- Новый блок: расчёт max_tokens ---
             from translation_module import get_context_length, get_model_output_token_limit
+            
+            # Для определения лимитов используем полное название (с префиксом literouter/)
+            # Это критично, чтобы get_context_length опознал модель
             model_total_context_limit = get_context_length(model_name) if model_name else 2048
-            model_declared_output_limit = get_model_output_token_limit(model_name) if model_name else None
-            # Формируем промпт для оценки длины - считаем ВСЕ сообщения
+            
+            # Для поиска в кэше моделей пробуем оба варианта
+            search_model_name = model_name
+            if api_type == "literouter":
+                search_model_name = model_name.replace('literouter/', '')
+            
+            # ВАЖНО: передаем model_name (с префиксом), чтобы сработали наши лимиты для LiteRouter
+            model_declared_output_limit = get_model_output_token_limit(model_name)
+            
+            if model_total_context_limit == 0 or model_total_context_limit == 4096:
+                 # Если по короткому имени не нашли, пробуем по полному
+                 model_total_context_limit = get_context_length(model_name)
+                 model_declared_output_limit = get_model_output_token_limit(model_name)
+            
+            if model_total_context_limit == 0:
+                model_total_context_limit = 4096
+
             prompt_text = ""
             if messages and isinstance(messages, list):
                 for message in messages:
                     prompt_text += message.get('content', '')
             input_prompt_tokens = len(prompt_text) // 3
-            # Если max_completion_tokens не указан, используем половину размера контекста
+            
             if not model_declared_output_limit:
                 model_declared_output_limit = model_total_context_limit // 2
                 print(f"[WorkflowTranslator] max_completion_tokens не указан, используем половину контекста: {model_declared_output_limit}")
-            # Максимально допустимое количество токенов для вывода
-            calculated_max_output_tokens = model_total_context_limit - input_prompt_tokens - 100 # Буфер 100 токенов
-            # Окончательный лимит вывода: минимум из заявленного моделью и рассчитанного
-            # Ограничиваем 65536 — лимит многих провайдеров (напр. Chutes) для completion tokens
-            OPENROUTER_MAX_COMPLETION_TOKENS = 65536
-            final_output_token_limit = min(model_declared_output_limit, calculated_max_output_tokens, OPENROUTER_MAX_COMPLETION_TOKENS)
-            print(f"[WorkflowTranslator] Рассчитанный output_token_limit для API: {final_output_token_limit} (Общий контекст: {model_total_context_limit}, Входной промпт: ~{input_prompt_tokens} токенов)")
+            
+            calculated_max_output_tokens = model_total_context_limit - input_prompt_tokens - 100
+            MAX_COMPLETION_TOKENS = 65536
+            final_output_token_limit = min(model_declared_output_limit, calculated_max_output_tokens, MAX_COMPLETION_TOKENS)
+            print(f"[WorkflowTranslator] Рассчитанный output_token_limit для {api_type}: {final_output_token_limit} (Общий контекст: {model_total_context_limit}, Входной промпт: ~{input_prompt_tokens} токенов)")
+
+            actual_model_name = model_name
+            if api_type == "literouter":
+                actual_model_name = model_name.replace('literouter/', '')
 
             data = {
-                "model": model_name,
+                "model": actual_model_name,
                 "messages": messages,
-                "temperature": 0.7, # УСТАНОВКА ТЕМПЕРАТУРЫ
-                "stream": False#, # Убеждаемся, что не ждем стриминг
-                #"reasoning": {
-                #    "exclude": True
-                #}
+                "temperature": 0.7,
+                "stream": False
             }
 
-            # Добавляем max_tokens только для перевода
             if operation_type == 'translate':
-                data["max_tokens"] = final_output_token_limit-5000 # Оставляем 5000 токенов для буфера
+                data["max_tokens"] = max(1000, final_output_token_limit - 5000)
 
             current_delay = retry_delay_seconds
             for attempt in range(max_retries):
                 try:
-                    print(f"[OpenRouterTranslator] Отправка запроса на OpenRouter API (попытка {attempt + 1}/{max_retries}). URL: {url}")
-                    response = requests.post(url, headers=headers, data=json.dumps(data, ensure_ascii=False), timeout=600)  # 10 минут таймаут
+                    # --- Добавлена принудительная задержка для LiteRouter ПЕРЕД КАЖДОЙ ПОПЫТКОЙ ---
+                    if api_type == "literouter":
+                        print(f"[LiteRouter] Cooldown 5 секунд (попытка {attempt + 1})...")
+                        time.sleep(5)
 
-                    # --- Проверка заголовков лимитов (опционально) ---
-                    if 'X-Ratelimit-Remaining' in response.headers:
-                        print(f"[OpenRouterTranslator] X-Ratelimit-Remaining: {response.headers['X-Ratelimit-Remaining']}")
-                    # ... другие заголовки лимитов ...
+                    print(f"{log_prefix} Отправка запроса на API (попытка {attempt + 1}/{max_retries}). URL: {url}")
+                    response = requests.post(url, headers=headers, data=json.dumps(data, ensure_ascii=False), timeout=600)
+                    
+                    # --- ВРЕМЕННЫЙ ЛОГ ДЛЯ ДИАГНОСТИКИ (ОШИБКА 522 И 0 ТОКЕНОВ) ---
+                    if api_type == "literouter":
+                        print(f"[LiteRouter RAW] Статус: {response.status_code}")
+                        print(f"[LiteRouter RAW] Ответ: {response.text[:1000]}...") # Логируем первые 1000 символов
+                    # --- КОНЕЦ ВРЕМЕННОГО ЛОГА ---
 
-                    # --- Обработка успешного ответа ---
                     if response.status_code == 200:
                         response_json = response.json()
-                        
-                        # Логируем информацию о провайдере
                         if 'usage' in response_json:
                             usage = response_json['usage']
-                            print(f"[OpenRouterTranslator] Использование токенов: prompt={usage.get('prompt_tokens', 'N/A')}, completion={usage.get('completion_tokens', 'N/A')}, total={usage.get('total_tokens', 'N/A')}")
-                        
-                        # Логируем информацию о провайдере
+                            print(f"{log_prefix} Использование токенов: prompt={usage.get('prompt_tokens', 'N/A')}, completion={usage.get('completion_tokens', 'N/A')}, total={usage.get('total_tokens', 'N/A')}")
                         if 'model' in response_json:
                             actual_model = response_json['model']
-                            print(f"[OpenRouterTranslator] Фактически использованная модель: {actual_model}")
+                            print(f"{log_prefix} Фактически использованная модель: {actual_model}")
                         
                         if 'choices' in response_json and len(response_json['choices']) > 0:
                             choice = response_json['choices'][0]
                             if 'message' in choice and choice['message'].get('content') is not None:
                                 output_content = choice['message']['content'].strip()
-                                
-                                # Сохраняем результат в файл для отладки (СРАЗУ после получения ответа!)
                                 if chunk_text and section_id:
                                     self._save_translation_debug(section_id, model_name, output_content, chunk_text, book_id)
                                 
-                                # Проверка на обрезание ответа
                                 finish_reason = choice.get('finish_reason')
                                 print(f"[WorkflowTranslator] finish_reason: {finish_reason}")
+                                if finish_reason != 'stop' and finish_reason is not None:
+                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула finish_reason='{finish_reason}' вместо 'stop'.")
+                                    if finish_reason == 'length': return None, model_name
                                 
-                                # --- ПРОВЕРКА finish_reason на успех ---
-                                if finish_reason != 'stop':
-                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула finish_reason='{finish_reason}' вместо 'stop'. Возвращаем None для ретрая.")
-                                    return None
-                                # --- КОНЕЦ ПРОВЕРКИ ---
-                                
-                                # --- ПРОВЕРКА НА ПУСТОЙ ОТВЕТ ---
                                 if not output_content.strip():
-                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой текст. Возвращаем None для ретрая.")
-                                    return None
+                                    print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой текст.")
+                                    return None, model_name
                                 
-                                # --- ПРОВЕРКА МАРКЕРА ЗАВЕРШЕНИЯ ПЕРЕВОДА ---
+                                # --- ДЕТЕКТОР ОШИБКИ КОНФИГУРАЦИИ LiteRouter ---
+                                if "Context Multiplier Configuration Required" in output_content:
+                                    print(f"[LiteRouter] КРИТИЧЕСКАЯ ОШИБКА НАСТРОЙКИ: Требуется увеличить Multipliers в дашборде LiteRouter!")
+                                    # Возвращаем специальную ошибку, чтобы не делать бесполезные ретраи
+                                    return "__LITEROUTER_CONFIG_REQUIRED__", model_name
+                                # --- КОНЕЦ ДЕТЕКТОРА ---
+
                                 if operation_type == 'translate' and chunk_text:
-                                    # Ищем маркер регуляркой (любое кол-во $ от 3 и выше)
                                     if not re.search(r'\${3,}', output_content):
-                                        print(f"[OpenRouterTranslator] Предупреждение: Отсутствует маркер завершения перевода. Перевод может быть неполным. Возвращаем None для ретрая.")
-                                        return None
+                                        print(f"{log_prefix} Предупреждение: Отсутствует маркер завершения перевода. Ретрай.")
+                                        return None, model_name
                                     else:
-                                        # Убираем маркер из финального результата (только если он в конце)
                                         output_content = re.sub(r'(?:\$\s*){3,}\s*$', '', output_content).strip()
-                                        print(f"[OpenRouterTranslator] Найден маркер завершения. Убираем маркер в конце, финальная длина: {len(output_content)} символов.")
                                 
-                                # --- ПРОВЕРКА СУММАРИЗАЦИИ/REDUCE: результат должен быть минимум в 2 раза короче при длинном исходном тексте ---
                                 if operation_type in ('summarize', 'reduce') and chunk_text and len(chunk_text) > MIN_SOURCE_LENGTH_FOR_SUMMARY_RATIO_CHECK:
                                     max_allowed_len = len(chunk_text) // SUMMARY_MAX_RATIO_OF_SOURCE
                                     if len(output_content) > max_allowed_len:
-                                        print(f"[WorkflowTranslator] Результат {operation_type} отклонён: длина ({len(output_content)}) не минимум в {SUMMARY_MAX_RATIO_OF_SOURCE} раза меньше исходного ({len(chunk_text)}, макс. допуск: {max_allowed_len}). Ретрай.")
-                                        return None
+                                        print(f"[WorkflowTranslator] Результат {operation_type} отклонён: слишком длинный. Ретрай.")
+                                        return None, model_name
                                 
-                                print("[OpenRouterTranslator] Ответ получен в формате message.content. Успех.")                                                                
-                                return output_content
+                                print(f"{log_prefix} Ответ получен успешно.")
+                                return output_content, model_name
                         else:
-                            print("[OpenRouterTranslator] Ошибка: Неверный формат ответа от API (отсутствуют choices).")
-                            return None # Или специальная ошибка формата ответа
-
-                    # --- Обработка ошибок, требующих ретрая ---
-                    elif response.status_code == 429: # Too Many Requests
-                        print(f"[OpenRouterTranslator] Ошибка 429 (Too Many Requests). Повторная попытка через {current_delay} сек...")
-                        # Check for Retry-After header
-                        retry_after = response.headers.get('Retry-After')
-                        if retry_after:
-                            try:
-                                # Используем значение из заголовка, если оно есть и корректно
-                                current_delay = int(retry_after)
-                                print(f"[OpenRouterTranslator] Используется задержка из Retry-After: {current_delay} сек.")
-                            except ValueError:
-                                pass # Оставляем текущую задержку, если заголовок некорректен
+                            print(f"{log_prefix} Ошибка: Неверный формат ответа от API.")
+                            return None, model_name
+                    elif response.status_code == 429 or response.status_code == 403:
+                        print(f"{log_prefix} Ошибка {response.status_code}. Повторная попытка...")
                         time.sleep(current_delay)
-                        current_delay *= 2  # Экспоненциальное увеличение задержки
-                        continue # Перейти к следующей попытке
-
-                    # --- Обработка других ошибок ---
+                        current_delay *= 2
+                        continue
                     elif response.status_code >= 400:
-                        print(f"[OpenRouterTranslator] Ошибка API: Статус {response.status_code}")
+                        print(f"{log_prefix} Ошибка API: Статус {response.status_code}")
                         try:
                             error_details = response.json()
-                            print(f"[OpenRouterTranslator] Детали ошибки: {error_details}")
+                            print(f"{log_prefix} Детали ошибки: {error_details}")
                             
-                            # Специальная обработка для 503 "No instances available"
-                            if response.status_code == 503:
-                                error_message = error_details.get('error', {}).get('message', '')
-                                if "No instances available" in error_message:
-                                    print("[OpenRouterTranslator] Обнаружена ошибка недоступности модели. Немедленное переключение на резервную.")
-                                    fallback_model = self._get_fallback_model(operation_type, model_name)
-                                    if fallback_model:
-                                        return self._call_model_api(fallback_model, messages, operation_type, chunk_text, 1, 1, admin=admin)
-                                    return None
+                            # Список кодов, при которых нужно немедленно переключаться на fallback
+                            # 500 (Internal), 502 (Bad Gateway), 503 (Service Unavailable), 522 (Cloudflare Timeout)
+                            # 403 (Forbidden) убрали, так как это может быть временный лимит LiteRouter
+                            critical_error_codes = [500, 502, 503, 504, 522, 524]
                             
-                            # Проверка на ошибку контекстного лимита по содержимому ответа
-                            if isinstance(error_details, dict) and 'error' in error_details and 'message' in error_details['error']:
-                                if "context window" in error_details['error']['message'].lower():
-                                    print("[OpenRouterTranslator] Обнаружена ошибка контекстного лимита.")
-                                    return CONTEXT_LIMIT_ERROR
-                            elif isinstance(response.text, str) and "context window" in response.text.lower():
-                                 print("[OpenRouterTranslator] Обнаружена ошибка контекстного лимита в тексте ответа.")
-                                 return CONTEXT_LIMIT_ERROR
+                            if response.status_code in critical_error_codes:
+                                print(f"{log_prefix} Критическая ошибка сервера ({response.status_code}). Пытаемся найти fallback...")
+                                fallback_model = self._get_fallback_model(operation_type, model_name)
+                                if fallback_model:
+                                    print(f"{log_prefix} Найдена fallback-модель: {fallback_model}. Переключаемся.")
+                                    # Вызываем API с новой моделью
+                                    return self._call_model_api(fallback_model, messages, operation_type, chunk_text, section_id or 1, book_id or 1, admin=admin)
+                                else:
+                                    print(f"{log_prefix} Fallback-модель не настроена. Прекращаем попытки.")
+                                    return None, model_name
 
-
-                        except json.JSONDecodeError:
-                            print("[OpenRouterTranslator] Ошибка API: Не удалось декодировать JSON ответа с ошибкой.")
-                            print(f"Текст ответа: {response.text}")
-
-
-                        return None
-
-                except requests.exceptions.Timeout as e:
-                    # Специальная обработка таймаутов
-                    print(f"[OpenRouterTranslator] ТАЙМАУТ запроса к API на попытке {attempt + 1}: {e}")
+                            if "context window" in str(error_details).lower():
+                                return CONTEXT_LIMIT_ERROR, model_name
+                        except Exception as e:
+                            print(f"{log_prefix} Ошибка при разборе деталей ошибки или переходе на fallback: {e}")
+                        return None, model_name
+                except requests.exceptions.Timeout:
                     if attempt < max_retries - 1:
-                         print(f"[OpenRouterTranslator] Повторная попытка через {current_delay} сек...")
                          time.sleep(current_delay)
-                         current_delay *= 2  # Экспоненциальное увеличение задержки
-                         continue # Перейти к следующей попытке
-                    else:
-                        print("[OpenRouterTranslator] Максимальное количество попыток запроса исчерпано из-за таймаутов.")
-                        return None # Возвращаем None при неустранимой ошибке запроса
-                        
-                except requests.exceptions.RequestException as e:
-                    # Обработка других ошибок сети
-                    print(f"[OpenRouterTranslator] Ошибка запроса к API на попытке {attempt + 1}: {e}")
-                    if attempt < max_retries - 1:
-                         print(f"[OpenRouterTranslator] Повторная попытка через {current_delay} сек...")
-                         time.sleep(current_delay)
-                         current_delay *= 2  # Экспоненциальное увеличение задержки
-                         continue # Перейти к следующей попытке
-                    else:
-                        print("[OpenRouterTranslator] Максимальное количество попыток запроса исчерпано.")
-                        return None # Возвращаем None при неустранимой ошибке запроса
-
+                         current_delay *= 2
+                         continue
+                    return None, model_name
                 except Exception as e:
-                     # Обработка любых других непредвиденных ошибок
-                     print(f"[OpenRouterTranslator] Непредвиденная ошибка при вызове API: {e}")
-                     traceback.print_exc()
-                     return None # Возвращаем None при непредвиденной ошибке
-
-            print("[OpenRouterTranslator] Не удалось получить успешный ответ от OpenRouter API после всех попыток.")
-            return None
+                    print(f"{log_prefix} Непредвиденная ошибка: {e}")
+                    return None, model_name
+            return None, model_name
 
         else:
             # Неизвестный тип API
             print(f"[WorkflowTranslator] ОШИБКА: Неизвестный тип API для модели: '{model_name}'.")
-            return None # Или специальная ошибка неизвестного API
+            return None, model_name
 
     def _translate_segment(
         self,
@@ -1015,7 +1007,7 @@ class WorkflowTranslator:
         section_id: int = None,
         book_id: str = None,
         admin: bool = False
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
         """
         Ф1 - Перевод сегмента: определяет лимит для модели, разбивает на чанки, переводит каждый.
         """
@@ -1025,10 +1017,17 @@ class WorkflowTranslator:
         if model_name and model_name.startswith('vertex/'):
             if not admin:
                 print(f"[WorkflowTranslator] Доступ к модели Vertex '{model_name}' отклонен: не admin. Ищем fallback.")
-                return None
+                # Пытаемся найти fallback на уровне сегмента
+                fallback_model = self._get_fallback_model(operation_type, model_name)
+                if fallback_model:
+                    return self._translate_segment(text_to_process, target_language, fallback_model, operation_type, prompt_ext, dict_data, section_id, book_id, admin)
+                return None, model_name
             if not self.vertex_available:
                 print(f"[WorkflowTranslator] Модель Vertex '{model_name}' недоступна: Vertex не инициализирован. Ищем fallback.")
-                return None
+                fallback_model = self._get_fallback_model(operation_type, model_name)
+                if fallback_model:
+                    return self._translate_segment(text_to_process, target_language, fallback_model, operation_type, prompt_ext, dict_data, section_id, book_id, admin)
+                return None, model_name
 
         # Определяем лимит чанка для ЭТОЙ модели
         chunk_limit = self._get_chunk_limit_for_operation(operation_type, model_name)
@@ -1040,16 +1039,17 @@ class WorkflowTranslator:
             chunks = self._bubble_chunk_text(text_to_process, chunk_limit)
         if not chunks:
             print(f"[WorkflowTranslator] Нет чанков для {operation_type}")
-            return None
+            return None, model_name
         
         print(f"[WorkflowTranslator] Текст разбит на {len(chunks)} чанков для {operation_type}")
         
         # Переводим каждый чанк
         results = []
+        last_used_model = model_name
         for i, chunk in enumerate(chunks):
             print(f"[WorkflowTranslator] {operation_type.capitalize()} чанка {i+1}/{len(chunks)} (длина: {len(chunk)} символов)")
             
-            result = self._translate_chunk(
+            result, actual_model = self._translate_chunk(
                 chunk,
                 target_language,
                 model_name,
@@ -1061,16 +1061,17 @@ class WorkflowTranslator:
                 admin=admin
             )
             
+            last_used_model = actual_model
             if not result:
                 print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1}")
-                return None
+                return None, actual_model
             
             results.append(result)
         
         # Объединяем результаты
         full_result = "\n\n".join(results)
         print(f"[WorkflowTranslator] {operation_type.capitalize()} завершена. Общая длина: {len(full_result)} символов")
-        return full_result
+        return full_result, last_used_model
 
     def _translate_chunk(
         self,
@@ -1083,7 +1084,7 @@ class WorkflowTranslator:
         section_id: int = None,
         book_id: str = None,
         admin: bool = False
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
         """
         Ф2 - Перевод чанка: просто вызывает API с ретраями.
         """
@@ -1098,19 +1099,21 @@ class WorkflowTranslator:
         
         # Пытаемся обработать чанк с ретраями
         max_retries = 2
+        last_used_model = model_name
         for attempt in range(max_retries + 1):
-            result = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id, admin=admin)
+            result, actual_model = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id, admin=admin)
+            last_used_model = actual_model
             if result is not None and result != CONTEXT_LIMIT_ERROR:
-                return result
+                return result, actual_model
             
             if attempt < max_retries:
                 print(f"[WorkflowTranslator] Ошибка {operation_type} чанка (попытка {attempt+1}/{max_retries+1}), повторяем...")
                 time.sleep(2)
             else:
                 print(f"[WorkflowTranslator] Чанк не удалось обработать после {max_retries+1} попыток")
-                return None
+                return None, actual_model
         
-        return None
+        return None, last_used_model
 
     def _get_chunk_limit_for_operation(self, operation_type: str, model_name: str) -> int:
         """
@@ -1173,7 +1176,7 @@ class WorkflowTranslator:
 
         # Уровень 1: Пытаемся с primary моделью
         print(f"[WorkflowTranslator] Попытка с primary моделью: {model_name}")
-        result = self._translate_segment(
+        result, actual_model = self._translate_segment(
             text_to_translate,
             target_language,
             model_name,
@@ -1187,16 +1190,16 @@ class WorkflowTranslator:
         if result:
             # Сохраняем модель для book-level операций (когда section_id=None)
             if not section_id and book_id:
-                self._save_model_to_db(book_id, section_id, operation_type, model_name)
+                self._save_model_to_db(book_id, section_id, operation_type, actual_model)
             # Для section-level операций модель будет сохранена в process_section_translate
             if return_model:
-                return result, model_name
+                return result, actual_model
             return result
         
         # Уровень 2: Пытаемся с fallback_level1
-        fallback_model = self._get_fallback_model(operation_type, model_name)
+        fallback_model = self._get_fallback_model(operation_type, actual_model)
         if fallback_model:
-            result = self._translate_segment(
+            result, actual_model = self._translate_segment(
                 text_to_translate,
                 target_language,
                 fallback_model,
@@ -1210,16 +1213,16 @@ class WorkflowTranslator:
             if result:
                 # Сохраняем модель для book-level операций (когда section_id=None)
                 if not section_id and book_id:
-                    self._save_model_to_db(book_id, section_id, operation_type, fallback_model)
+                    self._save_model_to_db(book_id, section_id, operation_type, actual_model)
                 # Для section-level операций модель будет сохранена в process_section_translate
                 if return_model:
-                    return result, fallback_model
+                    return result, actual_model
                 return result
             
             # Уровень 3: Пытаемся с fallback_level2
-            fallback_model2 = self._get_fallback_model(operation_type, fallback_model)
+            fallback_model2 = self._get_fallback_model(operation_type, actual_model)
             if fallback_model2:
-                result = self._translate_segment(
+                result, actual_model = self._translate_segment(
                     text_to_translate,
                     target_language,
                     fallback_model2,
@@ -1233,16 +1236,16 @@ class WorkflowTranslator:
                 if result:
                     # Сохраняем модель для book-level операций (когда section_id=None)
                     if not section_id and book_id:
-                        self._save_model_to_db(book_id, section_id, operation_type, fallback_model2)
+                        self._save_model_to_db(book_id, section_id, operation_type, actual_model)
                     # Для section-level операций модель будет сохранена в process_section_translate
                     if return_model:
-                        return result, fallback_model2
+                        return result, actual_model
                     return result
         
             # Уровень 4: Пытаемся с fallback_level3
-            fallback_model3 = self._get_fallback_model(operation_type, fallback_model2)
+            fallback_model3 = self._get_fallback_model(operation_type, actual_model)
             if fallback_model3:
-                result = self._translate_segment(
+                result, actual_model = self._translate_segment(
                     text_to_translate,
                     target_language,
                     fallback_model3,
@@ -1256,10 +1259,10 @@ class WorkflowTranslator:
                 if result:
                     # Сохраняем модель для book-level операций (когда section_id=None)
                     if not section_id and book_id:
-                        self._save_model_to_db(book_id, section_id, operation_type, fallback_model3)
+                        self._save_model_to_db(book_id, section_id, operation_type, actual_model)
                     # Для section-level операций модель будет сохранена в process_section_translate
                     if return_model:
-                        return result, fallback_model3
+                        return result, actual_model
                     return result
         
         print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех четырех уровнях")
@@ -1280,7 +1283,12 @@ class WorkflowTranslator:
         # Делаем суммаризацию с использованием translate_text для fallback логики
         # Передаем admin=True для суммаризации при подготовке к анализу,
         # так как это внутренняя техническая операция
-        summarized_text = self.translate_text(text, target_language, model_name, prompt_ext, 'reduce', admin=True)
+        result = self.translate_text(text, target_language, model_name, prompt_ext, 'reduce', admin=True, return_model=True)
+        
+        if isinstance(result, tuple):
+            summarized_text, _ = result
+        else:
+            summarized_text = result
         
         if not summarized_text:
             print(f"[WorkflowTranslator] Ошибка дополнительной суммаризации. Возвращаем исходный текст.")
@@ -1327,7 +1335,8 @@ class WorkflowTranslator:
             attempt = 0
             result = None
             while attempt <= max_chunk_retries:
-                result = self._call_model_api(model_name, messages, operation_type='reduce', chunk_text=chunk)
+                # Внутренний вызов для суммаризации, возвращаем кортеж (текст, модель)
+                result, _ = self._call_model_api(model_name, messages, operation_type='reduce', chunk_text=chunk)
                 if result is None:
                     print(f"[WorkflowTranslator] Ошибка reduce чанка {i+1} (попытка {attempt+1}/{max_chunk_retries+1}). Возможно finish_reason: error.")
                     attempt += 1
@@ -1503,13 +1512,3 @@ def analyze_with_summarization(
         return result
     else:
         return result
-
-# TODO: Возможно, потребуется реализовать другие функции, аналогичные translation_module,
-# например, get_models_list, load_models_on_startup, configure_api,
-# если workflow_processor или другие части workflow их используют напрямую.
-# На текущий момент, workflow_processor, кажется, вызывает только translate_text.
-# Если другие части используют их напрямую, их нужно будет проксировать через этот модуль тоже.
-
-# TODO: get_context_length может понадобиться для логики чанкинга.
-# Либо скопировать его сюда, либо вызывать из оригинального translation_module
-# (если он публичный или мы его импортировали как translation_module_original)

@@ -18,10 +18,10 @@ MODEL_CONFIG = {
         'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'translate': {
-        'primary': 'vertex/gemini-3-flash-preview',
+        'primary': 'literouter/gpt-5.4-mini', #'literouter/deepseek-v4-pro-thinking:full-context', #'vertex/gemini-3-flash-preview',
         'fallback_level1': 'openrouter/owl-alpha', #'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
         'fallback_level2': 'minimax/minimax-m2.5:free',
-        'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
+        'fallback_level3': 'arcee-ai/trinity-large-thinking:free'
     },
     'reduce': {
         'primary': 'openrouter/owl-alpha',  
