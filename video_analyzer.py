@@ -454,6 +454,43 @@ class VideoAnalyzer:
             print(f"[VideoAnalyzer] Ошибка при извлечении текста: {e}")
             return None
     
+    def is_non_target_content(self, title: str, text: str) -> tuple[bool, str]:
+        """
+        Проверяет, является ли контент игровым или нецелевым (индийским и др.).
+        Возвращает (is_non_target, reason)
+        """
+        if not title and not text:
+            return False, ""
+            
+        gaming_keywords = [
+            "JYNXZI", "Loonie", "CaseOh", "KreekCraft", "Roblox", 
+            "FORTNITE", "MINECRAFT", "GTA", "CS2", "VALORANT", "DOTA", "LOL", "LEAGUE OF LEGENDS",
+            "STREAMER", "GAMEPLAY", "WALKTHROUGH", "SPEEDRUN", "LET'S PLAY", "ЛЕТСПЛЕЙ",
+            "КИБЕРСПОРТ", "ESPORTS", "GAMING", "ИГРОВОЙ", "ПРОХОЖДЕНИЕ", "СТРИМ", "STREAM",
+            "GAMES", "ИГРЫ", "NINTENDO", "PLAYSTATION", "XBOX", "GENSHIN", "PUBG", "APEX",
+            "WARZONE", "SIMS", "ELDEN RING", "HOGWARTS LEGACY", "MINECRAFT", "GAMESHOW",
+            "GAMER", "ГЕЙМЕР", "ГЕЙМПЛЕЙ", "ОБЗОР ИГРЫ", "GAME REVIEW"
+        ]
+        
+        non_target_keywords = [
+            "HINDI", "PUNJABI", "TAMIL", "TELUGU", "MALAYALAM", "BENGALI", "GUJARATI", "KANNADA",
+            "BOLLYWOOD", "T-SERIES", "SET INDIA", "ZEE MUSIC", "SONY MUSIC INDIA", "COLORS TV",
+            "VIETNAMESE", "KOREAN", "THAI", "BHOJPURI", "MARATHI", "URDU", "PAKISTANI",
+            "SAD SONG", "INDIAN", "INDIA", "BOLLYWOOD SONG", "DESI", "VLOG INDIA"
+        ]
+        
+        content_upper = (title + " " + text).upper()
+        
+        for keyword in gaming_keywords:
+            if keyword.upper() in content_upper:
+                return True, f"Игровой контент: {keyword}"
+                
+        for keyword in non_target_keywords:
+            if keyword.upper() in content_upper:
+                return True, f"Нецелевой регион: {keyword}"
+                
+        return False, ""
+
     def analyze_text_with_openrouter(self, text: str) -> Optional[str]:
         """
         Анализирует текст с помощью OpenRouter API.
@@ -896,6 +933,13 @@ class VideoAnalyzer:
                 result['extracted_text'] = extracted_text
                 print(f"[VideoAnalyzer] Извлечено {len(extracted_text)} символов текста")
             
+            # Агрессивная фильтрация игрового и нецелевого контента перед анализом
+            is_non_target, reason = self.is_non_target_content(result.get('title', ''), result.get('extracted_text', ''))
+            if is_non_target:
+                print(f"[VideoAnalyzer] АГРЕССИВНАЯ ФИЛЬТРАЦИЯ: Контент определен как нецелевой. Причина: {reason}")
+                result['error'] = f"Контент не подлежит анализу ({reason})"
+                return result
+
             # Анализируем текст через OpenRouter
             print("[VideoAnalyzer] Отправляем текст на анализ в OpenRouter...")
             analysis = self.analyze_text_with_openrouter(result['extracted_text'])
