@@ -80,9 +80,8 @@ Your output should:
 - Preserve essential plot points, key character actions, and meaningful dialogue or reflections.
 - Avoid inserting personal interpretations or modernizing the text unless explicitly asked.
 - Omit minor descriptive details or digressions unless they serve a symbolic or structural role.
-You should add (m/f) tag after a character’s name only when the text explicitly states their gender; otherwise do not add anything.
 Use past tense and third person unless otherwise specified.
-
+You should add (m/f) tag after a character’s name only when the text explicitly states their gender; otherwise do not add anything.
 - **Important**: If the original text uses first-person narration ("I", "me", "my"), identify the narrator by name when possible and mark them as "(narrator)" in your summary to preserve this crucial narrative information.
 You may be given excerpts, scenes, chapters, or entire texts. Treat each as self-contained but coherent.
 
@@ -745,8 +744,8 @@ class WorkflowTranslator:
                     return None, model_name
                 
                 print(f"[WorkflowTranslator] Vertex AI ответ получен успешно.")
-                # Удаляем служебный маркер $$$$$ только в конце (любое количество $ от 3 и выше)
-                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip(), model_name
+                # Удаляем служебный маркер $$$$$ (допускаем от 3 до 10) строго в конце
+                return re.sub(r'\${3,10}$', '', response.text).strip(), model_name
 
             except Exception as e:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Vertex AI: {e}")
@@ -788,8 +787,8 @@ class WorkflowTranslator:
                     return None, model_name
                 
                 print(f"[WorkflowTranslator] Google API ответ получен успешно.")
-                # Удаляем служебный маркер $$$$$ только в конце (любое количество $ от 3 и выше)
-                return re.sub(r'(?:\$\s*){3,}\s*$', '', response.text).strip(), model_name
+                # Удаляем служебный маркер $$$$$ (допускаем от 3 до 10) строго в конце
+                return re.sub(r'\${3,10}$', '', response.text).strip(), model_name
 
             except Exception as e:
                 print(f"[WorkflowTranslator] ОШИБКА при вызове Google API: {e}")
@@ -834,7 +833,6 @@ class WorkflowTranslator:
             from translation_module import get_context_length, get_model_output_token_limit
             
             # Для определения лимитов используем полное название (с префиксом literouter/)
-            # Это критично, чтобы get_context_length опознал модель
             model_total_context_limit = get_context_length(model_name) if model_name else 2048
             
             # Для поиска в кэше моделей пробуем оба варианта
@@ -846,7 +844,6 @@ class WorkflowTranslator:
             model_declared_output_limit = get_model_output_token_limit(model_name)
             
             if model_total_context_limit == 0 or model_total_context_limit == 4096:
-                 # Если по короткому имени не нашли, пробуем по полному
                  model_total_context_limit = get_context_length(model_name)
                  model_declared_output_limit = get_model_output_token_limit(model_name)
             
@@ -925,39 +922,27 @@ class WorkflowTranslator:
                                     print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой текст.")
                                     return None, model_name
                                 
-                                # --- ПРОВЕРКА НА МАРКЕР ЗАВЕРШЕНИЯ ($$$$$) ---
-                                if operation_type == 'translate' and chunk_text:
-                                    if not re.search(r'\${3,}', output_content):
-                                        print(f"{log_prefix} Предупреждение: Отсутствует маркер завершения перевода ($$$$$). Ретрай.")
-                                        return None, model_name
-                                    else:
-                                        # Если маркер есть, удаляем его для финального текста
-                                        output_content = re.sub(r'(?:\$\s*){3,}\s*$', '', output_content).strip()
-                                # --- КОНЕЦ ПРОВЕРКИ МАРКЕРА ---
-
-                                # --- ПОЛНОЦЕННАЯ ПРОВЕРКА НА ДЛИНУ (80%) ---
-                                if operation_type == 'translate' and chunk_text:
-                                    input_char_len = len(chunk_text)
-                                    output_char_len = len(output_content)
-                                    # Если перевод значительно короче оригинала (менее 80%) - это брак
-                                    if output_char_len < input_char_len * 0.8:
-                                        print(f"[WorkflowTranslator] ОШИБКА: Перевод слишком короткий ({output_char_len} vs {input_char_len}). Бракуем ответ. Ретрай.")
-                                        return None, model_name
-                                # --- КОНЕЦ ПРОВЕРКИ ---
-
                                 # --- ДЕТЕКТОР ОШИБКИ КОНФИГУРАЦИИ LiteRouter ---
                                 if "Context Multiplier Configuration Required" in output_content:
                                     print(f"[LiteRouter] КРИТИЧЕСКАЯ ОШИБКА НАСТРОЙКИ: Требуется увеличить Multipliers в дашборде LiteRouter!")
-                                    # Возвращаем специальную ошибку, чтобы не делать бесполезные ретраи
                                     return "__LITEROUTER_CONFIG_REQUIRED__", model_name
                                 # --- КОНЕЦ ДЕТЕКТОРА ---
 
                                 if operation_type == 'translate' and chunk_text:
-                                    if not re.search(r'\${3,}', output_content):
-                                        print(f"{log_prefix} Предупреждение: Отсутствует маркер завершения перевода. Ретрай.")
+                                    # ПРОВЕРКА НА МАРКЕР (допускаем от 3 до 10 символов доллара)
+                                    if not re.search(r'\${3,10}$', output_content):
+                                        print(f"{log_prefix} Предупреждение: Отсутствует маркер завершения перевода ($$$$$). Ретрай.")
                                         return None, model_name
                                     else:
-                                        output_content = re.sub(r'(?:\$\s*){3,}\s*$', '', output_content).strip()
+                                        # Если маркер есть, удаляем его (от 3 до 10 символов)
+                                        output_content = re.sub(r'\${3,10}$', '', output_content).strip()
+
+                                    # ПРОВЕРКА НА ДЛИНУ 80%
+                                    input_char_len = len(chunk_text)
+                                    output_char_len = len(output_content)
+                                    if output_char_len < input_char_len * 0.8:
+                                        print(f"[WorkflowTranslator] ОШИБКА: Перевод слишком короткий ({output_char_len} vs {input_char_len}). Ретрай.")
+                                        return None, model_name
                                 
                                 if operation_type in ('summarize', 'reduce') and chunk_text and len(chunk_text) > MIN_SOURCE_LENGTH_FOR_SUMMARY_RATIO_CHECK:
                                     max_allowed_len = len(chunk_text) // SUMMARY_MAX_RATIO_OF_SOURCE
@@ -980,26 +965,20 @@ class WorkflowTranslator:
                         try:
                             error_details = response.json()
                             print(f"{log_prefix} Детали ошибки: {error_details}")
-                            
-                            # Список кодов, при которых нужно немедленно переключаться на fallback
-                            # 500 (Internal), 502 (Bad Gateway), 503 (Service Unavailable), 522 (Cloudflare Timeout)
                             critical_error_codes = [500, 502, 503, 504, 522, 524]
-                            
                             if response.status_code in critical_error_codes:
                                 print(f"{log_prefix} Критическая ошибка сервера ({response.status_code}). Пытаемся найти fallback...")
                                 fallback_model = self._get_fallback_model(operation_type, model_name)
                                 if fallback_model:
                                     print(f"{log_prefix} Найдена fallback-модель: {fallback_model}. Переключаемся.")
-                                    # Вызываем API с новой моделью
                                     return self._call_model_api(fallback_model, messages, operation_type, chunk_text, section_id or 1, book_id or 1, admin=admin)
                                 else:
                                     print(f"{log_prefix} Fallback-модель не настроена. Прекращаем попытки.")
                                     return None, model_name
-
                             if "context window" in str(error_details).lower():
                                 return CONTEXT_LIMIT_ERROR, model_name
                         except Exception as e:
-                            print(f"{log_prefix} Ошибка при разборе деталей ошибки или переходе на fallback: {e}")
+                            print(f"{log_prefix} Ошибка при разборе деталей ошибки: {e}")
                         return None, model_name
                 except requests.exceptions.Timeout:
                     if attempt < max_retries - 1:
@@ -1038,7 +1017,6 @@ class WorkflowTranslator:
         if model_name and model_name.startswith('vertex/'):
             if not admin:
                 print(f"[WorkflowTranslator] Доступ к модели Vertex '{model_name}' отклонен: не admin. Ищем fallback.")
-                # Пытаемся найти fallback на уровне сегмента
                 fallback_model = self._get_fallback_model(operation_type, model_name)
                 if fallback_model:
                     return self._translate_segment(text_to_process, target_language, fallback_model, operation_type, prompt_ext, dict_data, section_id, book_id, admin)
