@@ -81,7 +81,6 @@ Your output should:
 - Avoid inserting personal interpretations or modernizing the text unless explicitly asked.
 - Omit minor descriptive details or digressions unless they serve a symbolic or structural role.
 Use past tense and third person unless otherwise specified.
-Add (m/f) after a character’s name only when the text explicitly states their gender; otherwise do not add anything.
 - **Important**: If the original text uses first-person narration ("I", "me", "my"), identify the narrator by name when possible and mark them as "(narrator)" in your summary to preserve this crucial narrative information.
 You may be given excerpts, scenes, chapters, or entire texts. Treat each as self-contained but coherent.
 
@@ -924,6 +923,26 @@ class WorkflowTranslator:
                                     print(f"[WorkflowTranslator] ОШИБКА: Модель вернула пустой текст.")
                                     return None, model_name
                                 
+                                # --- ПРОВЕРКА НА МАРКЕР ЗАВЕРШЕНИЯ ($$$$$) ---
+                                if operation_type == 'translate' and chunk_text:
+                                    if not re.search(r'\${3,}', output_content):
+                                        print(f"{log_prefix} Предупреждение: Отсутствует маркер завершения перевода ($$$$$). Ретрай.")
+                                        return None, model_name
+                                    else:
+                                        # Если маркер есть, удаляем его для финального текста
+                                        output_content = re.sub(r'(?:\$\s*){3,}\s*$', '', output_content).strip()
+                                # --- КОНЕЦ ПРОВЕРКИ МАРКЕРА ---
+
+                                # --- ПОЛНОЦЕННАЯ ПРОВЕРКА НА ДЛИНУ (80%) ---
+                                if operation_type == 'translate' and chunk_text:
+                                    input_char_len = len(chunk_text)
+                                    output_char_len = len(output_content)
+                                    # Если перевод значительно короче оригинала (менее 80%) - это брак
+                                    if output_char_len < input_char_len * 0.8:
+                                        print(f"[WorkflowTranslator] ОШИБКА: Перевод слишком короткий ({output_char_len} vs {input_char_len}). Бракуем ответ. Ретрай.")
+                                        return None, model_name
+                                # --- КОНЕЦ ПРОВЕРКИ ---
+
                                 # --- ДЕТЕКТОР ОШИБКИ КОНФИГУРАЦИИ LiteRouter ---
                                 if "Context Multiplier Configuration Required" in output_content:
                                     print(f"[LiteRouter] КРИТИЧЕСКАЯ ОШИБКА НАСТРОЙКИ: Требуется увеличить Multipliers в дашборде LiteRouter!")
@@ -962,7 +981,6 @@ class WorkflowTranslator:
                             
                             # Список кодов, при которых нужно немедленно переключаться на fallback
                             # 500 (Internal), 502 (Bad Gateway), 503 (Service Unavailable), 522 (Cloudflare Timeout)
-                            # 403 (Forbidden) убрали, так как это может быть временный лимит LiteRouter
                             critical_error_codes = [500, 502, 503, 504, 522, 524]
                             
                             if response.status_code in critical_error_codes:
