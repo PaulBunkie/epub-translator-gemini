@@ -7,7 +7,7 @@ DEFAULT_MODEL = "openrouter/free"
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
+        'primary': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free', #'nvidia/nemotron-3-nano-30b-a3b:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free', # 'models/gemma-3-27b-it:free',
         'fallback_level2': 'openrouter/free'
     },
@@ -18,10 +18,10 @@ MODEL_CONFIG = {
         'fallback_level3': 'vertex/gemini-3-flash-preview'
     },
     'translate': {
-        'primary': 'literouter/grok-4.1', #'literouter/deepseek-v4-pro-thinking:full-context', #'vertex/gemini-3-flash-preview',
+        'primary': 'vertex/gemini-3-flash-preview', #'literouter/grok-4.1', #'literouter/deepseek-v4-pro-thinking:full-context', 
         'fallback_level1': 'literouter/gpt-5.4-mini', #'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'openrouter/owl-alpha', #'minimax/minimax-m2.5:free',
-        'fallback_level3': 'arcee-ai/trinity-large-thinking:free'
+        'fallback_level2': 'literouter/grok-4.1', #'arcee-ai/trinity-large-thinking:free',        
+        'fallback_level3': 'openrouter/owl-alpha' #'minimax/minimax-m2.5:free',        
     },
     'reduce': {
         'primary': 'literouter/deepseek-v4-pro-thinking:full-context', #'openrouter/owl-alpha',  

@@ -81,7 +81,7 @@ Your output should:
 - Avoid inserting personal interpretations or modernizing the text unless explicitly asked.
 - Omit minor descriptive details or digressions unless they serve a symbolic or structural role.
 Use past tense and third person unless otherwise specified.
-You should add (m/f) tag after a character’s name only when the text explicitly states their gender; otherwise do not add anything.
+- **Important**: You should add (m/f) tag after every character’s name when the text explicitly states their gender; otherwise do not add anything.
 - **Important**: If the original text uses first-person narration ("I", "me", "my"), identify the narrator by name when possible and mark them as "(narrator)" in your summary to preserve this crucial narrative information.
 You may be given excerpts, scenes, chapters, or entire texts. Treat each as self-contained but coherent.
 
