@@ -7,21 +7,21 @@ DEFAULT_MODEL = "openrouter/free"
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', #'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-        'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free', # 'models/gemma-3-27b-it:free',
+        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
+        'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free', 
         'fallback_level2': 'openrouter/free'
     },
     'analyze': {
         'primary': 'literouter/gemini-3-flash-preview-thinking',  
-        'fallback_level1': 'openrouter/owl-alpha', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'nvidia/nemotron-3-super-120b-a12b:free',
-        'fallback_level3': 'vertex/gemini-3-flash-preview'
+        'fallback_level1': 'vertex/gemini-3-flash-preview', 
+        'fallback_level2': 'openrouter/owl-alpha', 
+        'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
     },
     'translate': {
-        'primary': 'literouter/gemini-3-flash-preview-thinking', #'vertex/gemini-3-flash-preview', #'literouter/grok-4.1', #'literouter/deepseek-v4-pro-thinking:full-context', 
-        'fallback_level1': 'literouter/gpt-5.4-mini', #'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'literouter/grok-4.1', #'arcee-ai/trinity-large-thinking:free',        
-        'fallback_level3': 'openrouter/owl-alpha' #'minimax/minimax-m2.5:free',        
+        'primary': 'literouter/gemini-3-flash-preview-thinking', #'vertex/gemini-3-flash-preview', 
+        'fallback_level1': 'literouter/gpt-5.4-mini', 
+        'fallback_level2': 'literouter/grok-4.1', 
+        'fallback_level3': 'openrouter/owl-alpha' 
     },
     'reduce': {
         'primary': 'literouter/deepseek-v4-pro-thinking:full-context', #'openrouter/owl-alpha',  
@@ -29,18 +29,18 @@ MODEL_CONFIG = {
         'fallback_level2': 'openrouter/free'
     },
     'translate_toc': {
-        'primary': 'literouter/claude-haiku-4.5:free', #'openrouter/owl-alpha',
-        'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free', #'tngtech/deepseek-r1t2-chimera:free',
-        'fallback_level2': 'openrouter/free',
-        'fallback_level3': 'vertex/gemini-3-flash-preview'
+        'primary': 'models/gemini-3-flash-preview', 
+        'fallback_level1': 'vertex/gemini-3-flash-preview', 
+        'fallback_level2': 'openrouter/owl-alpha', 
+        'fallback_level3': 'openrouter/free'
     },
     'video_analyze': {
-        'primary': 'literouter/claude-haiku-4.5:free', #'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'literouter/claude-haiku-4.5:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'openrouter/free'
     },
     'video_chat': {
-        'primary': 'openrouter/owl-alpha', #'tngtech/deepseek-r1t2-chimera:free',
+        'primary': 'openrouter/owl-alpha', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'openrouter/free'
     },
@@ -51,13 +51,13 @@ MODEL_CONFIG = {
     },
     'football_predict': {
         'primary': 'nvidia/nemotron-3-super-120b-a12b:free',
-        'fallback_level1': 'openrouter/owl-alpha', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'openrouter/owl-alpha', 
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },
     'bet_risk_analysis': {
         'primary': 'nvidia/nemotron-3-super-120b-a12b:free',
-        'fallback_level1': 'openrouter/owl-alpha', #'models/gemini-3-flash-preview', #'tngtech/deepseek-r1t2-chimera:free',
+        'fallback_level1': 'openrouter/owl-alpha', 
         'fallback_level2': 'openrouter/free',
         'fallback_level3': 'vertex/gemini-3-pro-preview'
     },
