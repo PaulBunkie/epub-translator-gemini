@@ -1001,12 +1001,6 @@ def get_model_output_token_limit(model_name: str) -> int:
         if output_limit:
             return output_limit
             
-    # Резервные значения
-    if "claude" in model_name: return 8192
-    if "llama-3" in model_name: return 8192
-    if "gemini" in model_name: return 8192
-    if "gpt-4" in model_name: return 4096
-    
     # Специфическая обработка для LiteRouter: если лимит не найден, возвращаем 64к (половину контекста)
     if model_name.startswith('literouter/'):
         return 64000
