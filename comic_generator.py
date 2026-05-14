@@ -22,6 +22,16 @@ class ComicGenerator:
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
     LITEROUTER_API_URL = "https://api.literouter.com/v1/chat/completions"
 
+    # Единый промпт для всех методов генерации
+    BASE_PROMPT = (
+        "A sequence of cinematic live-action film frames, modern asymmetric panel layout, visual storytelling through multiple connected scenes, "
+        "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
+        "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
+        "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
+        "No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
+        "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
+    )
+
     # Промпты инкапсулированы внутри модуля
     VISUAL_ANALYSIS_SYSTEM_PROMPT = """You are an expert in visual character design and literary analysis. Your task is to create a "Visual Bible" for a book based on its summaries.
         
@@ -328,6 +338,29 @@ Book Summaries:
         
         return None
 
+    def _build_image_prompt(self, summary, visual_bible_raw, simplified=False):
+        """Создает финальный промпт для генерации изображения."""
+        if simplified:
+            # Упрощенный промпт (для ретрая при ошибках фильтрации)
+            base = (
+                "Cinematic live-action film frame, photorealistic, realistic skin texture, "
+                "dramatic lighting, high-end production look, ultra-detailed movie still aesthetic."
+            )
+        else:
+            # Основной качественный промпт
+            base = self.BASE_PROMPT
+
+        visual_bible_prompt = ""
+        if visual_bible_raw:
+            try:
+                bible_data = json.loads(visual_bible_raw)
+                bible_list = [f"- {name}: {desc}" for name, desc in bible_data.items()]
+                visual_bible_prompt = "\nREFERENCE FOR CHARACTERS (Follow these descriptions strictly):\n" + "\n".join(bible_list)
+            except:
+                pass
+
+        return f"{base}\n\n{visual_bible_prompt}\n\n{'SCENE:' if simplified else 'TEXT TO ADAPT:'} {summary}"
+
     def process_book_comic(self, book_id, app_instance):
         """Цикл генерации комикса по всем секциям книги с сохранением в БД."""
         with app_instance.app_context():
@@ -363,43 +396,6 @@ Book Summaries:
             # Но на всякий случай убедимся, что статус 'processing' во время генерации картинок
             workflow_db_manager.update_book_comic_status_workflow(book_id, 'processing')
 
-            if visual_bible_raw:
-                try:
-                    bible_data = json.loads(visual_bible_raw)
-                    bible_list = [f"- {name}: {desc}" for name, desc in bible_data.items()]
-                    visual_bible_prompt = "\nREFERENCE FOR CHARACTERS (Follow these descriptions strictly):\n" + "\n".join(bible_list)
-                except:
-                    pass
-
-            # BASE_PROMPT = (
-            #     "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
-            #     "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
-            #     "Do not use evenly spaced rectangular panels. Use an asymmetrical, contemporary layout with varied panel sizes, "
-            #     "angled or overlapping frames, and occasional full-bleed panels. "
-            #     "Tell the story through action, movement, body language, lighting, environment, and cinematic camera shifts "
-            #     "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
-            #     "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
-            # )
-            # BASE_PROMPT = (
-            #     "A sequence of cinematic live-action film frames, modern asymmetric panel layout, visual storytelling through multiple connected scenes, "
-            #     "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
-            #     "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
-            #     "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
-            #     "CRITICAL: No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
-            #     "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
-            # )
-            BASE_PROMPT = (
-                "A seamless cinematic multi-scene composition combining several connected live-action moments into a single unified image, "
-                "natural visual flow between scenes, organic transitions, no bordered panels, no storyboard layout, no comic page structure, "
-                "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
-                "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
-                "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
-                "ABSOLUTELY NO TEXT OR SYMBOLS OF ANY KIND: no captions, no letters, no words, no subtitles, no labels, no logos, no watermarks, "
-                "no numbering, no roman numerals, no panel markers, no interface elements, no title cards. "
-                "The image must look like a real cinematic artwork, not a poster, comic, storyboard, infographic, contact sheet, character sheet, or magazine layout. "
-                "No comic style, no cartoon, no cel shading, no illustration, no anime, no graphic design elements."
-            )            
-
             for section in sections:
                 section_id = section['section_id']
                 # ВАЖНО: не загружаем BLOB, иначе растит RSS и может привести к OOM
@@ -409,16 +405,14 @@ Book Summaries:
                 summary = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
                 if not summary or len(summary.strip()) < 50:
                     continue
+                
                 prompt = None
                 image_data = None
                 error = None
                 try:
                     for attempt in range(2):
-                        if attempt == 0:
-                            prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
-                        else:
-                            print(f"[ComicGenerator] Retrying with simplified prompt for section {section_id} due to failure/filter...")
-                            prompt = f"Cinematic live-action film frame, photorealistic, realistic skin texture, dramatic lighting, high-end production look.\n\n{visual_bible_prompt}\n\nSCENE: {summary}"
+                        # Генерируем промпт через вспомогательный метод
+                        prompt = self._build_image_prompt(summary, visual_bible_raw, simplified=(attempt > 0))
 
                         image_data, error = self.generate_image(prompt, book_id, section_id)
                         

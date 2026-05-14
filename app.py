@@ -1531,29 +1531,13 @@ def workflow_api_regenerate_section_comic(section_id):
         return jsonify({'status': 'error', 'message': 'Summary too short or not found'}), 400
 
     # 3. Подготавливаем Visual Bible
-    visual_bible_prompt = ""
     visual_bible_raw = book_info.get('visual_bible')
-    if visual_bible_raw:
-        try:
-            bible_data = json.loads(visual_bible_raw)
-            bible_list = [f"- {name}: {desc}" for name, desc in bible_data.items()]
-            visual_bible_prompt = "\nREFERENCE FOR CHARACTERS (Follow these descriptions strictly):\n" + "\n".join(bible_list)
-        except: pass
 
-    # 4. Формируем промпт (тот самый отлаженный)
-    BASE_PROMPT = (
-        "Draw a dynamic modern comic adaptation of the text in 6–10 sequential panels. "
-        "Short dialogue (1–3 words per bubble) allowed. No captions, no narration, no internal monologue, no long text. "
-        "Do not use evenly spaced rectangular panels. Use an asymmetrical, contemporary layout with varied panel sizes, "
-        "angled or overlapping frames, and occasional full-bleed panels. "
-        "Tell the story through action, movement, body language, lighting, environment, and cinematic camera shifts "
-        "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
-        "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
-    )
-    prompt = f"{BASE_PROMPT}\n\n{visual_bible_prompt}\n\nTEXT TO ADAPT: {summary}"
+    # 4. Генерируем
+    generator = comic_generator.ComicGenerator()
+    prompt = generator._build_image_prompt(summary, visual_bible_raw)
 
     # 5. Генерируем
-    generator = comic_generator.ComicGenerator()
     image_data, error = generator.generate_image(prompt, book_id, section_id)
     
     if image_data:
