@@ -402,15 +402,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.classList.contains('generate-comic-button')) {
             const bookId = e.target.getAttribute('data-book-id');
             const btn = e.target;
+            const bookItem = e.target.closest('.book-item');
+            const language = bookItem.querySelector('.language')?.textContent.replace(/[()]/g, '') || 'none';
             
             if (confirm('Запустить генерацию комикса?')) {
                 btn.disabled = true;
                 btn.innerText = 'Запуск...';
-                fetch(`/workflow/api/book/${bookId}/generate_comic`, { method: 'POST' })
+                fetch(`/workflow/api/book/${bookId}/generate_comic${admin ? '?admin=true' : ''}`, { 
+                    method: 'POST' 
+                })
                 .then(r => r.json())
                 .then(d => {
                     if (d.status === 'success') {
-                        startPolling(bookId);
+                        if (d.message === 'Awaiting cast list edit') {
+                            // Если сервер сразу сказал, что нужно редактировать - открываем окно
+                            btn.disabled = false;
+                            btn.innerText = 'Сделать комикс';
+                            loadAnalysisForEdit(bookId, language, 'visual');
+                            editAnalysisOverlay.dataset.triggerComic = 'true';
+                        } else {
+                            startPolling(bookId);
+                        }
                     } else {
                         alert('Ошибка: ' + d.message);
                         btn.disabled = false;

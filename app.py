@@ -1751,9 +1751,15 @@ def workflow_download_analysis(book_id):
 
     book_stage_statuses = book_info.get('book_stage_statuses', {})
     analysis_stage_status = book_stage_statuses.get('analyze', {}).get('status')
+    comic_status = book_info.get('comic_status')
 
-    if analysis_stage_status not in ['completed', 'completed_with_errors', 'awaiting_edit']:
-         print(f"  [DownloadAnalysis] Этап анализа для книги {book_id} не завершен. Статус: {analysis_stage_status}")
+    # Для скачивания анализа нужно, чтобы либо этап анализа был завершен, 
+    # либо мы находились в состоянии редактирования (анализа или комикса)
+    allowed_statuses = ['completed', 'completed_with_errors', 'awaiting_edit']
+    is_comic_edit = (request.args.get('type') == 'visual' and comic_status == 'awaiting_bible_edit')
+    
+    if analysis_stage_status not in allowed_statuses and not is_comic_edit:
+         print(f"  [DownloadAnalysis] Этап анализа для книги {book_id} не завершен. Статус: {analysis_stage_status}, Comic: {comic_status}")
          return f"Analysis not complete (Status: {analysis_stage_status}).", 409
 
     # --- НОВОЕ: Загружаем результат анализа книги целиком ---
