@@ -299,6 +299,21 @@ document.addEventListener('DOMContentLoaded', () => {
                             link.innerText = 'Смотреть комикс';
                             summarizeDiv.appendChild(link);
                         }
+                    } else {
+                        // Для всех остальных статусов (error, not_started, awaiting_bible_edit)
+                        // возвращаем кнопку в рабочее состояние
+                        if (comicBtn) {
+                            comicBtn.disabled = false;
+                            comicBtn.innerText = 'Сделать комикс';
+                        }
+                        // Убираем сообщение о процессе, если оно было
+                        const procMsg = summarizeDiv.querySelector('.comic-proc-msg');
+                        if (procMsg) procMsg.remove();
+                        // Убираем ссылку "Смотреть", если мы в режиме ошибки или сброса
+                        if (['error', 'not_started'].includes(statusData.comic_status)) {
+                            const viewLink = summarizeDiv.querySelector('a[href*="comic"]');
+                            if (viewLink) viewLink.remove();
+                        }
                     }
                 }
             }
@@ -347,6 +362,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetLanguage = e.target.getAttribute('data-language');
             const type = targetLanguage === 'none' ? 'visual' : 'glossary';
             loadAnalysisForEdit(bookId, targetLanguage, type);
+            return;
+        }
+
+        if (e.target.classList.contains('interrupt-comic-link')) {
+            e.preventDefault();
+            const bookId = e.target.getAttribute('data-book-id');
+            if (confirm('Прервать текущую генерацию? Вы сможете запустить её снова, и она продолжится с места остановки.')) {
+                fetch(`/workflow/api/book/${bookId}/interrupt_comic?admin=true`, { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.status === 'success') {
+                        location.reload();
+                    } else {
+                        alert('Ошибка: ' + d.message);
+                    }
+                });
+            }
             return;
         }
 

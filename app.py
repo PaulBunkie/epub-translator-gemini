@@ -1458,6 +1458,20 @@ def workflow_api_reset_comic(book_id):
     else:
         return jsonify({'status': 'error', 'message': 'Failed to reset comic data'}), 500
 
+@app.route('/workflow/api/book/<book_id>/interrupt_comic', methods=['POST'])
+def workflow_api_interrupt_comic(book_id):
+    """
+    API endpoint to interrupt comic generation (status only).
+    """
+    if request.args.get('admin') != 'true' and request.args.get('user') != 'admin' and session.get('admin_mode') != True:
+        return jsonify({'status': 'error', 'message': 'Access denied'}), 403
+        
+    import workflow_db_manager
+    if workflow_db_manager.interrupt_book_comic_workflow(book_id):
+        return jsonify({'status': 'success', 'message': 'Comic interrupted'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Failed to interrupt comic'}), 500
+
 @app.route('/workflow/book/<book_id>/comic')
 def workflow_book_comic_view(book_id):
     """

@@ -302,7 +302,10 @@
                                                 {% endif %}
 
                                                 {% if admin and book.comic_status and book.comic_status != 'not_started' %}
-                                                    <a href="#" class="reset-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #dc3545; font-size: 0.85em;"><i class="fas fa-undo"></i> Сбросить комикс</a>
+                                                    {% if book.comic_status == 'processing' %}
+                                                        <a href="#" class="interrupt-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #ffc107; font-size: 0.85em;"><i class="fas fa-pause"></i> Прервать</a>
+                                                    {% endif %}
+                                                    <a href="#" class="reset-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #dc3545; font-size: 0.85em;"><i class="fas fa-undo"></i> {% if book.comic_status == 'completed' %}Сбросить{% else %}Сбросить всё{% endif %}</a>
                                                 {% endif %}
                                             {% endif %}
                                             {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty', 'awaiting_edit']) %}

@@ -1192,6 +1192,18 @@ def reset_book_comic_workflow(book_id):
         traceback.print_exc()
         return False
 
+def interrupt_book_comic_workflow(book_id):
+    """Сбрасывает только статус комикса на 'error', позволяя перезапустить генерацию без удаления данных."""
+    db = get_workflow_db()
+    try:
+        with db:
+            db.execute('UPDATE books SET comic_status = "error" WHERE book_id = ?', (book_id,))
+        print(f"[WorkflowDB] Статус комикса для книги {book_id} сброшен на error для перезапуска.")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА прерывания комикса для {book_id}: {e}")
+        return False
+
 def get_telegram_users_for_book(access_token: str) -> list:
     """Получает список пользователей Telegram, подписанных на уведомления о книге"""
     db = get_workflow_db()
