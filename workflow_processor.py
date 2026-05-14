@@ -103,7 +103,7 @@ MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analy
 
 # --- НАСТРОЙКИ АДАПТИВНОГО СЖАТИЯ EPUB (Для защиты от OOM на 512MB RAM) ---
 # Целевой максимальный размер всех изображений в одном EPUB (в Мегабайтах).
-WORKFLOW_EPUB_MAX_IMAGES_SIZE_MB = 50 
+WORKFLOW_EPUB_MAX_IMAGES_SIZE_MB = 30 
 # Диапазон изменения ширины изображений (Мин_Ширина, Макс_Ширина) в пикселях.
 WORKFLOW_EPUB_WIDTH_RANGE = (480, 1200)
 # Диапазон изменения качества JPEG (Мин_Качество, Макс_Качество).
