@@ -649,7 +649,7 @@ class FootballManager:
                 print(f"[Football Parlay] Пробуем модель {model_idx + 1}/{len(models_to_try)}: {model}")
                 try:
                     messages = [{"role": "user", "content": prompt}]
-                    ai_response = self.workflow_translator._call_model_api(
+                    ai_response, _ = self.workflow_translator._call_model_api(
                         model_name=model,
                         messages=messages,
                         operation_type='analyze',
@@ -3143,7 +3143,7 @@ class FootballManager:
                 
                 try:
                     messages = [{"role": "user", "content": prompt}]
-                    ai_response = self.workflow_translator._call_model_api(
+                    ai_response, _ = self.workflow_translator._call_model_api(
                         model_name=model,
                         messages=messages,
                         operation_type='analyze',
@@ -4378,7 +4378,7 @@ X2 ИГНОРИРУЕМ
                     messages = [{"role": "user", "content": prompt}]
                     print(f"[Football AI] Вызов API (модель: {model})")
 
-                    ai_response = self.workflow_translator._call_model_api(
+                    ai_response, _ = self.workflow_translator._call_model_api(
                         model_name=model,
                         messages=messages,
                         operation_type='analyze',
@@ -4511,7 +4511,7 @@ X2 ИГНОРИРУЕМ
                 
                 try:
                     messages = [{"role": "user", "content": prompt}]
-                    ai_response = self.workflow_translator._call_model_api(
+                    ai_response, _ = self.workflow_translator._call_model_api(
                         model_name=model,
                         messages=messages,
                         operation_type='analyze',
@@ -5122,7 +5122,7 @@ X2 ИГНОРИРУЕМ
                     messages = [{"role": "user", "content": prompt}]
                     print(f"[Football AI] Вызов API (модель: {model})")
 
-                    ai_response = self.workflow_translator._call_model_api(
+                    ai_response, _ = self.workflow_translator._call_model_api(
                         model_name=model,
                         messages=messages,
                         operation_type='analyze',
@@ -5298,7 +5298,7 @@ X2 ИГНОРИРУЕМ
 
                     print(f"[Football Bet AI] Вызов API (модель: {model})")
 
-                    ai_response = self.workflow_translator._call_model_api(
+                    ai_response, _ = self.workflow_translator._call_model_api(
                         model_name=model,
                         messages=messages,
                         operation_type='analyze',
