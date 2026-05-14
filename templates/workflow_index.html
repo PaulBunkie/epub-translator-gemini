@@ -294,7 +294,11 @@
                                                 {% if book.comic_status == 'completed' %}
                                                     <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id, admin='true' if admin else None) }}" style="margin-left: 10px; color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
                                                 {% elif book.comic_status == 'processing' %}
-                                                    <span style="margin-left: 10px; color: orange;">(Комикс в процессе...)</span>
+                                                    <span style="margin-left: 10px; color: orange;">(Комикс в процессе
+                                                        {% if book.comic_images_count is defined and book.comic_images_count is not none %}
+                                                            : {{ book.comic_images_count }} из {{ book.total_sections }}
+                                                        {% endif %}...)
+                                                    </span>
                                                 {% elif book.comic_status == 'error' %}
                                                     <span style="margin-left: 10px; color: red;">(Ошибка комикса)</span>
                                                 {% elif book.comic_status == 'awaiting_bible_edit' %}

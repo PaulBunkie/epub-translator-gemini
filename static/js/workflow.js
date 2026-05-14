@@ -277,15 +277,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (statusData.comic_status === 'processing') {
+                        let procText = 'В процессе...';
+                        if (statusData.comic_images_count !== undefined && statusData.total_sections_count) {
+                            procText = `В процессе (${statusData.comic_images_count} из ${statusData.total_sections_count})`;
+                        }
+                        
                         if (comicBtn) {
                             comicBtn.disabled = true;
-                            comicBtn.innerText = 'В процессе...';
-                        } else if (!summarizeDiv.querySelector('.comic-proc-msg')) {
-                            const span = document.createElement('span');
-                            span.className = 'comic-proc-msg';
-                            span.style.cssText = 'margin-left: 10px; color: orange; font-size: 0.8em;';
-                            span.innerText = '(Комикс в процессе...)';
-                            summarizeDiv.appendChild(span);
+                            comicBtn.innerText = procText;
+                        } else {
+                            let procMsg = summarizeDiv.querySelector('.comic-proc-msg');
+                            if (!procMsg) {
+                                procMsg = document.createElement('span');
+                                procMsg.className = 'comic-proc-msg';
+                                procMsg.style.cssText = 'margin-left: 10px; color: orange; font-size: 0.8em;';
+                                summarizeDiv.appendChild(procMsg);
+                            }
+                            procMsg.innerText = `(${procText})`;
                         }
                     } else if (statusData.comic_status === 'completed') {
                         if (comicBtn) comicBtn.remove();

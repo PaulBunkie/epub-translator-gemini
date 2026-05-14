@@ -1287,6 +1287,7 @@ def workflow_index():
                  'status': book_data.get('current_workflow_status') or 'pending',
                  'target_language': book_data.get('target_language'),
                  'comic_status': book_data.get('comic_status'),
+                 'comic_images_count': workflow_db_manager.get_comic_images_count_workflow(book_data['book_id']),
                  'total_sections': total_sections,
                  # Не передаём completed_sections_count и processed_sections_count_summarize!
                  'book_stage_statuses': detailed_stage_statuses,

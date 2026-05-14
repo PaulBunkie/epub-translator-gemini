@@ -1153,6 +1153,16 @@ def check_comic_image_exists(section_id):
         print(f"[WorkflowDB] ОШИБКА check_comic_image_exists для секции {section_id}: {e}")
         return None
 
+def get_comic_images_count_workflow(book_id):
+    """Возвращает количество уже сгенерированных изображений для книги."""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute('SELECT COUNT(*) FROM comic_images WHERE book_id = ?', (book_id,))
+        return cursor.fetchone()[0]
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА подсчета изображений для книги {book_id}: {e}")
+        return 0
+
 def update_book_visual_bible_workflow(book_id, visual_bible_json):
     """Обновляет Visual Bible (список персонажей с описаниями) для книги."""
     db = get_workflow_db()
@@ -1322,6 +1332,7 @@ def get_workflow_book_status(book_id: str) -> dict:
             "target_language": book_info['target_language'],
             "current_workflow_status": book_info['current_workflow_status'],
             "comic_status": book_info.get('comic_status', 'not_started'),
+            "comic_images_count": get_comic_images_count_workflow(book_id),
             "book_stage_statuses": book_info.get('book_stage_statuses', {}),
             "total_sections_count": total_sections,
             "sections_status_summary": stage_summaries
