@@ -48,13 +48,13 @@ document.addEventListener('DOMContentLoaded', () => {
         progressText.textContent = message;
     }
 
-    function showEditAnalysisOverlay(bookId, analysisText, targetLanguage) {
+    function showEditAnalysisOverlay(bookId, analysisText, targetLanguage, type = 'glossary') {
         if (!analysisTextArea || !editAnalysisOverlay) return;
         
         const titleEl = document.getElementById('editOverlayTitle');
         const descEl = document.getElementById('editOverlayDescription');
         
-        if (targetLanguage === 'none') {
+        if (type === 'visual' || targetLanguage === 'none') {
             if (titleEl) titleEl.textContent = 'Редактирование Cast-листа';
             if (descEl) descEl.textContent = 'Проверьте описания персонажей для комикса. Можете добавить детали или изменить внешность.';
         } else {
@@ -64,6 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         analysisTextArea.value = analysisText || '';
         editAnalysisOverlay.dataset.bookId = bookId;
+        editAnalysisOverlay.dataset.editType = type; // Сохраняем тип редактирования
         hideProgressOverlay();
         editAnalysisOverlay.style.display = 'flex';
     }
@@ -73,15 +74,17 @@ document.addEventListener('DOMContentLoaded', () => {
         editAnalysisOverlay.style.display = 'none';
         analysisTextArea.value = '';
         delete editAnalysisOverlay.dataset.bookId;
+        delete editAnalysisOverlay.dataset.triggerComic;
+        delete editAnalysisOverlay.dataset.editType;
     }
 
-    async function loadAnalysisForEdit(bookId, targetLanguage) {
+    async function loadAnalysisForEdit(bookId, targetLanguage, type = 'glossary') {
         try {
             showProgressOverlay('Загружаем результаты анализа...');
-            const response = await fetch(`/workflow_download_analysis/${bookId}`);
+            const response = await fetch(`/workflow_download_analysis/${bookId}${type === 'visual' ? '?type=visual' : ''}`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const analysisText = await response.text();
-            showEditAnalysisOverlay(bookId, analysisText, targetLanguage);
+            showEditAnalysisOverlay(bookId, analysisText, targetLanguage, type);
         } catch (error) {
             console.error('Error loading analysis:', error);
             updateProgressText(`Ошибка загрузки: ${error.message}`);
@@ -96,6 +99,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!bookId) return;
             
             try {
+                const triggerComic = editAnalysisOverlay.dataset.triggerComic === 'true';
+                delete editAnalysisOverlay.dataset.triggerComic;
+                
                 hideEditAnalysisOverlay();
                 showProgressOverlay('Сохраняем отредактированный анализ...');
                 const response = await fetch(`/workflow_start_existing_book/${bookId}`, {
@@ -110,9 +116,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const data = await response.json();
                 if (data.status === 'success') {
-                    updateProgressText('Анализ сохранен. Продолжаем...');
-                    setTimeout(hideProgressOverlay, 1000);
-                    startPolling(bookId);
+                    if (triggerComic) {
+                        updateProgressText('Анализ сохранен. Запускаем генерацию комикса...');
+                        const comicResp = await fetch(`/workflow/api/book/${bookId}/generate_comic`, { 
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ skip_edit: true })
+                        });
+                        const comicData = await comicResp.json();
+                        if (comicData.status === 'success') {
+                            updateProgressText('Генерация комикса запущена.');
+                            setTimeout(hideProgressOverlay, 1000);
+                            startPolling(bookId);
+                        } else {
+                            alert('Ошибка запуска комикса: ' + comicData.message);
+                            hideProgressOverlay();
+                            startPolling(bookId);
+                        }
+                    } else {
+                        updateProgressText('Анализ сохранен. Продолжаем...');
+                        setTimeout(hideProgressOverlay, 1000);
+                        startPolling(bookId);
+                    }
                 } else {
                     alert('Ошибка: ' + data.message);
                     hideProgressOverlay();
@@ -181,6 +206,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         clearInterval(intervalId);
                         activePollingIntervals.delete(bookId);
                         loadAnalysisForEdit(bookId, statusData.target_language);
+                        return;
+                    }
+
+                    // НОВОЕ: Если комикс в статусе awaiting_bible_edit - показываем форму редактирования каст-листа
+                    if (admin && statusData.comic_status === 'awaiting_bible_edit') {
+                        clearInterval(intervalId);
+                        activePollingIntervals.delete(bookId);
+                        loadAnalysisForEdit(bookId, statusData.target_language, 'visual');
+                        // Помечаем, что после сохранения нужно запустить комикс
+                        editAnalysisOverlay.dataset.triggerComic = 'true';
                         return;
                     }
 
@@ -306,17 +341,49 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (e.target.classList.contains('edit-analysis-link')) {
+            e.preventDefault();
+            const bookId = e.target.getAttribute('data-book-id');
+            const targetLanguage = e.target.getAttribute('data-language');
+            const type = targetLanguage === 'none' ? 'visual' : 'glossary';
+            loadAnalysisForEdit(bookId, targetLanguage, type);
+            return;
+        }
+
+        if (e.target.classList.contains('reset-comic-link')) {
+            e.preventDefault();
+            const bookId = e.target.getAttribute('data-book-id');
+            if (confirm('Вы уверены, что хотите полностью сбросить комикс? Все сгенерированные изображения будут удалены.')) {
+                fetch(`/workflow/api/book/${bookId}/reset_comic?admin=true`, { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.status === 'success') {
+                        location.reload();
+                    } else {
+                        alert('Ошибка сброса: ' + d.message);
+                    }
+                });
+            }
+            return;
+        }
+
         if (e.target.classList.contains('generate-comic-button')) {
             const bookId = e.target.getAttribute('data-book-id');
+            const btn = e.target;
+            
             if (confirm('Запустить генерацию комикса?')) {
-                const btn = e.target;
                 btn.disabled = true;
                 btn.innerText = 'Запуск...';
                 fetch(`/workflow/api/book/${bookId}/generate_comic`, { method: 'POST' })
                 .then(r => r.json())
                 .then(d => {
-                    if (d.status === 'success') startPolling(bookId);
-                    else { alert('Ошибка: ' + d.message); btn.disabled = false; btn.innerText = 'Сделать комикс'; }
+                    if (d.status === 'success') {
+                        startPolling(bookId);
+                    } else {
+                        alert('Ошибка: ' + d.message);
+                        btn.disabled = false;
+                        btn.innerText = 'Сделать комикс';
+                    }
                 });
             }
             return;

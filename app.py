@@ -1402,6 +1402,12 @@ def workflow_api_generate_comic(book_id):
     API endpoint to start comic generation for a book.
     """
     import workflow_processor
+    # Читаем параметры из JSON body
+    try:
+        request_data = request.get_json() or {}
+    except:
+        request_data = {}
+        
     # Проверяем, что суммаризация готова
     book_info = workflow_db_manager.get_book_workflow(book_id)
     if not book_info:
@@ -1413,11 +1419,44 @@ def workflow_api_generate_comic(book_id):
     if summarize_status not in ['completed', 'completed_with_errors']:
         return jsonify({'status': 'error', 'message': 'Summarization not ready'}), 400
 
+    # Проверяем наличие Cast-листа
+    visual_bible = book_info.get('visual_bible')
+    comic_status = book_info.get('comic_status')
+    
+    # Если запрос пришел от админа и мы еще не в процессе генерации картинок
+    # и не получили флаг skip_edit, то останавливаемся для редактирования
+    is_admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
+    skip_edit = request_data.get('skip_edit', False)
+    
+    if is_admin and not skip_edit and comic_status != 'processing':
+        if not visual_bible:
+            # Запускаем задачу только для генерации Cast-листа
+            success = workflow_processor.start_comic_generation_task(book_id, app)
+            return jsonify({'status': 'success', 'message': 'Generating cast list...'})
+        else:
+            # Cast-лист уже есть, просто ставим статус ожидания правки
+            workflow_db_manager.update_book_comic_status_workflow(book_id, 'awaiting_bible_edit')
+            return jsonify({'status': 'success', 'message': 'Awaiting cast list edit'})
+
     success = workflow_processor.start_comic_generation_task(book_id, app)
     if success:
         return jsonify({'status': 'success', 'message': 'Comic generation started'})
     else:
         return jsonify({'status': 'error', 'message': 'Failed to start comic generation'}), 500
+
+@app.route('/workflow/api/book/<book_id>/reset_comic', methods=['POST'])
+def workflow_api_reset_comic(book_id):
+    """
+    API endpoint to reset comic data for a book.
+    """
+    if request.args.get('admin') != 'true' and request.args.get('user') != 'admin' and session.get('admin_mode') != True:
+        return jsonify({'status': 'error', 'message': 'Access denied'}), 403
+        
+    import workflow_db_manager
+    if workflow_db_manager.reset_book_comic_workflow(book_id):
+        return jsonify({'status': 'success', 'message': 'Comic data reset successful'})
+    else:
+        return jsonify({'status': 'error', 'message': 'Failed to reset comic data'}), 500
 
 @app.route('/workflow/book/<book_id>/comic')
 def workflow_book_comic_view(book_id):
@@ -1709,12 +1748,21 @@ def workflow_download_analysis(book_id):
     # --- НОВОЕ: Загружаем результат анализа книги целиком ---
     analysis_result = None
     try:
-        analysis_result = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
+        # Проверяем тип запроса
+        request_type = request.args.get('type') # 'visual' или 'glossary'
         
-        # Если нет в кэше, проверяем visual_bible в БД (для режима "БЕЗ ПЕРЕВОДА")
-        if not analysis_result or not analysis_result.strip():
-            if book_info and book_info.get('visual_bible'):
-                analysis_result = book_info['visual_bible']
+        if request_type == 'visual':
+             if book_info.get('visual_bible'):
+                 analysis_result = book_info['visual_bible']
+             else:
+                 analysis_result = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
+        else:
+             # По умолчанию (для перевода) - сначала кэш, потом visual_bible
+             analysis_result = workflow_cache_manager.load_book_stage_result(book_id, 'analyze')
+             if not analysis_result or not analysis_result.strip():
+                 if book_info.get('visual_bible'):
+                     analysis_result = book_info['visual_bible']
+
 
         if not analysis_result or not analysis_result.strip():
             # Если результат пустой или только пробелы, возможно, анализ завершился как completed_empty

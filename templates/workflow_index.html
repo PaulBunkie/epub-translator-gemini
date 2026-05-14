@@ -295,10 +295,21 @@
                                                     <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id, admin='true' if admin else None) }}" style="margin-left: 10px; color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
                                                 {% elif book.comic_status == 'processing' %}
                                                     <span style="margin-left: 10px; color: orange;">(Комикс в процессе...)</span>
+                                                {% elif book.comic_status == 'error' %}
+                                                    <span style="margin-left: 10px; color: red;">(Ошибка комикса)</span>
+                                                {% elif book.comic_status == 'awaiting_bible_edit' %}
+                                                    <span style="margin-left: 10px; color: blue;">(Ожидает правки Cast-листа)</span>
+                                                {% endif %}
+
+                                                {% if admin and book.comic_status and book.comic_status != 'not_started' %}
+                                                    <a href="#" class="reset-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #dc3545; font-size: 0.85em;"><i class="fas fa-undo"></i> Сбросить комикс</a>
                                                 {% endif %}
                                             {% endif %}
-                                            {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty']) %}
+                                            {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty', 'awaiting_edit']) %}
                                                 <a href="{{ url_for('workflow_download_analysis', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать анализ</a>
+                                                {% if admin %}
+                                                    <a href="#" class="edit-analysis-link" data-book-id="{{ book.book_id }}" data-language="{{ book.target_language }}" style="margin-left: 10px; color: #28a745;"><i class="fas fa-edit"></i> Редактировать</a>
+                                                {% endif %}
                                             {% endif %}
                                             {% if stage_name == 'epub_creation' and (stage_data.status in ['completed', 'completed_with_errors']) %}
                                                 <a href="{{ url_for('workflow_download_epub', book_id=book.book_id) }}" style="margin-left: 10px;">Скачать EPUB</a>

@@ -1700,8 +1700,16 @@ def start_comic_generation_task(book_id: str, app_instance):
         try:
             generator = comic_generator.ComicGenerator()
             generator.process_book_comic(book_id, app_instance)
+            # ВАЖНО: Мы не ставим статус 'completed' здесь, так как 
+            # process_book_comic сам управляет статусами (может поставить 'awaiting_bible_edit')
+            # Или если он реально завершил генерацию всех картинок, он может поставить 'completed'
+            
+            # На всякий случай проверяем текущий статус после выхода
             with app_instance.app_context():
-                workflow_db_manager.update_book_comic_status_workflow(book_id, 'completed')
+                current_info = workflow_db_manager.get_book_workflow(book_id)
+                if current_info and current_info.get('comic_status') == 'processing':
+                    # Если он всё еще processing, значит он реально закончил цикл по секциям
+                    workflow_db_manager.update_book_comic_status_workflow(book_id, 'completed')
         except Exception as e:
             print(f"[WorkflowProcessor] Ошибка в фоновом потоке генерации комикса: {e}")
             traceback.print_exc()

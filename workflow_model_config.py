@@ -67,9 +67,10 @@ MODEL_CONFIG = {
         'fallback_level2': 'vertex/gemini-2.5-flash-image'
     },
     'visual_analysis': {
-        'primary': 'vertex/gemini-3-flash-preview', 
-        'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
-        'fallback_level2': 'openrouter/free'
+        'primary': 'literouter/gemini-3-flash-preview-thinking', 
+        'fallback_level1': 'models/gemini-3-flash-preview',
+        'fallback_level2': 'vertex/gemini-3-flash-preview', 
+        'fallback_level3': 'openrouter/owl-alpha'
     },
     'person_locations': {
         'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 

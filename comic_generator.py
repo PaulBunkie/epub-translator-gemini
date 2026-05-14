@@ -9,7 +9,8 @@ import re
 import base64
 from pathlib import Path
 from flask import current_app
-from google import genai
+import google.generativeai as google_genai
+from google import genai as vertex_genai
 from google.genai import types
 import workflow_db_manager
 import workflow_cache_manager
@@ -19,6 +20,7 @@ import workflow_translation_module
 class ComicGenerator:
     CENSORED_IMAGE_URL = "https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Censored_rubber_stamp.svg/960px-Censored_rubber_stamp.svg.png"
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+    LITEROUTER_API_URL = "https://api.literouter.com/v1/chat/completions"
 
     # Промпты инкапсулированы внутри модуля
     VISUAL_ANALYSIS_SYSTEM_PROMPT = """You are an expert in visual character design and literary analysis. Your task is to create a "Visual Bible" for a book based on its summaries.
@@ -77,7 +79,7 @@ Book Summaries:
                     print(f"[ComicGenerator] Error setting up credentials: {e}")
 
             if project_id:
-                self.client = genai.Client(
+                self.client = vertex_genai.Client(
                     vertexai=True,
                     project=project_id,
                     location="global"
@@ -85,8 +87,15 @@ Book Summaries:
                 print(f"[ComicGenerator] Client initialized for project {project_id} (Location: global)")
             else:
                 print("[ComicGenerator] No project_id found, client not initialized.")
+                
+            # Инициализация Google API Key (для моделей с префиксом models/)
+            google_api_key = os.getenv("GOOGLE_API_KEY")
+            if google_api_key:
+                google_genai.configure(api_key=google_api_key)
+                print("[ComicGenerator] Google Generative AI configured with API Key.")
+                
         except Exception as e:
-            print(f"[ComicGenerator] Error initializing GenAI Client: {e}")
+            print(f"[ComicGenerator] Error initializing clients: {e}")
             traceback.print_exc()
 
     def _generate_with_vertex(self, model_name, prompt_text, book_id, section_id, attempt):
@@ -248,23 +257,45 @@ Book Summaries:
                 print(f"[ComicGenerator] [Analysis] Trying level {level}: {model_name}...")
                 
                 result = None
-                # СТРОГОЕ определение провайдера
-                is_vertex = model_name.startswith('vertex/') or model_name.startswith('models/') or 'gemini' in model_name.lower()
+                # СТРОГОЕ определение провайдера (согласно workflow_translation_module)
+                is_vertex = model_name.startswith('vertex/')
+                is_google = model_name.startswith('models/')
+                is_literouter = model_name.startswith('literouter/')
                 
-                if is_vertex:
-                    if self.client:
-                        actual_model = model_name.replace('vertex/', '').replace('models/', '')
-                        # Объединяем промпт для Vertex
+                if is_vertex or is_google:
+                    if is_vertex and not self.client:
+                        continue
+                    
+                    actual_model = model_name.replace('vertex/', '').replace('models/', '')
+                    
+                    if is_vertex:
+                        # Используем Vertex SDK (уже инициализирован в __init__)
                         response = self.client.models.generate_content(model=actual_model, contents=full_prompt)
                         result = response.text
+                    else:
+                        # Используем Google Generative AI (нужен API ключ)
+                        import google.generativeai as google_genai
+                        genai_model = google_genai.GenerativeModel(actual_model)
+                        response = genai_model.generate_content(full_prompt)
+                        result = response.text
                 else:
-                    # OpenRouter для текста
-                    api_key = os.getenv("OPENROUTER_API_KEY")
+                    # OpenRouter или LiteRouter для текста
+                    api_type = "literouter" if is_literouter else "openrouter"
+                    api_key = os.getenv("LITEROUTER_API_KEY" if is_literouter else "OPENROUTER_API_KEY")
+                    api_url = self.LITEROUTER_API_URL if is_literouter else self.OPENROUTER_API_URL
+                    
+                    if is_literouter:
+                        # LiteRouter API URL обычно имеет /v1/chat/completions
+                        if not api_url.endswith('/chat/completions'):
+                            api_url = "https://api.literouter.com/v1/chat/completions"
+                    
+                    actual_model = model_name.replace('literouter/', '')
+                    
                     if api_key:
                         resp = requests.post(
-                            self.OPENROUTER_API_URL,
+                            api_url,
                             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                            json={"model": model_name, "messages": [{"role": "user", "content": full_prompt}]},
+                            json={"model": actual_model, "messages": [{"role": "user", "content": full_prompt}]},
                             timeout=120
                         )
                         if resp.status_code == 200:
@@ -317,9 +348,21 @@ Book Summaries:
 
             visual_bible_raw = book_info.get('visual_bible')
             if not visual_bible_raw:
+                print(f"[ComicGenerator] Visual Bible missing for {book_id}. Running analysis...")
                 visual_bible_raw = self._run_visual_analysis(book_id, sections)
+                if visual_bible_raw:
+                    print(f"[ComicGenerator] Visual Bible created for {book_id}. Stopping for edit.")
+                    workflow_db_manager.update_book_comic_status_workflow(book_id, 'awaiting_bible_edit')
+                    return
+                else:
+                    print(f"[ComicGenerator] Failed to create Visual Bible for {book_id}")
+                    workflow_db_manager.update_book_comic_status_workflow(book_id, 'error')
+                    return
             
-            visual_bible_prompt = ""
+            # Если статус был 'awaiting_bible_edit', значит мы уже его показали или пользователь нажал "Сделать комикс" повторно
+            # Но на всякий случай убедимся, что статус 'processing' во время генерации картинок
+            workflow_db_manager.update_book_comic_status_workflow(book_id, 'processing')
+
             if visual_bible_raw:
                 try:
                     bible_data = json.loads(visual_bible_raw)
@@ -342,7 +385,7 @@ Book Summaries:
                 "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
                 "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
                 "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
-                "No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
+                "CRITICAL: No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
                 "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
             )
 

@@ -1175,6 +1175,22 @@ def update_book_comic_status_workflow(book_id, status):
         print(f"[WorkflowDB] ОШИБКА обновления comic_status для {book_id}: {e}")
         return False
 
+def reset_book_comic_workflow(book_id):
+    """Полностью сбрасывает состояние комикса для книги: удаляет картинки, сбрасывает статус и очищает Cast-лист."""
+    db = get_workflow_db()
+    try:
+        with db:
+            # 1. Удаляем все изображения из comic_images
+            db.execute('DELETE FROM comic_images WHERE book_id = ?', (book_id,))
+            # 2. Сбрасываем статус комикса и очищаем visual_bible
+            db.execute('UPDATE books SET comic_status = "not_started", visual_bible = NULL WHERE book_id = ?', (book_id,))
+        print(f"[WorkflowDB] Комикс для книги {book_id} полностью сброшен (включая Cast-лист).")
+        return True
+    except Exception as e:
+        print(f"[WorkflowDB] ОШИБКА сброса комикса для {book_id}: {e}")
+        traceback.print_exc()
+        return False
+
 def get_telegram_users_for_book(access_token: str) -> list:
     """Получает список пользователей Telegram, подписанных на уведомления о книге"""
     db = get_workflow_db()
