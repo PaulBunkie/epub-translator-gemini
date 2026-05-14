@@ -356,18 +356,20 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (e.target.classList.contains('edit-analysis-link')) {
+        if (e.target.closest('.edit-analysis-link')) {
+            const target = e.target.closest('.edit-analysis-link');
             e.preventDefault();
-            const bookId = e.target.getAttribute('data-book-id');
-            const targetLanguage = e.target.getAttribute('data-language');
+            const bookId = target.getAttribute('data-book-id');
+            const targetLanguage = target.getAttribute('data-language');
             const type = targetLanguage === 'none' ? 'visual' : 'glossary';
             loadAnalysisForEdit(bookId, targetLanguage, type);
             return;
         }
 
-        if (e.target.classList.contains('interrupt-comic-link')) {
+        if (e.target.closest('.interrupt-comic-link')) {
+            const target = e.target.closest('.interrupt-comic-link');
             e.preventDefault();
-            const bookId = e.target.getAttribute('data-book-id');
+            const bookId = target.getAttribute('data-book-id');
             if (confirm('Прервать текущую генерацию? Вы сможете запустить её снова, и она продолжится с места остановки.')) {
                 fetch(`/workflow/api/book/${bookId}/interrupt_comic?admin=true`, { method: 'POST' })
                 .then(r => r.json())
@@ -382,9 +384,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (e.target.classList.contains('reset-comic-link')) {
+        if (e.target.closest('.reset-comic-link')) {
+            const target = e.target.closest('.reset-comic-link');
             e.preventDefault();
-            const bookId = e.target.getAttribute('data-book-id');
+            const bookId = target.getAttribute('data-book-id');
             if (confirm('Вы уверены, что хотите полностью сбросить комикс? Все сгенерированные изображения будут удалены.')) {
                 fetch(`/workflow/api/book/${bookId}/reset_comic?admin=true`, { method: 'POST' })
                 .then(r => r.json())
@@ -399,15 +402,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (e.target.classList.contains('generate-comic-button')) {
-            const bookId = e.target.getAttribute('data-book-id');
-            const btn = e.target;
-            const bookItem = e.target.closest('.book-item');
-            const language = bookItem.querySelector('.language')?.textContent.replace(/[()]/g, '') || 'none';
+        if (e.target.closest('.generate-comic-button')) {
+            const target = e.target.closest('.generate-comic-button');
+            const bookId = target.getAttribute('data-book-id');
+            const bookItem = target.closest('.book-item');
+            const langEl = bookItem.querySelector('.language');
+            const language = langEl ? langEl.textContent.replace(/[()]/g, '') : 'none';
             
             if (confirm('Запустить генерацию комикса?')) {
-                btn.disabled = true;
-                btn.innerText = 'Запуск...';
+                target.disabled = true;
+                target.innerText = 'Запуск...';
                 fetch(`/workflow/api/book/${bookId}/generate_comic${admin ? '?admin=true' : ''}`, { 
                     method: 'POST' 
                 })
@@ -416,8 +420,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (d.status === 'success') {
                         if (d.message === 'Awaiting cast list edit') {
                             // Если сервер сразу сказал, что нужно редактировать - открываем окно
-                            btn.disabled = false;
-                            btn.innerText = 'Сделать комикс';
+                            target.disabled = false;
+                            target.innerText = 'Сделать комикс';
                             loadAnalysisForEdit(bookId, language, 'visual');
                             editAnalysisOverlay.dataset.triggerComic = 'true';
                         } else {
@@ -425,8 +429,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     } else {
                         alert('Ошибка: ' + d.message);
-                        btn.disabled = false;
-                        btn.innerText = 'Сделать комикс';
+                        target.disabled = false;
+                        target.innerText = 'Сделать комикс';
                     }
                 });
             }
