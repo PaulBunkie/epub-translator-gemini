@@ -33,6 +33,7 @@ class WorkflowQueueManager:
                 cls._instance.executor = ThreadPoolExecutor(max_workers=1)
                 cls._instance.processing_books = set()
                 cls._instance.lock = threading.Lock()
+                cls._instance.active_threads = {} # book_id -> thread_obj
         return cls._instance
 
     def add_book_to_queue(self, book_id, app, admin=None):
@@ -60,6 +61,25 @@ class WorkflowQueueManager:
                 if book_id in self.processing_books:
                     self.processing_books.remove(book_id)
             print(f"[QueueManager] Книга {book_id} удалена из списка обработки.")
+
+    def is_comic_running(self, book_id):
+        """Проверяет, запущен ли реально поток генерации комикса."""
+        with self.lock:
+            thread = self.active_threads.get(book_id)
+            if thread and thread.is_alive():
+                return True
+            return False
+
+    def register_comic_thread(self, book_id, thread):
+        """Регистрирует активный поток комикса."""
+        with self.lock:
+            self.active_threads[book_id] = thread
+
+    def unregister_comic_thread(self, book_id):
+        """Удаляет поток комикса из реестра."""
+        with self.lock:
+            if book_id in self.active_threads:
+                del self.active_threads[book_id]
 
 workflow_queue_manager = WorkflowQueueManager()
 
@@ -1691,47 +1711,42 @@ def start_comic_generation_task(book_id: str, app_instance):
     """
     Запускает фоновую задачу генерации комикса.
     """
-    print(f"[WorkflowProcessor] Запуск генерации комикса для книги {book_id}")
-    # Защита от параллельного запуска генерации для одной книги
-    try:
-        book_info = workflow_db_manager.get_book_workflow(book_id)
-        if book_info and str(book_info.get('comic_status')) == 'processing':
-            print(f"[WorkflowProcessor] Генерация комикса для книги {book_id} уже в статусе processing. Новый запуск пропущен.")
+    with app_instance.app_context():
+        app_instance.logger.info(f"[WorkflowProcessor] Запрос на запуск комикса для книги {book_id}")
+        
+        # Проверяем, запущен ли поток РЕАЛЬНО
+        if workflow_queue_manager.is_comic_running(book_id):
+            app_instance.logger.warning(f"[WorkflowProcessor] Поток генерации для {book_id} уже активен. Пропуск.")
             return True
-    except Exception:
-        pass
 
-    workflow_db_manager.update_book_comic_status_workflow(book_id, 'processing')
+        # Сбрасываем статус, если он был stuck или error
+        workflow_db_manager.update_book_comic_status_workflow(book_id, 'processing')
     
     def task_wrapper():
         try:
-            generator = comic_generator.ComicGenerator()
-            generator.process_book_comic(book_id, app_instance)
-            # ВАЖНО: Мы не ставим статус 'completed' здесь, так как 
-            # process_book_comic сам управляет статусами (может поставить 'awaiting_bible_edit')
-            # Или если он реально завершил генерацию всех картинок, он может поставить 'completed'
-            
-            # На всякий случай проверяем текущий статус после выхода
             with app_instance.app_context():
+                app_instance.logger.info(f"[WorkflowProcessor] Поток генерации комикса запущен для {book_id}")
+                generator = comic_generator.ComicGenerator()
+                generator.process_book_comic(book_id, app_instance)
+                
+                # Проверяем текущий статус после выхода
                 current_info = workflow_db_manager.get_book_workflow(book_id)
                 if current_info and current_info.get('comic_status') == 'processing':
-                    # Если он всё еще processing, значит он реально закончил цикл по секциям
                     workflow_db_manager.update_book_comic_status_workflow(book_id, 'completed')
+                    app_instance.logger.info(f"[WorkflowProcessor] Генерация комикса успешно завершена для {book_id}")
         except Exception as e:
-            print(f"[WorkflowProcessor] Ошибка в фоновом потоке генерации комикса: {e}")
-            traceback.print_exc()
+            app_instance.logger.error(f"[WorkflowProcessor] КРИТИЧЕСКАЯ ОШИБКА в потоке генерации для {book_id}: {e}")
+            import traceback
+            app_instance.logger.error(traceback.format_exc())
             with app_instance.app_context():
                 workflow_db_manager.update_book_comic_status_workflow(book_id, 'error')
         finally:
-            try:
-                if 'generator' in locals():
-                    del generator
-                import gc
-                gc.collect()
-            except Exception:
-                pass
+            workflow_queue_manager.unregister_comic_thread(book_id)
+            import gc
+            gc.collect()
 
     thread = threading.Thread(target=task_wrapper, daemon=True)
+    workflow_queue_manager.register_comic_thread(book_id, thread)
     thread.start()
     return True
 

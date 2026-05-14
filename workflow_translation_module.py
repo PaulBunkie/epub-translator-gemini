@@ -1134,8 +1134,6 @@ class WorkflowTranslator:
         # Применяем ограничения в зависимости от операции
         if operation_type in ['analyze', 'summarize']:
             chunk_limit = min(chunk_limit, ANALYSIS_CHUNK_SIZE_LIMIT_CHARS)
-        elif operation_type == 'translate_toc':
-            chunk_limit = 1000
         else:
             chunk_limit = min(chunk_limit, CHUNK_SIZE_LIMIT_CHARS)
         

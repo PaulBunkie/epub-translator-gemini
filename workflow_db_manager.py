@@ -238,13 +238,16 @@ def init_workflow_db():
 
 
 def reset_stuck_workflow_tasks():
-    """Сбрасывает статусы 'processing' и 'queued' в 'pending' для всех секций и книг."""
+    """Сбрасывает статусы 'processing' и 'queued' в 'pending' для всех секций и книг, а также комиксов."""
     db = get_workflow_db()
     try:
         with db:
+            # Сброс статусов этапов
             db.execute("UPDATE section_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
             db.execute("UPDATE book_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
-        print("[WorkflowDB] Статусы 'processing' и 'queued' сброшены в 'pending'.")
+            # Сброс статуса комикса (так как фоновые потоки не выживают после перезагрузки)
+            db.execute("UPDATE books SET comic_status = 'error' WHERE comic_status = 'processing';")
+        print("[WorkflowDB] Все зависшие статусы 'processing' и 'queued' сброшены.")
         return True
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА при сбросе зависших задач: {e}")

@@ -97,7 +97,7 @@ Book Summaries:
                 print(f"[ComicGenerator] Client initialized for project {project_id} (Location: global)")
             else:
                 print("[ComicGenerator] No project_id found, client not initialized.")
-                
+            
             # Инициализация Google API Key (для моделей с префиксом models/)
             google_api_key = os.getenv("GOOGLE_API_KEY")
             if google_api_key:
@@ -364,31 +364,33 @@ Book Summaries:
     def process_book_comic(self, book_id, app_instance):
         """Цикл генерации комикса по всем секциям книги с сохранением в БД."""
         with app_instance.app_context():
-            print(f"[ComicGenerator] Starting comic generation for book {book_id}")
+            app_instance.logger.info(f"[ComicGenerator] Starting comic generation for book {book_id}")
             
             book_info = workflow_db_manager.get_book_workflow(book_id)
+            if not book_info:
+                app_instance.logger.error(f"[ComicGenerator] Book {book_id} not found. Exiting.")
+                return
+            
             sections = workflow_db_manager.get_sections_for_book_workflow(book_id)
             if not sections:
+                app_instance.logger.warning(f"[ComicGenerator] No sections found for book {book_id}. Exiting.")
                 return
 
-            # ВАЖНО: Мы НЕ запускаем генерацию комикса, пока анализ находится в статусе 'awaiting_edit'
-            book_stage_statuses = book_info.get('book_stage_statuses', {})
-            analyze_status = book_stage_statuses.get('analyze', {}).get('status')
-            
-            if analyze_status == 'awaiting_edit':
-                print(f"[ComicGenerator] Анализ книги {book_id} ожидает редактирования. Пропускаем генерацию комикса.")
-                return
+            app_instance.logger.info(f"[ComicGenerator] Book {book_id} has {len(sections)} sections.")
+
+            # ВАЖНО: Мы НЕ блокируем генерацию комикса, если основной анализ (глоссарий) ожидает редактирования.
+            # Эти процессы теперь независимы.
 
             visual_bible_raw = book_info.get('visual_bible')
             if not visual_bible_raw:
-                print(f"[ComicGenerator] Visual Bible missing for {book_id}. Running analysis...")
+                app_instance.logger.info(f"[ComicGenerator] Visual Bible missing for {book_id}. Running analysis...")
                 visual_bible_raw = self._run_visual_analysis(book_id, sections)
                 if visual_bible_raw:
-                    print(f"[ComicGenerator] Visual Bible created for {book_id}. Stopping for edit.")
+                    app_instance.logger.info(f"[ComicGenerator] Visual Bible created for {book_id}. Stopping for edit.")
                     workflow_db_manager.update_book_comic_status_workflow(book_id, 'awaiting_bible_edit')
                     return
                 else:
-                    print(f"[ComicGenerator] Failed to create Visual Bible for {book_id}")
+                    app_instance.logger.error(f"[ComicGenerator] Failed to create Visual Bible for {book_id}")
                     workflow_db_manager.update_book_comic_status_workflow(book_id, 'error')
                     return
             
@@ -404,7 +406,10 @@ Book Summaries:
 
                 summary = workflow_cache_manager.load_section_stage_result(book_id, section_id, 'summarize')
                 if not summary or len(summary.strip()) < 50:
+                    app_instance.logger.info(f"[ComicGenerator] Summary for section {section_id} is too short or empty. Skipping.")
                     continue
+                
+                app_instance.logger.info(f"[ComicGenerator] Generating image for section {section_id} (Summary length: {len(summary)})...")
                 
                 prompt = None
                 image_data = None
@@ -418,14 +423,17 @@ Book Summaries:
                         
                         if image_data:
                             workflow_db_manager.save_comic_image_workflow(book_id, section_id, image_data)
-                            print(f"[ComicGenerator] Successfully saved comic to DB for section {section_id}")
+                            app_instance.logger.info(f"[ComicGenerator] Successfully saved comic to DB for section {section_id}")
                             break
                         elif error == "IMAGE_SAFETY" and attempt == 0:
+                            app_instance.logger.warning(f"[ComicGenerator] Safety filter triggered for section {section_id}. Retrying with simplified prompt.")
                             continue
                         else:
-                            print(f"[ComicGenerator] Permanent failure for section {section_id}. Saving CENSORED.")
+                            app_instance.logger.error(f"[ComicGenerator] Permanent failure for section {section_id} (Error: {error}). Saving CENSORED placeholder.")
                             self._save_censored_placeholder(book_id, section_id)
                             break
+                except Exception as e:
+                    app_instance.logger.error(f"[ComicGenerator] Exception processing section {section_id}: {e}")
                 finally:
                     # Явно освобождаем крупные объекты, чтобы не накапливать RSS на длинных задачах
                     try:
@@ -435,16 +443,14 @@ Book Summaries:
                             del summary
                         if image_data is not None:
                             del image_data
-                        if error is not None:
-                            del error
                         import gc
                         gc.collect()
                     except Exception:
                         pass
                 
-                time.sleep(30 + random.randint(1, 5))
+                time.sleep(5 + random.randint(1, 3))
 
-            print(f"[ComicGenerator] Finished comic generation for book {book_id}")
+            app_instance.logger.info(f"[ComicGenerator] Finished comic generation loop for book {book_id}")
 
     def _save_censored_placeholder(self, book_id, section_id):
         try:
