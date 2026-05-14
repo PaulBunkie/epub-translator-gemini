@@ -291,25 +291,29 @@
                                                     <button class="generate-comic-button" data-book-id="{{ book.book_id }}" style="margin-left: 10px; background-color: #6c757d; color: white; border: none; padding: 2px 8px; cursor: pointer; font-size: 0.8em; border-radius: 3px;">Сделать комикс</button>
                                                 {% endif %}
 
-                                                {% if book.comic_status == 'completed' %}
-                                                    <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id, admin='true' if admin else None) }}" style="margin-left: 10px; color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
-                                                {% elif book.comic_status == 'processing' %}
-                                                    <span style="margin-left: 10px; color: orange;">(Комикс в процессе
-                                                        {% if book.comic_images_count is defined and book.comic_images_count is not none %}
-                                                            : {{ book.comic_images_count }} из {{ book.total_sections }}
-                                                        {% endif %}...)
-                                                    </span>
-                                                {% elif book.comic_status == 'error' %}
-                                                    <span style="margin-left: 10px; color: red;">(Ошибка комикса)</span>
-                                                {% elif book.comic_status == 'awaiting_bible_edit' %}
-                                                    <span style="margin-left: 10px; color: blue;">(Ожидает правки Cast-листа)</span>
-                                                {% endif %}
+                                                <div class="comic-status-container" id="comic-status-{{ book.book_id }}" style="display: inline-block; margin-left: 10px;">
+                                                    {% if book.comic_status == 'completed' %}
+                                                        <a href="{{ url_for('workflow_book_comic_view', book_id=book.book_id, admin='true' if admin else None) }}" style="color: #6f42c1; font-weight: bold;">Смотреть комикс</a>
+                                                    {% elif book.comic_status == 'processing' %}
+                                                        <span style="color: orange;">(Комикс в процессе
+                                                            {% if book.comic_images_count is defined and book.comic_images_count is not none %}
+                                                                : {{ book.comic_images_count }} из {{ book.total_sections }}
+                                                            {% endif %}...)
+                                                        </span>
+                                                    {% elif book.comic_status == 'error' %}
+                                                        <span style="color: red;">(Ошибка комикса)</span>
+                                                    {% elif book.comic_status == 'awaiting_bible_edit' %}
+                                                        <span style="color: blue;">(Ожидает правки Cast-листа)</span>
+                                                    {% endif %}
+                                                </div>
 
                                                 {% if admin and book.comic_status and book.comic_status != 'not_started' %}
-                                                    {% if book.comic_status == 'processing' %}
-                                                        <a href="#" class="interrupt-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #ffc107; font-size: 0.85em;"><i class="fas fa-pause"></i> Прервать</a>
-                                                    {% endif %}
-                                                    <a href="#" class="reset-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #dc3545; font-size: 0.85em;"><i class="fas fa-undo"></i> {% if book.comic_status == 'completed' %}Сбросить{% else %}Сбросить всё{% endif %}</a>
+                                                    <div class="comic-actions-container" style="display: inline-block;">
+                                                        {% if book.comic_status == 'processing' %}
+                                                            <a href="#" class="interrupt-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #ffc107; font-size: 0.85em;"><i class="fas fa-pause"></i> Прервать</a>
+                                                        {% endif %}
+                                                        <a href="#" class="reset-comic-link" data-book-id="{{ book.book_id }}" style="margin-left: 10px; color: #dc3545; font-size: 0.85em;"><i class="fas fa-undo"></i> {% if book.comic_status == 'completed' %}Сбросить{% else %}Сбросить всё{% endif %}</a>
+                                                    </div>
                                                 {% endif %}
                                             {% endif %}
                                             {% if stage_name == 'analyze' and (stage_data.status in ['completed', 'completed_empty', 'awaiting_edit']) %}

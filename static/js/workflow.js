@@ -261,66 +261,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Кнопка Сделать комикс / Ссылка на комикс
                 if (stageName === 'summarize') {
-                    const summarizeDiv = bookItem.querySelector(`.stage-status[data-stage="summarize"]`).parentElement;
+                    const summarizeDiv = stageSpan.parentElement;
+                    const comicStatusContainer = document.getElementById(`comic-status-${bookId}`);
                     
                     // Обработка кнопки генерации
                     let comicBtn = summarizeDiv.querySelector('.generate-comic-button');
                     if (admin && ['completed', 'completed_empty'].includes(stageInfo.status)) {
-                        if (!summarizeDiv.querySelector('.generate-comic-button') && !summarizeDiv.querySelector('a[href*="comic"]') && statusData.comic_status !== 'processing') {
+                        if (!comicBtn && !summarizeDiv.querySelector('a[href*="comic"]') && statusData.comic_status !== 'processing') {
                             const newBtn = document.createElement('button');
                             newBtn.className = 'generate-comic-button';
                             newBtn.setAttribute('data-book-id', bookId);
                             newBtn.style.cssText = 'margin-left: 10px; background-color: #6c757d; color: white; border: none; padding: 2px 8px; cursor: pointer; font-size: 0.8em; border-radius: 3px;';
                             newBtn.innerText = 'Сделать комикс';
                             summarizeDiv.appendChild(newBtn);
+                            comicBtn = newBtn;
                         }
                     }
 
-                    if (statusData.comic_status === 'processing') {
-                        let procText = 'В процессе...';
-                        if (statusData.comic_images_count !== undefined && statusData.total_sections_count) {
-                            procText = `В процессе (${statusData.comic_images_count} из ${statusData.total_sections_count})`;
-                        }
-                        
-                        if (comicBtn) {
-                            comicBtn.disabled = true;
-                            comicBtn.innerText = procText;
-                        } else {
-                            let procMsg = summarizeDiv.querySelector('.comic-proc-msg');
-                            if (!procMsg) {
-                                procMsg = document.createElement('span');
-                                procMsg.className = 'comic-proc-msg';
-                                procMsg.style.cssText = 'margin-left: 10px; color: orange; font-size: 0.8em;';
-                                summarizeDiv.appendChild(procMsg);
+                    // Обновляем текст статуса комикса в спец. контейнере
+                    if (comicStatusContainer) {
+                        if (statusData.comic_status === 'processing') {
+                            let procText = 'Комикс в процессе';
+                            if (statusData.comic_images_count !== undefined && statusData.total_sections_count) {
+                                procText += ` (${statusData.comic_images_count} из ${statusData.total_sections_count})`;
                             }
-                            procMsg.innerText = `(${procText})`;
-                        }
-                    } else if (statusData.comic_status === 'completed') {
-                        if (comicBtn) comicBtn.remove();
-                        const procMsg = summarizeDiv.querySelector('.comic-proc-msg');
-                        if (procMsg) procMsg.remove();
-                        
-                        if (!summarizeDiv.querySelector('a[href*="comic"]')) {
-                            const link = document.createElement('a');
-                            link.href = `/workflow/book/${bookId}/comic${admin ? '?admin=true' : ''}`;
-                            link.style.cssText = 'margin-left: 10px; color: #6f42c1; font-weight: bold;';
-                            link.innerText = 'Смотреть комикс';
-                            summarizeDiv.appendChild(link);
-                        }
-                    } else {
-                        // Для всех остальных статусов (error, not_started, awaiting_bible_edit)
-                        // возвращаем кнопку в рабочее состояние
-                        if (comicBtn) {
-                            comicBtn.disabled = false;
-                            comicBtn.innerText = 'Сделать комикс';
-                        }
-                        // Убираем сообщение о процессе, если оно было
-                        const procMsg = summarizeDiv.querySelector('.comic-proc-msg');
-                        if (procMsg) procMsg.remove();
-                        // Убираем ссылку "Смотреть", если мы в режиме ошибки или сброса
-                        if (['error', 'not_started'].includes(statusData.comic_status)) {
-                            const viewLink = summarizeDiv.querySelector('a[href*="comic"]');
-                            if (viewLink) viewLink.remove();
+                            comicStatusContainer.innerHTML = `<span style="color: orange;">(${procText}...)</span>`;
+                            if (comicBtn) {
+                                comicBtn.disabled = true;
+                                comicBtn.innerText = procText;
+                            }
+                        } else if (statusData.comic_status === 'completed') {
+                            comicStatusContainer.innerHTML = `<a href="/workflow/book/${bookId}/comic${admin ? '?admin=true' : ''}" style="color: #6f42c1; font-weight: bold;">Смотреть комикс</a>`;
+                            if (comicBtn) comicBtn.remove();
+                        } else if (statusData.comic_status === 'error') {
+                            comicStatusContainer.innerHTML = `<span style="color: red;">(Ошибка комикса)</span>`;
+                            if (comicBtn) {
+                                comicBtn.disabled = false;
+                                comicBtn.innerText = 'Сделать комикс';
+                            }
+                        } else if (statusData.comic_status === 'awaiting_bible_edit') {
+                            comicStatusContainer.innerHTML = `<span style="color: blue;">(Ожидает правки Cast-листа)</span>`;
+                            if (comicBtn) {
+                                comicBtn.disabled = false;
+                                comicBtn.innerText = 'Сделать комикс';
+                            }
+                        } else {
+                            comicStatusContainer.innerHTML = '';
+                            if (comicBtn) {
+                                comicBtn.disabled = false;
+                                comicBtn.innerText = 'Сделать комикс';
+                            }
                         }
                     }
                 }
