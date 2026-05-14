@@ -1143,14 +1143,15 @@ def has_comic_images_workflow(book_id):
         return False
 
 def check_comic_image_exists(section_id):
-    """Быстрая проверка наличия изображения без загрузки BLOB."""
+    """Быстрая проверка наличия изображения. Возвращает timestamp создания или None."""
     db = get_workflow_db()
     try:
-        cursor = db.execute('SELECT 1 FROM comic_images WHERE section_id = ? LIMIT 1', (section_id,))
-        return cursor.fetchone() is not None
+        cursor = db.execute('SELECT created_at FROM comic_images WHERE section_id = ? LIMIT 1', (section_id,))
+        row = cursor.fetchone()
+        return row['created_at'] if row else None
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА check_comic_image_exists для секции {section_id}: {e}")
-        return False
+        return None
 
 def update_book_visual_bible_workflow(book_id, visual_bible_json):
     """Обновляет Visual Bible (список персонажей с описаниями) для книги."""

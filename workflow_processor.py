@@ -81,6 +81,18 @@ def resume_all_workflows(app):
 # --- Constants for Workflow Processor ---
 MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analysis
 
+# --- НАСТРОЙКИ АДАПТИВНОГО СЖАТИЯ EPUB (Для защиты от OOM на 512MB RAM) ---
+# Целевой максимальный размер всех изображений в одном EPUB (в Мегабайтах).
+WORKFLOW_EPUB_MAX_IMAGES_SIZE_MB = 50 
+# Диапазон изменения ширины изображений (Мин_Ширина, Макс_Ширина) в пикселях.
+WORKFLOW_EPUB_WIDTH_RANGE = (480, 1200)
+# Диапазон изменения качества JPEG (Мин_Качество, Макс_Качество).
+WORKFLOW_EPUB_QUALITY_RANGE = (30, 95)
+# Точки расчета "агрессивности" сжатия (в Килобайтах на одну картинку).
+WORKFLOW_EPUB_BUDGET_POINTS_KB = (100, 1000)
+# Целевой формат для нормализации всех изображений. 
+WORKFLOW_EPUB_TARGET_FORMAT = "JPEG"
+
 # --- Helper function to clean HTML text ---
 def clean_html(html_content):
     """
@@ -1193,7 +1205,7 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
             import io
             import uuid
             from collections import defaultdict
-            # from PIL import Image # Удалено отсюда, импортируется внутри _compress_image_to_jpeg_bytes
+            import gc
             
             # --- START OF UTILITIES ---
             INVALID_XML_CHARS_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]')
@@ -1223,66 +1235,73 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 if clean_for_comparison == normalized_title:
                     return '\n\n'.join(paragraphs[1:]).strip()
                 return text
-            # --- END OF UTILITIES ---
 
-            def _compress_image_to_jpeg_bytes(
-                raw_bytes: bytes,
-                tmp_dir: str,
-                target_max_bytes: int = 100 * 1024,
-                max_width_px: int = 800
-            ) -> bytes:
+            # --- START OF ADAPTIVE LOGIC ---
+            all_sections_raw = book_info.get('all_sections_raw', [])
+            total_images = sum(1 for s in all_sections_raw if workflow_db_manager.check_comic_image_exists(s['section_id']))
+            
+            if total_images > 0:
+                # Квота байт на одну картинку на основе общего лимита (50МБ)
+                quota_per_image = (WORKFLOW_EPUB_MAX_IMAGES_SIZE_MB * 1024 * 1024) // total_images
+                
+                # Расчет коэффициента интерполяции (0.0 - 1.0)
+                min_p_bytes = WORKFLOW_EPUB_BUDGET_POINTS_KB[0] * 1024
+                max_p_bytes = WORKFLOW_EPUB_BUDGET_POINTS_KB[1] * 1024
+                
+                factor = (quota_per_image - min_p_bytes) / (max_p_bytes - min_p_bytes)
+                factor = max(0.0, min(1.0, factor))
+                
+                # Вычисляем целевые параметры
+                target_width = int(WORKFLOW_EPUB_WIDTH_RANGE[0] + (WORKFLOW_EPUB_WIDTH_RANGE[1] - WORKFLOW_EPUB_WIDTH_RANGE[0]) * factor)
+                target_quality = int(WORKFLOW_EPUB_QUALITY_RANGE[0] + (WORKFLOW_EPUB_QUALITY_RANGE[1] - WORKFLOW_EPUB_QUALITY_RANGE[0]) * factor)
+                
+                print(f"[EPUB_REBUILD] Адаптивное сжатие: картинок {total_images}, квота {quota_per_image//1024}KB/шт")
+                print(f"[EPUB_REBUILD] Параметры: ширина {target_width}px, качество {target_quality}")
+            else:
+                target_width = WORKFLOW_EPUB_WIDTH_RANGE[1]
+                target_quality = WORKFLOW_EPUB_QUALITY_RANGE[1]
+                quota_per_image = 1000 * 1024
+
+            def _compress_image_to_jpeg_bytes(raw_bytes: bytes) -> bytes:
                 """
-                Сжимает картинку до JPEG ≤ target_max_bytes.
-                Если Pillow (PIL) не установлен, возвращает оригинал.
+                Адаптивно сжимает картинку под заданную квоту и лимиты.
                 """
                 if not raw_bytes:
                     return raw_bytes
 
+                # Если оригинал уже меньше квоты — не тратим ресурсы на сжатие
+                if len(raw_bytes) <= quota_per_image:
+                    return raw_bytes
+
                 try:
                     from PIL import Image
-                except ImportError:
-                    print("[EPUB_REBUILD] Pillow (PIL) не установлен. Пропуск сжатия картинок.")
-                    return raw_bytes
-
-                src_path = os.path.join(tmp_dir, f"comic_src_{uuid.uuid4().hex}")
-                out_path = os.path.join(tmp_dir, f"comic_out_{uuid.uuid4().hex}.jpg")
-                try:
-                    with open(src_path, "wb") as f:
-                        f.write(raw_bytes)
-
-                    with Image.open(src_path) as im:
-                        im = im.convert("RGB")
+                    # Защита от огромных файлов (Decompression Bomb)
+                    Image.MAX_IMAGE_PIXELS = 100000000 # 100MP
+                    
+                    with Image.open(io.BytesIO(raw_bytes)) as im:
+                        # Если есть прозрачность — накладываем на белый фон, иначе она станет черной
+                        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                            background = Image.new("RGB", im.size, (255, 255, 255))
+                            im = im.convert("RGBA")
+                            background.paste(im, mask=im.split()[3])
+                            im = background
+                        elif im.mode != "RGB":
+                            im = im.convert("RGB")
+                        
                         w, h = im.size
-                        if w > max_width_px and w > 0:
-                            new_h = max(1, int(h * (max_width_px / float(w))))
-                            im = im.resize((max_width_px, new_h), Image.Resampling.LANCZOS)
-
-                        # Подбираем качество до нужного размера
-                        quality_steps = [70, 60, 50, 40, 35, 30, 25]
-                        best_bytes = None
-
-                        for q in quality_steps:
-                            buf = io.BytesIO()
-                            im.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
-                            data = buf.getvalue()
-                            best_bytes = data
-                            if len(data) <= target_max_bytes:
-                                break
-
-                        # Также пишем финал на диск (для соответствия "кладем во временную папку")
-                        with open(out_path, "wb") as f:
-                            f.write(best_bytes or b"")
-                        return best_bytes if best_bytes is not None else raw_bytes
+                        # Ресайз только если ширина больше целевой
+                        if w > target_width:
+                            new_h = int(h * (target_width / float(w)))
+                            im = im.resize((target_width, new_h), Image.Resampling.LANCZOS)
+                        
+                        # Однопроходное сохранение с вычисленным качеством
+                        buf = io.BytesIO()
+                        im.save(buf, format=WORKFLOW_EPUB_TARGET_FORMAT, quality=target_quality, optimize=True, dpi=(72, 72))
+                        return buf.getvalue()
                 except Exception as e:
-                    print(f"[EPUB_REBUILD] Ошибка сжатия картинки: {e}. Используем оригинал.")
+                    print(f"[EPUB_REBUILD] Ошибка адаптивного сжатия: {e}. Используем оригинал.")
                     return raw_bytes
-                finally:
-                    for p in (src_path, out_path):
-                        try:
-                            if p and os.path.exists(p):
-                                os.remove(p)
-                        except Exception:
-                            pass
+            # --- END OF ADAPTIVE LOGIC ---
 
             print(f"[EPUB_REBUILD] Начат процесс для книги: {book_info.get('filename')}")
             
@@ -1319,7 +1338,6 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                                 break
                     if cover_item:
                         ext = os.path.splitext(cover_item.get_name())[1] or '.jpg'
-                        # Важно: используем фиксированное имя cover.jpg/png для стабильности
                         cover_name = f"cover{ext}"
                         book.set_cover(cover_name, cover_item.get_content())
                         print(f"[EPUB_REBUILD] Обложка сохранена как {cover_name}")
@@ -1364,12 +1382,8 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 if internal_id:
                     image_data = workflow_db_manager.get_comic_image_workflow(internal_id)
                     if image_data:
-                        # Сжимаем изображение по одному: ≤100KB, ширина ≤800px, JPEG
-                        # Временная папка создается на весь EPUB build и используется для всех картинок
-                        if 'tmp_img_dir' not in locals():
-                            tmp_img_dir_obj = tempfile.TemporaryDirectory(prefix="epub_comic_")
-                            tmp_img_dir = tmp_img_dir_obj.name
-                        compressed = _compress_image_to_jpeg_bytes(image_data, tmp_img_dir)
+                        # Адаптивное сжатие в памяти
+                        compressed = _compress_image_to_jpeg_bytes(image_data)
 
                         img_name = f"comic_{internal_id}.jpg"
                         img_path = f"images/{img_name}"
@@ -1380,13 +1394,12 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                             media_type="image/jpeg"
                         )
                         book.add_item(img_item)
-                        final_html_body += f'<div style="text-align: center; margin: 1.2em 0;"><img src="{img_path}" alt="Illustration" style="max-width: 100%; height: auto; border-radius: 4px;"/></div>\n'
-                        # освобождаем ссылки как можно раньше
-                        try:
-                            del compressed
-                            del image_data
-                        except Exception:
-                            pass
+                        final_html_body += f'<div style="text-align: center; margin: 1.2em 0;"><img src="{img_path}" alt="Illustration" style="width: 100% !important; height: auto !important; border-radius: 4px;"/></div>\n'
+                        
+                        # Освобождаем память немедленно
+                        del compressed
+                        del image_data
+                        gc.collect()
 
                 # --- FOOTNOTE LOGIC ---
                 if clean_text:
@@ -1479,7 +1492,7 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 )
                 
                 # Компактный CSS для лучшей совместимости
-                css = "<style>body{font-family: serif; margin: 1em; line-height: 1.5;} h1{text-align: center; margin-bottom: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 0.5em;} p{margin: 0.5em 0; text-indent: 1.2em;} img{max-width: 100%; display: block; margin: 1em auto; border-radius: 4px;}</style>"
+                css = "<style>body{font-family: serif; margin: 0.5em; line-height: 1.5;} h1{text-align: center; margin-bottom: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 0.5em;} p{margin: 0.5em 0; text-indent: 1.2em;} img{width: 100% !important; height: auto !important; display: block; margin: 1em auto; border-radius: 4px;}</style>"
                 
                 # Чистый XHTML
                 xhtml_content = f'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="{lang_code}"><head><title>{html.escape(chapter_title)}</title>{css}</head><body>{final_html_body}</body></html>'
@@ -1512,12 +1525,6 @@ def process_book_epub_creation(book_id: str, admin: bool = False):
                 if t_path and os.path.exists(t_path):
                     try: os.remove(t_path)
                     except: pass
-                # Закрываем временную папку для картинок (если создавали)
-                try:
-                    if 'tmp_img_dir_obj' in locals():
-                        tmp_img_dir_obj.cleanup()
-                except Exception:
-                    pass
                 import gc
                 gc.collect()
         

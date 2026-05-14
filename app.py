@@ -1473,8 +1473,21 @@ def workflow_book_comic_view(book_id):
     comic_sections = []
     for section in sections:
         # Проверяем наличие изображения в БД БЕЗ загрузки блоба
-        if workflow_db_manager.check_comic_image_exists(section['section_id']):
-            section['comic_url'] = url_for('workflow_api_comic_image', section_id=section['section_id'])
+        image_ts = workflow_db_manager.check_comic_image_exists(section['section_id'])
+        if image_ts:
+            # Превращаем timestamp в строку для URL
+            from datetime import datetime
+            if isinstance(image_ts, str):
+                 try:
+                     # Пытаемся распарсить строку из БД (обычно "2024-...")
+                     ts_obj = datetime.strptime(image_ts, '%Y-%m-%d %H:%M:%S')
+                     image_ver = int(ts_obj.timestamp())
+                 except:
+                     image_ver = image_ts # fallback
+            else:
+                image_ver = int(image_ts)
+            
+            section['comic_url'] = url_for('workflow_api_comic_image', section_id=section['section_id']) + f'?v={image_ver}'
             # Загружаем суммаризацию для оверлея
             import workflow_cache_manager
             section['summary'] = workflow_cache_manager.load_section_stage_result(book_id, section['section_id'], 'summarize')
@@ -1574,8 +1587,8 @@ def workflow_api_comic_image(section_id):
         mimetype = 'application/octet-stream'
 
     resp = Response(image_data, mimetype=mimetype)
-    # Разрешаем браузеру кэшировать и не перетягивать заново при скролле/возврате на страницу
-    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    # Используем более мягкое кэширование: разрешаем кэш, но требуем проверку (ETag/Timestamp в URL решит проблему)
+    resp.headers['Cache-Control'] = 'no-cache, must-revalidate'
     return resp
 
 @app.route('/admin/system_status')

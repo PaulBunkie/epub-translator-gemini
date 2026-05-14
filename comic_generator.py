@@ -380,14 +380,25 @@ Book Summaries:
             #     "(close-ups, wide shots, low angles, Dutch tilt). Each panel must show clear progression and escalating tension. "
             #     "Style: bold, kinetic, high-end modern graphic novel, Studio Ghibli inspired graphic."
             # )
+            # BASE_PROMPT = (
+            #     "A sequence of cinematic live-action film frames, modern asymmetric panel layout, visual storytelling through multiple connected scenes, "
+            #     "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
+            #     "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
+            #     "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
+            #     "CRITICAL: No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
+            #     "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
+            # )
             BASE_PROMPT = (
-                "A sequence of cinematic live-action film frames, modern asymmetric panel layout, visual storytelling through multiple connected scenes, "
+                "A seamless cinematic multi-scene composition combining several connected live-action moments into a single unified image, "
+                "natural visual flow between scenes, organic transitions, no bordered panels, no storyboard layout, no comic page structure, "
                 "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
                 "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
                 "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
-                "CRITICAL: No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
-                "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
-            )
+                "ABSOLUTELY NO TEXT OR SYMBOLS OF ANY KIND: no captions, no letters, no words, no subtitles, no labels, no logos, no watermarks, "
+                "no numbering, no roman numerals, no panel markers, no interface elements, no title cards. "
+                "The image must look like a real cinematic artwork, not a poster, comic, storyboard, infographic, contact sheet, character sheet, or magazine layout. "
+                "No comic style, no cartoon, no cel shading, no illustration, no anime, no graphic design elements."
+            )            
 
             for section in sections:
                 section_id = section['section_id']

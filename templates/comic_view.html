@@ -157,6 +157,13 @@
         <header>
             <h1>Комикс по книге</h1>
             <div style="margin-top: 10px; color: #aaa;">{{ book.filename }}</div>
+            {% if admin %}
+                <div style="margin-top: 15px;">
+                    <button id="resetComicGlobal" class="regenerate-btn" style="color: #ff6b6b; border-color: rgba(255, 107, 107, 0.3);">
+                        <i class="fas fa-trash-alt"></i> Сбросить и удалить весь комикс
+                    </button>
+                </div>
+            {% endif %}
         </header>
 
         {% if sections %}
@@ -191,6 +198,34 @@
     </div>
 
     <script>
+        // Обработка глобального сброса
+        const resetBtn = document.getElementById('resetComicGlobal');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', async () => {
+                const bookId = "{{ book.book_id }}";
+                if (!confirm('Вы уверены, что хотите полностью УДАЛИТЬ все изображения этого комикса и сбросить Cast-лист? Это действие нельзя отменить.')) return;
+
+                resetBtn.disabled = true;
+                try {
+                    const response = await fetch(`/workflow/api/book/${bookId}/reset_comic?admin=true`, {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    if (data.status === 'success') {
+                        // Перенаправляем в Workflow Dashboard
+                        window.location.href = "{{ url_for('workflow_index', admin='true') }}";
+                    } else {
+                        alert('Ошибка сброса: ' + data.message);
+                        resetBtn.disabled = false;
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('Произошла сетевая ошибка при сбросе');
+                    resetBtn.disabled = false;
+                }
+            });
+        }
+
         // Обработка перегенерации
         document.querySelectorAll('.regenerate-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
