@@ -208,7 +208,10 @@ Text to Analyze:
 class WorkflowTranslator:
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
     LITEROUTER_API_URL = "https://api.literouter.com/v1"
-    # TODO: Добавить URL для Google API, если будем его реализовывать здесь же
+    
+    # Реестр заблокированных провайдеров (на уровне класса)
+    # Если провайдер попал сюда, он будет пропускаться во всех операциях до перезапуска
+    DISABLED_PROVIDERS = set()
     
     # Конфигурация моделей импортируется из workflow_model_config
 
@@ -934,6 +937,7 @@ class WorkflowTranslator:
                                 # --- ДЕТЕКТОР ОШИБКИ КОНФИГУРАЦИИ LiteRouter ---
                                 if "Context Multiplier Configuration Required" in output_content:
                                     print(f"[LiteRouter] КРИТИЧЕСКАЯ ОШИБКА НАСТРОЙКИ: Требуется увеличить Multipliers в дашборде LiteRouter!")
+                                    WorkflowTranslator.DISABLED_PROVIDERS.add('literouter')
                                     return "__LITEROUTER_CONFIG_REQUIRED__", model_name
                                 # --- КОНЕЦ ДЕТЕКТОРА ---
 
@@ -965,7 +969,28 @@ class WorkflowTranslator:
                             print(f"{log_prefix} Ошибка: Неверный формат ответа от API.")
                             return None, model_name
                     elif response.status_code == 429 or response.status_code == 403:
-                        print(f"{log_prefix} Ошибка {response.status_code}. Повторная попытка...")
+                        print(f"{log_prefix} Ошибка {response.status_code} (Rate Limit или Доступ).")
+                        
+                        # Блокируем провайдера, если достигнут дневной лимит (403) или Rate Limit (429)
+                        is_limit_reached = False
+                        if response.status_code == 429:
+                            is_limit_reached = True
+                        elif response.status_code == 403:
+                            # Проверяем текст ошибки на наличие упоминания лимитов
+                            try:
+                                error_text = response.text.lower()
+                                if "limit reached" in error_text or "tier" in error_text or "quota" in error_text:
+                                    is_limit_reached = True
+                            except:
+                                pass
+                        
+                        if is_limit_reached:
+                            print(f"{log_prefix} Провайдер {api_type} заблокирован из-за исчерпания лимитов.")
+                            WorkflowTranslator.DISABLED_PROVIDERS.add(api_type)
+                            # При лимите не имеет смысла делать ретраи внутри одного вызова
+                            return None, model_name
+                        
+                        print(f"{log_prefix} Повторная попытка...")
                         time.sleep(current_delay)
                         current_delay *= 2
                         continue
@@ -1183,6 +1208,26 @@ class WorkflowTranslator:
         current_model = model_name
         
         while current_model:
+            # --- УМНЫЙ ПРОПУСК ЗАБЛОКИРОВАННЫХ ПРОВАЙДЕРОВ ---
+            provider = self._determine_api_type(current_model)
+            if provider in WorkflowTranslator.DISABLED_PROVIDERS:
+                print(f"[WorkflowTranslator] Провайдер '{provider}' временно недоступен. Пропускаем модель '{current_model}'.")
+                next_model = self._get_fallback_model(operation_type, current_model)
+                if not next_model or next_model == current_model:
+                    # Если больше нет моделей в цепочке, пробуем DEFAULT_MODEL (если она не заблокирована)
+                    import workflow_model_config
+                    default_model = getattr(workflow_model_config, 'DEFAULT_MODEL', 'openrouter/free')
+                    default_provider = self._determine_api_type(default_model)
+                    
+                    if current_model != default_model and default_provider not in WorkflowTranslator.DISABLED_PROVIDERS:
+                         current_model = default_model
+                         continue
+                    else:
+                        break
+                current_model = next_model
+                continue
+            # --- КОНЕЦ УМНОГО ПРОПУСКА ---
+
             print(f"[WorkflowTranslator] Попытка с моделью: {current_model}")
             result, actual_model = self._translate_segment(
                 text_to_translate,
