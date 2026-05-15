@@ -685,8 +685,12 @@ class WorkflowTranslator:
     def _determine_api_type(self, model_name: str) -> str:
         """
         Определяет тип API на основе имени модели.
+        vertex/ -> vertex
+        models/ -> google
+        literouter/ -> literouter
+        Все остальное -> openrouter
         """
-        if not model_name or model_name == workflow_model_config.DEFAULT_MODEL:
+        if not model_name:
             return "openrouter"
             
         if model_name.startswith('vertex/'):
@@ -696,6 +700,8 @@ class WorkflowTranslator:
         elif model_name.startswith('literouter/'):
             return "literouter"
         else:
+            # Все модели без спец-префиксов (включая deepseek/, openrouter/, nvidia/ и т.д.) 
+            # считаются идущими через OpenRouter
             return "openrouter"
 
     def _call_model_api(
@@ -731,7 +737,7 @@ class WorkflowTranslator:
 
         if api_type == "vertex":
             if not self.vertex_available:
-                print("[WorkflowTranslator] ОШИБКА: Vertex AI не инициализирован (нет GCP_CREDENTIALS).")
+                print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: Vertex AI не инициализирован. Модели Vertex будут пропускаться.")
                 return None, model_name
 
             # Убираем префикс vertex/ для вызова API
@@ -776,9 +782,9 @@ class WorkflowTranslator:
 
         elif api_type == "google":
             if not self.google_api_key:
-                print("[WorkflowTranslator] ОШИБКА: GOOGLE_API_KEY не установлен.")
+                print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: GOOGLE_API_KEY не установлен. Модели Google будут пропускаться.")
                 return None, model_name
-
+                
             # Преобразуем messages в формат Google API
             prompt = ""
             for message in messages:
@@ -829,14 +835,14 @@ class WorkflowTranslator:
         elif api_type == "openrouter" or api_type == "literouter":
             if api_type == "openrouter":
                 if not self.openrouter_api_key:
-                     print("[WorkflowTranslator] ОШИБКА: OPENROUTER_API_KEY не установлен.")
+                     print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: OPENROUTER_API_KEY не установлен. Модели OpenRouter будут пропускаться.")
                      return None, model_name
                 url = f"{self.OPENROUTER_API_URL}/chat/completions"
                 api_key = self.openrouter_api_key
                 log_prefix = "[OpenRouter]"
             else:
                 if not self.literouter_api_key:
-                     print("[WorkflowTranslator] ОШИБКА: LITEROUTER_API_KEY не установлен.")
+                     print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: LITEROUTER_API_KEY не установлен. Модели LiteRouter будут пропускаться.")
                      return None, model_name
                 
                 url = f"{self.LITEROUTER_API_URL}/chat/completions"
@@ -993,8 +999,13 @@ class WorkflowTranslator:
                                 pass
                         
                         if is_limit_reached:
-                            print(f"{log_prefix} Провайдер {api_type} заблокирован из-за исчерпания лимитов.")
-                            WorkflowTranslator.DISABLED_PROVIDERS.add(api_type)
+                            print(f"{log_prefix} Провайдер {api_type} заблокирован из-за исчерпания лимитов. (Статус: {response.status_code})")
+                            
+                            # Никогда не блокируем OpenRouter, так как это база. 
+                            # Другие провайдеры (LiteRouter, Vertex, Google) блокируются при исчерпании лимитов.
+                            if api_type != 'openrouter':
+                                WorkflowTranslator.DISABLED_PROVIDERS.add(api_type)
+                                
                             # При лимите не имеет смысла делать ретраи внутри одного вызова
                             return None, model_name
                         
