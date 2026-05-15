@@ -292,7 +292,7 @@ class WorkflowTranslator:
     def _get_fallback_model(self, operation_type: str, current_model: str) -> str | None:
         """
         Возвращает следующую модель в цепочке fallback для указанной операции.
-        Поддерживает три уровня: primary -> fallback_level1 -> fallback_level2
+        Динамически определяет текущий уровень и возвращает следующий доступный.
         """
         try:
             import workflow_model_config
@@ -302,27 +302,36 @@ class WorkflowTranslator:
             if not models:
                 return None
             
-            # Определяем текущий уровень и возвращаем следующий
-            if current_model == models.get('primary'):
-                next_model = models.get('fallback_level1')
+            # Составляем упорядоченный список ключей: primary, fallback_level1, fallback_level2, ...
+            # Мы ищем ключи, которые начинаются с 'fallback_level' и сортируем их по номеру
+            fallback_keys = [k for k in models.keys() if k.startswith('fallback_level')]
+            fallback_keys.sort(key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 0)
+            
+            ordered_keys = ['primary'] + fallback_keys
+            
+            # Находим текущий ключ модели
+            current_key = None
+            for key in ordered_keys:
+                if models.get(key) == current_model:
+                    current_key = key
+                    break
+            
+            if not current_key:
+                return None
+                
+            # Находим индекс текущего ключа и берем следующий
+            current_idx = ordered_keys.index(current_key)
+            if current_idx + 1 < len(ordered_keys):
+                next_key = ordered_keys[current_idx + 1]
+                next_model = models.get(next_key)
                 if next_model and next_model != current_model:
-                    print(f"[WorkflowTranslator] Переключение на fallback_level1: {next_model}")
-                    return next_model
-            elif current_model == models.get('fallback_level1'):
-                next_model = models.get('fallback_level2')
-                if next_model and next_model != current_model:
-                    print(f"[WorkflowTranslator] Переключение на fallback_level2: {next_model}")
-                    return next_model
-            elif current_model == models.get('fallback_level2'):
-                next_model = models.get('fallback_level3')
-                if next_model and next_model != current_model:
-                    print(f"[WorkflowTranslator] Переключение на fallback_level3: {next_model}")
+                    print(f"[WorkflowTranslator] Переключение на {next_key}: {next_model}")
                     return next_model
             
             return None
             
-        except ImportError:
-            print(f"[WorkflowTranslator] Предупреждение: Не удалось импортировать workflow_model_config")
+        except Exception as e:
+            print(f"[WorkflowTranslator] Ошибка в _get_fallback_model: {e}")
             return None
 
     def _save_translation_debug(self, section_id: int, model_name: str, translation_text: str, original_text: str = None, book_id: str = None):
@@ -1154,8 +1163,8 @@ class WorkflowTranslator:
         admin: bool = False
     ) -> str | None | tuple[str | None, str | None]:
         """
-        Ф3 - Fallback контроллер: пытается с тремя уровнями моделей.
-        Уровень 1: primary -> Уровень 2: fallback_level1 -> Уровень 3: fallback_level2
+        Ф3 - Fallback контроллер: итерируется по всем доступным уровням моделей.
+        Пытается выполнить операцию с primary, а затем со всеми fallback_level(i) по порядку.
         """
         print(f"[WorkflowTranslator] Вызов операции '{operation_type}' для текста длиной {len(text_to_translate)} символов")
 
@@ -1166,40 +1175,19 @@ class WorkflowTranslator:
                 model_name = workflow_model_config.get_model_for_operation(operation_type, 'primary')
                 if not model_name:
                     print(f"[WorkflowTranslator] Ошибка: не найдена primary модель для операции '{operation_type}'")
-                    return None
+                    return (None, None) if return_model else None
             except ImportError:
                 print(f"[WorkflowTranslator] Ошибка: не удалось импортировать workflow_model_config")
-                return None
+                return (None, None) if return_model else None
 
-        # Уровень 1: Пытаемся с primary моделью
-        print(f"[WorkflowTranslator] Попытка с primary моделью: {model_name}")
-        result, actual_model = self._translate_segment(
-            text_to_translate,
-            target_language,
-            model_name,
-            operation_type,
-            prompt_ext,
-            dict_data,
-            section_id,
-            book_id,
-            admin=admin
-        )
-        if result:
-            # Сохраняем модель для book-level операций (когда section_id=None)
-            if not section_id and book_id:
-                self._save_model_to_db(book_id, section_id, operation_type, actual_model)
-            # Для section-level операций модель будет сохранена в process_section_translate
-            if return_model:
-                return result, actual_model
-            return result
+        current_model = model_name
         
-        # Уровень 2: Пытаемся с fallback_level1
-        fallback_model = self._get_fallback_model(operation_type, actual_model)
-        if fallback_model:
+        while current_model:
+            print(f"[WorkflowTranslator] Попытка с моделью: {current_model}")
             result, actual_model = self._translate_segment(
                 text_to_translate,
                 target_language,
-                fallback_model,
+                current_model,
                 operation_type,
                 prompt_ext,
                 dict_data,
@@ -1207,6 +1195,7 @@ class WorkflowTranslator:
                 book_id,
                 admin=admin
             )
+            
             if result:
                 # Сохраняем модель для book-level операций (когда section_id=None)
                 if not section_id and book_id:
@@ -1216,53 +1205,25 @@ class WorkflowTranslator:
                     return result, actual_model
                 return result
             
-            # Уровень 3: Пытаемся с fallback_level2
-            fallback_model2 = self._get_fallback_model(operation_type, actual_model)
-            if fallback_model2:
-                result, actual_model = self._translate_segment(
-                    text_to_translate,
-                    target_language,
-                    fallback_model2,
-                    operation_type,
-                    prompt_ext,
-                    dict_data,
-                    section_id,
-                    book_id,
-                    admin=admin
-                )
-                if result:
-                    # Сохраняем модель для book-level операций (когда section_id=None)
-                    if not section_id and book_id:
-                        self._save_model_to_db(book_id, section_id, operation_type, actual_model)
-                    # Для section-level операций модель будет сохранена в process_section_translate
-                    if return_model:
-                        return result, actual_model
-                    return result
-        
-            # Уровень 4: Пытаемся с fallback_level3
-            fallback_model3 = self._get_fallback_model(operation_type, actual_model)
-            if fallback_model3:
-                result, actual_model = self._translate_segment(
-                    text_to_translate,
-                    target_language,
-                    fallback_model3,
-                    operation_type,
-                    prompt_ext,
-                    dict_data,
-                    section_id,
-                    book_id,
-                    admin=admin
-                )
-                if result:
-                    # Сохраняем модель для book-level операций (когда section_id=None)
-                    if not section_id and book_id:
-                        self._save_model_to_db(book_id, section_id, operation_type, actual_model)
-                    # Для section-level операций модель будет сохранена в process_section_translate
-                    if return_model:
-                        return result, actual_model
-                    return result
-        
-        print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех четырех уровнях")
+            # Если не получилось, ищем следующую модель в цепочке fallback
+            next_model = self._get_fallback_model(operation_type, current_model)
+            
+            # Если цепочка fallback исчерпана, пробуем DEFAULT_MODEL в качестве последней попытки
+            if not next_model or next_model == current_model:
+                import workflow_model_config
+                default_model = getattr(workflow_model_config, 'DEFAULT_MODEL', 'openrouter/free')
+                
+                if current_model != default_model:
+                    print(f"[WorkflowTranslator] Цепочка fallback исчерпана. Последняя попытка с DEFAULT_MODEL: {default_model}")
+                    current_model = default_model
+                    continue
+                else:
+                    print(f"[WorkflowTranslator] Цепочка fallback исчерпана и DEFAULT_MODEL уже была опробована.")
+                    break
+            
+            current_model = next_model
+
+        print(f"[WorkflowTranslator] Ошибка: операция '{operation_type}' не удалась на всех доступных уровнях")
         if return_model:
             return None, None
         return None
