@@ -248,6 +248,16 @@
 
             <h2>
                 <a href="#" id="toggleBookListBtn" class="toggle-list-link">Books in Workflow ▼</a>
+                <div class="sorting-controls" style="display: inline-block; margin-left: 20px; font-size: 0.8em;">
+                    <label for="sortSelect" style="color: #718096; font-weight: normal;">Сортировать по:</label>
+                    <select id="sortSelect" style="padding: 2px 5px; border-radius: 4px; border: 1px solid #cbd5e0; font-size: 0.9em; background: white;">
+                        <option value="date-desc">Дате (новые сверху)</option>
+                        <option value="date-asc">Дате (старые сверху)</option>
+                        <option value="name-asc">Имени (А-Я)</option>
+                        <option value="name-desc">Имени (Я-А)</option>
+                        <option value="status">Статусу</option>
+                    </select>
+                </div>
             </h2>
             <div id="bookListContainer">
             <ul class="book-list">
@@ -258,6 +268,9 @@
                             {% if book.target_language %}
                                 <span class="language">({{ book.target_language }})</span>
                             {% endif %}
+                            <div class="book-date" style="font-size: 0.8em; color: #718096; margin-top: 2px;" data-upload-time="{{ book.upload_time }}">
+                                <i class="far fa-calendar-alt"></i> {{ book.upload_time }}
+                            </div>
                             <div class="book-status book-status-{{ book.status | lower }}">
                                 Status: <span class="book-overall-status">{{ book.status or 'unknown' }}</span>
                                 {% if book.book_stage_statuses %}

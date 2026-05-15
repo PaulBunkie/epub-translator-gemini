@@ -1284,6 +1284,7 @@ def workflow_index():
              workflow_books.append({
                  'book_id': book_data['book_id'],
                  'filename': book_data['filename'],
+                 'upload_time': book_data.get('upload_time'),
                  'status': book_data.get('current_workflow_status') or 'pending',
                  'target_language': book_data.get('target_language'),
                  'comic_status': book_data.get('comic_status'),

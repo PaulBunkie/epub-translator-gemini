@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const bookList = document.querySelector('.book-list');
     const toggleBookListBtn = document.getElementById('toggleBookListBtn');
     const bookListContainer = document.getElementById('bookListContainer');
+    const sortSelect = document.getElementById('sortSelect');
     
     const editAnalysisOverlay = document.getElementById('editAnalysisOverlay');
     const analysisTextArea = document.getElementById('analysisTextArea');
@@ -32,6 +33,73 @@ document.addEventListener('DOMContentLoaded', () => {
             const isHidden = bookListContainer.classList.contains('hidden-list');
             toggleBookListBtn.textContent = isHidden ? 'Books in Workflow ▼' : 'Books in Workflow ▲';
         });
+    }
+
+    if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+            sortBooks();
+            // Сохраняем выбор в localStorage
+            localStorage.setItem('workflowSortOrder', sortSelect.value);
+        });
+
+        // Загружаем сохраненную сортировку
+        const savedSort = localStorage.getItem('workflowSortOrder');
+        if (savedSort) {
+            sortSelect.value = savedSort;
+            // Применяем сортировку после загрузки всех книг (DOMContentLoaded уже сработал)
+            setTimeout(sortBooks, 100);
+        }
+    }
+
+    function sortBooks() {
+        if (!bookList || !sortSelect) return;
+        
+        const books = Array.from(bookList.querySelectorAll('.book-item'));
+        const sortOrder = sortSelect.value;
+        
+        // Веса статусов для правильной группировки
+        const statusWeights = {
+            'error': 1,
+            'error_unknown': 1,
+            'awaiting_edit': 2,
+            'processing': 3,
+            'queued': 4,
+            'uploaded': 5,
+            'idle': 6,
+            'completed_with_errors': 7,
+            'completed': 8
+        };
+        
+        books.sort((a, b) => {
+            const nameA = a.querySelector('.book-info strong').textContent.toLowerCase();
+            const nameB = b.querySelector('.book-info strong').textContent.toLowerCase();
+            const statusA = a.querySelector('.book-overall-status').textContent.toLowerCase().trim();
+            const statusB = b.querySelector('.book-overall-status').textContent.toLowerCase().trim();
+            const dateA = a.querySelector('.book-date').getAttribute('data-upload-time') || '';
+            const dateB = b.querySelector('.book-date').getAttribute('data-upload-time') || '';
+            const idA = a.getAttribute('data-book-id');
+            const idB = b.getAttribute('data-book-id');
+            
+            switch (sortOrder) {
+                case 'name-asc':
+                    return nameA.localeCompare(nameB);
+                case 'name-desc':
+                    return nameB.localeCompare(nameA);
+                case 'status':
+                    const weightA = statusWeights[statusA] || 99;
+                    const weightB = statusWeights[statusB] || 99;
+                    if (weightA !== weightB) return weightA - weightB;
+                    return dateB.localeCompare(dateA); // Внутри статуса сортируем по дате (новые выше)
+                case 'date-asc':
+                    return dateA.localeCompare(dateB) || idA.localeCompare(idB);
+                case 'date-desc':
+                default:
+                    return dateB.localeCompare(dateA) || idB.localeCompare(idA);
+            }
+        });
+        
+        // Очищаем и добавляем отсортированные элементы
+        books.forEach(book => bookList.appendChild(book));
     }
 
     function showProgressOverlay(message = 'Starting...') {

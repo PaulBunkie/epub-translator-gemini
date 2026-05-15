@@ -364,6 +364,13 @@ def get_all_books_workflow():
             book_info = dict(row)
             book_id = book_info['book_id']
             
+            # Превращаем upload_time в строку, если это объект datetime
+            if book_info.get('upload_time'):
+                if hasattr(book_info['upload_time'], 'strftime'):
+                    book_info['upload_time'] = book_info['upload_time'].strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    book_info['upload_time'] = str(book_info['upload_time'])
+
             # Получаем количество секций
             book_info['total_sections_count'] = get_section_count_for_book_workflow(book_id)
             

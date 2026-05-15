@@ -296,6 +296,7 @@ class WorkflowTranslator:
         """
         Возвращает следующую модель в цепочке fallback для указанной операции.
         Динамически определяет текущий уровень и возвращает следующий доступный.
+        ПРОПУСКАЕТ модели, провайдеры которых находятся в DISABLED_PROVIDERS.
         """
         try:
             import workflow_model_config
@@ -306,30 +307,37 @@ class WorkflowTranslator:
                 return None
             
             # Составляем упорядоченный список ключей: primary, fallback_level1, fallback_level2, ...
-            # Мы ищем ключи, которые начинаются с 'fallback_level' и сортируем их по номеру
             fallback_keys = [k for k in models.keys() if k.startswith('fallback_level')]
             fallback_keys.sort(key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else 0)
             
             ordered_keys = ['primary'] + fallback_keys
             
-            # Находим текущий ключ модели
-            current_key = None
-            for key in ordered_keys:
+            # Находим индекс текущей модели
+            start_idx = -1
+            for i, key in enumerate(ordered_keys):
                 if models.get(key) == current_model:
-                    current_key = key
+                    start_idx = i
                     break
             
-            if not current_key:
+            if start_idx == -1:
                 return None
                 
-            # Находим индекс текущего ключа и берем следующий
-            current_idx = ordered_keys.index(current_key)
-            if current_idx + 1 < len(ordered_keys):
-                next_key = ordered_keys[current_idx + 1]
+            # Итерируемся по оставшимся моделям, пока не найдем подходящую (не заблокированную)
+            for i in range(start_idx + 1, len(ordered_keys)):
+                next_key = ordered_keys[i]
                 next_model = models.get(next_key)
-                if next_model and next_model != current_model:
-                    print(f"[WorkflowTranslator] Переключение на {next_key}: {next_model}")
-                    return next_model
+                
+                if not next_model or next_model == current_model:
+                    continue
+                
+                # Проверка провайдера
+                next_provider = self._determine_api_type(next_model)
+                if next_provider in WorkflowTranslator.DISABLED_PROVIDERS:
+                    print(f"[WorkflowTranslator] Фоллбэк-модель '{next_model}' ({next_key}) пропущена: провайдер '{next_provider}' заблокирован.")
+                    continue
+                
+                print(f"[WorkflowTranslator] Переключение на {next_key}: {next_model}")
+                return next_model
             
             return None
             
@@ -1211,19 +1219,26 @@ class WorkflowTranslator:
             # --- УМНЫЙ ПРОПУСК ЗАБЛОКИРОВАННЫХ ПРОВАЙДЕРОВ ---
             provider = self._determine_api_type(current_model)
             if provider in WorkflowTranslator.DISABLED_PROVIDERS:
-                print(f"[WorkflowTranslator] Провайдер '{provider}' временно недоступен. Пропускаем модель '{current_model}'.")
+                print(f"[WorkflowTranslator] Провайдер '{provider}' заблокирован. Пропускаем модель '{current_model}'.")
+                
+                # Ищем следующую модель
                 next_model = self._get_fallback_model(operation_type, current_model)
+                
+                # Если следующая модель того же провайдера, мы её тоже пропустим на следующей итерации
                 if not next_model or next_model == current_model:
-                    # Если больше нет моделей в цепочке, пробуем DEFAULT_MODEL (если она не заблокирована)
+                    # Если цепочка кончилась, пробуем DEFAULT_MODEL (если она другого провайдера и не заблокирована)
                     import workflow_model_config
                     default_model = getattr(workflow_model_config, 'DEFAULT_MODEL', 'openrouter/free')
                     default_provider = self._determine_api_type(default_model)
                     
                     if current_model != default_model and default_provider not in WorkflowTranslator.DISABLED_PROVIDERS:
+                         print(f"[WorkflowTranslator] Цепочка исчерпана, переходим к DEFAULT_MODEL.")
                          current_model = default_model
                          continue
                     else:
+                        print(f"[WorkflowTranslator] Нет доступных альтернатив для заблокированного провайдера '{provider}'.")
                         break
+                
                 current_model = next_model
                 continue
             # --- КОНЕЦ УМНОГО ПРОПУСКА ---
