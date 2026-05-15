@@ -1155,6 +1155,16 @@ class WorkflowTranslator:
         for attempt in range(max_retries + 1):
             result, actual_model = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id, admin=admin)
             last_used_model = actual_model
+            
+            # --- ПРОВЕРКА НА БЛОКИРОВКУ ПРОВАЙДЕРА ---
+            # Если после вызова API провайдер оказался в списке заблокированных, 
+            # мы НЕМЕДЛЕННО выходим из цикла ретраев чанка, чтобы сработал fallback уровня Ф3.
+            provider = self._determine_api_type(actual_model)
+            if provider != 'openrouter' and provider in WorkflowTranslator.DISABLED_PROVIDERS:
+                print(f"[WorkflowTranslator] Провайдер '{provider}' заблокирован во время выполнения. Прекращаем ретраи для этой модели.")
+                return None, actual_model
+            # --- КОНЕЦ ПРОВЕРКИ ---
+
             if result is not None and result != CONTEXT_LIMIT_ERROR:
                 return result, actual_model
             
