@@ -207,9 +207,13 @@ class GoogleTranslator(BaseTranslator):
             models = []
             for model in genai.list_models():
                 if "generateContent" in model.supported_generation_methods:
+                    model_id = model.name
+                    # Добавляем префикс провайдера в display_name для Google
+                    full_display_name = f"[G] {model_id}"
+                    
                     models.append({
-                        'name': model.name,
-                        'display_name': f"Google {model.name}",
+                        'name': model_id,
+                        'display_name': full_display_name,
                         'input_token_limit': model.input_token_limit,
                         'output_token_limit': model.output_token_limit,
                         'source': 'google',
@@ -315,11 +319,16 @@ class OpenRouterTranslator(BaseTranslator):
                 pricing = model.get('pricing', {})
                 is_free = float(pricing.get('prompt', 1)) == 0.0 and float(pricing.get('completion', 1)) == 0.0
                 
+                model_id = model['id']
+                display_name = model.get('name', model_id)
+                # Добавляем префикс провайдера в display_name для OpenRouter
+                full_display_name = f"[OR] {display_name}"
+                
                 processed_models.append({
-                    'name': model['id'],
-                    'display_name': model.get('name', model['id']),
-                    'input_token_limit': model.get('context_length'),  # Переименовываем context_length в input_token_limit
-                    'output_token_limit': model.get('top_provider', {}).get('max_completion_tokens'),  # Переименовываем max_completion_tokens в output_token_limit
+                    'name': model_id,
+                    'display_name': full_display_name,
+                    'input_token_limit': model.get('context_length'),
+                    'output_token_limit': model.get('top_provider', {}).get('max_completion_tokens'),
                     'pricing': pricing,
                     'is_free': is_free,
                     'source': 'openrouter'
@@ -765,9 +774,14 @@ class LiteRouterTranslator(OpenRouterTranslator):
             
             processed_models = []
             for model in models_data:
+                model_id = model['id']
+                display_name = model.get('name', model_id)
+                # Добавляем префикс провайдера в display_name для LiteRouter
+                full_display_name = f"[LR] {display_name}"
+                
                 processed_models.append({
-                    'name': model['id'],
-                    'display_name': model.get('name', model['id']),
+                    'name': model_id,
+                    'display_name': full_display_name,
                     'input_token_limit': model.get('context_length', 4096),
                     'output_token_limit': model.get('max_completion_tokens', 4096),
                     'is_free': False, # LiteRouter обычно платный
