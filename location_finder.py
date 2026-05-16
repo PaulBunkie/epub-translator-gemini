@@ -36,16 +36,18 @@ class LocationFinderAI:
         # Google API
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         
-        # OpenRouter API
+        # OpenRouter/LiteRouter API
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        self.literouter_api_key = os.getenv("LITEROUTER_API_KEY")
+        self.literouter_api_url = "https://api.literouter.com/v1"
         
         # Модели для анализа
         self.primary_model = PRIMARY_MODEL
         self.fallback_model = FALLBACK_MODEL
         
-        if not self.google_api_key and not self.openrouter_api_key:
-            raise ValueError("Необходимо установить GOOGLE_API_KEY или OPENROUTER_API_KEY")
+        if not self.google_api_key and not self.openrouter_api_key and not self.literouter_api_key:
+            raise ValueError("Необходимо установить GOOGLE_API_KEY, OPENROUTER_API_KEY или LITEROUTER_API_KEY")
     
     def _get_api_source(self, model_name: str) -> str:
         """
@@ -54,6 +56,8 @@ class LocationFinderAI:
         """
         if model_name.startswith("gemini-"):
             return "google"
+        elif model_name.startswith("literouter/"):
+            return "literouter"
         elif "/" in model_name:  # OpenRouter модели содержат "/"
             return "openrouter"
         else:
@@ -92,15 +96,25 @@ class LocationFinderAI:
     
     def _analyze_with_openrouter(self, person_name: str, news_summaries_text: str, model_name: str) -> Optional[dict]:
         """
-        Анализирует локацию с помощью OpenRouter API.
+        Анализирует локацию с помощью OpenRouter или LiteRouter API.
         """
         try:
-            if not self.openrouter_api_key:
-                print(f"{LF_PRINT_PREFIX} OpenRouter API ключ не установлен")
+            # Определяем провайдера
+            if model_name.startswith("literouter/"):
+                api_url = self.literouter_api_url
+                api_key = self.literouter_api_key
+                provider_name = "LiteRouter"
+            else:
+                api_url = self.openrouter_api_url
+                api_key = self.openrouter_api_key
+                provider_name = "OpenRouter"
+
+            if not api_key:
+                print(f"{LF_PRINT_PREFIX} {provider_name} API ключ не установлен")
                 return None
             
             headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
             
@@ -118,16 +132,16 @@ class LocationFinderAI:
                 "temperature": 0.1
             }
             
-            print(f"{LF_PRINT_PREFIX} [OpenRouter] Отправка запроса к {model_name} для '{person_name}'...")
+            print(f"{LF_PRINT_PREFIX} [{provider_name}] Отправка запроса к {model_name} для '{person_name}'...")
             
             response = requests.post(
-                f"{self.openrouter_api_url}/chat/completions",
+                f"{api_url}/chat/completions",
                 headers=headers,
                 json=payload,
                 timeout=60
             )
             
-            print(f"{LF_PRINT_PREFIX} [OpenRouter] Получен ответ: Статус {response.status_code}")
+            print(f"{LF_PRINT_PREFIX} [{provider_name}] Получен ответ: Статус {response.status_code}")
             
             # Проверка заголовков лимитов
             if 'X-Ratelimit-Remaining' in response.headers:

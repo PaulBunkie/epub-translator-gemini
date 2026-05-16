@@ -13,11 +13,22 @@ class VideoChatHandler:
     
     def __init__(self):
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-        if not self.openrouter_api_key:
-            raise ValueError("Не установлена переменная окружения OPENROUTER_API_KEY")
+        self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        self.literouter_api_key = os.getenv("LITEROUTER_API_KEY")
+        self.literouter_api_url = "https://api.literouter.com/v1"
         
-        self.api_url = "https://openrouter.ai/api/v1/chat/completions"
+        if not self.openrouter_api_key and not self.literouter_api_key:
+            raise ValueError("Не установлена переменная окружения OPENROUTER_API_KEY или LITEROUTER_API_KEY")
+        
         self.max_history_messages = 10  # Максимум сообщений в истории
+
+    def _get_api_config(self, model_name: str) -> tuple[str, str, str]:
+        """
+        Определяет API URL, ключ и название провайдера по имени модели.
+        """
+        if model_name and model_name.startswith("literouter/"):
+            return self.literouter_api_url, self.literouter_api_key, "LiteRouter"
+        return self.openrouter_api_url, self.openrouter_api_key, "OpenRouter"
     
     def get_video_context_prompt(self, video_data: Dict[str, Any], analysis_data: Dict[str, Any]) -> str:
         """
@@ -138,7 +149,7 @@ URL: {url}
     
     def chat_with_model(self, messages: List[Dict[str, str]], model_name: str) -> Optional[str]:
         """
-        Отправляет запрос к модели через OpenRouter API.
+        Отправляет запрос к модели через соответствующий API.
         
         Args:
             messages: Массив сообщений
@@ -148,8 +159,14 @@ URL: {url}
             Ответ модели или None в случае ошибки
         """
         try:
+            api_url, api_key, provider_name = self._get_api_config(model_name)
+            
+            if not api_key:
+                print(f"[VideoChatHandler] Пропускаем модель {model_name}, так как ключ для {provider_name} не установлен")
+                return None
+
             headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
             
@@ -161,17 +178,17 @@ URL: {url}
                 "stream": False
             }
             
-            print(f"[VideoChatHandler] Отправка запроса к модели: {model_name}")
+            print(f"[VideoChatHandler] Отправка запроса к {provider_name} (модель: {model_name})")
             print(f"[VideoChatHandler] Количество сообщений: {len(messages)}")
             
             response = requests.post(
-                self.api_url,
+                f"{api_url}/chat/completions",
                 json=payload,
                 headers=headers,
                 timeout=60
             )
             
-            print(f"[VideoChatHandler] Ответ API: статус {response.status_code}")
+            print(f"[VideoChatHandler] Ответ {provider_name} API: статус {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()

@@ -20,6 +20,8 @@ class VideoAnalyzer:
         self.session_id = os.getenv("YANDEX_SESSION_ID")   # Session_id для fallback
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        self.literouter_api_key = os.getenv("LITEROUTER_API_KEY")
+        self.literouter_api_url = "https://api.literouter.com/v1"
         
         # Модели для анализа из конфигурации
         self.primary_model = get_model_for_operation('video_analyze', 'primary')
@@ -33,8 +35,16 @@ class VideoAnalyzer:
         
         if not self.yandex_token and not self.session_id:
             raise ValueError("Необходимо установить YANDEX_API_TOKEN или YANDEX_SESSION_ID")
-        if not self.openrouter_api_key:
-            raise ValueError("Не установлена переменная окружения OPENROUTER_API_KEY")
+        if not self.openrouter_api_key and not self.literouter_api_key:
+            raise ValueError("Не установлена переменная окружения OPENROUTER_API_KEY или LITEROUTER_API_KEY")
+
+    def _get_api_config(self, model_name: str) -> tuple[str, str, str]:
+        """
+        Определяет API URL, ключ и название провайдера по имени модели.
+        """
+        if model_name and model_name.startswith("literouter/"):
+            return self.literouter_api_url, self.literouter_api_key, "LiteRouter"
+        return self.openrouter_api_url, self.openrouter_api_key, "OpenRouter"
     
     def extract_video_id(self, text: str) -> str | None:
         """Извлекает YouTube video ID из URL"""
@@ -491,9 +501,9 @@ class VideoAnalyzer:
                 
         return False, ""
 
-    def analyze_text_with_openrouter(self, text: str) -> Optional[str]:
+    def analyze_text_with_ai(self, text: str) -> Optional[str]:
         """
-        Анализирует текст с помощью OpenRouter API.
+        Анализирует текст с помощью AI API (OpenRouter или LiteRouter).
         Использует основную модель, а при ошибках - резервную.
         
         Args:
@@ -522,19 +532,25 @@ class VideoAnalyzer:
 
 Итог дай в виде связного обзора с примерно 7-10 пунктами, раскрывающих основные уникальные моменты материала."""
 
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
-            }
-            
             # Список моделей для попыток (основная + две резервные)
             models_to_try = [self.primary_model, self.fallback_model, self.fallback_model2]
             # Фильтруем None значения на случай, если какая-то модель не настроена
             models_to_try = [m for m in models_to_try if m]
             
             for model in models_to_try:
-                print(f"[VideoAnalyzer] Пробуем модель: {model}")
+                api_url, api_key, provider_name = self._get_api_config(model)
+                
+                if not api_key:
+                    print(f"[VideoAnalyzer] Пропускаем модель {model}, так как ключ для {provider_name} не установлен")
+                    continue
+
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+                }
+                
+                print(f"[VideoAnalyzer] Пробуем модель: {model} ({provider_name})")
                 
                 # Retry логика с уменьшением max_tokens для каждой модели
                 max_tokens_options = [64000, 32000, 16000, 8000, 4000, 2000]
@@ -553,10 +569,10 @@ class VideoAnalyzer:
                             "temperature": 0.7
                         }
                         
-                        print(f"[VideoAnalyzer] Отправка запроса к OpenRouter API (модель: {model}, max_tokens: {max_tokens})")
+                        print(f"[VideoAnalyzer] Отправка запроса к {provider_name} API (модель: {model}, max_tokens: {max_tokens})")
                         
                         response = requests.post(
-                            f"{self.openrouter_api_url}/chat/completions",
+                            f"{api_url}/chat/completions",
                             headers=headers,
                             json=payload,
                             timeout=120  # Увеличиваем таймаут
@@ -570,7 +586,7 @@ class VideoAnalyzer:
                                     print(f"[VideoAnalyzer] Получен анализ длиной {len(content)} символов от модели {model}")
                                     return content
                                 else:
-                                    print(f"[VideoAnalyzer] Неверный формат ответа от OpenRouter API для модели {model}")
+                                    print(f"[VideoAnalyzer] Неверный формат ответа от {provider_name} API для модели {model}")
                                     print(f"[VideoAnalyzer] Структура ответа: {data}")
                                     continue  # Пробуем с меньшим max_tokens
                             except json.JSONDecodeError as e:
@@ -578,7 +594,7 @@ class VideoAnalyzer:
                                 print(f"[VideoAnalyzer] Текст ответа: {response.text[:500]}...")
                                 continue  # Пробуем с меньшим max_tokens
                         else:
-                            print(f"[VideoAnalyzer] HTTP ошибка OpenRouter API для модели {model}: {response.status_code}")
+                            print(f"[VideoAnalyzer] HTTP ошибка {provider_name} API для модели {model}: {response.status_code}")
                             try:
                                 error_details = response.json()
                                 print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
@@ -619,8 +635,6 @@ class VideoAnalyzer:
         Returns:
             Переведенный заголовок или оригинал, если перевод не удался
         """
-        
-
         try:
             prompt = """Переведи заголовок на русский язык. Если заголовок уже на русском - верни его без изменений.
 
@@ -636,12 +650,6 @@ class VideoAnalyzer:
 
 Перевод:"""
 
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
-            }
-            
             # Список моделей для попыток (основная + резервные)
             models_to_try = [self.title_translate_primary, self.title_translate_fallback, self.title_translate_fallback2]
             
@@ -649,7 +657,19 @@ class VideoAnalyzer:
                 if not model:
                     continue
                     
-                print(f"[VideoAnalyzer] Пробуем модель для перевода заголовка: {model}")
+                api_url, api_key, provider_name = self._get_api_config(model)
+                
+                if not api_key:
+                    print(f"[VideoAnalyzer] Пропускаем модель {model} для перевода заголовка, так как ключ для {provider_name} не установлен")
+                    continue
+
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+                }
+                
+                print(f"[VideoAnalyzer] Пробуем модель для перевода заголовка: {model} ({provider_name})")
                 
                 try:
                     payload = {
@@ -666,7 +686,7 @@ class VideoAnalyzer:
                     print(f"[VideoAnalyzer] Переводим заголовок: '{title[:50]}...' с моделью {model}")
                     
                     response = requests.post(
-                        f"{self.openrouter_api_url}/chat/completions",
+                        f"{api_url}/chat/completions",
                         headers=headers,
                         json=payload,
                         timeout=30
@@ -699,13 +719,13 @@ class VideoAnalyzer:
                                         print(f"[VideoAnalyzer] Модель вернула пустой ответ для заголовка: '{title}'")
                                         return title
                             else:
-                                print(f"[VideoAnalyzer] Неверный формат ответа от OpenRouter API для перевода заголовка")
+                                print(f"[VideoAnalyzer] Неверный формат ответа от {provider_name} API для перевода заголовка")
                                 continue  # Пробуем следующую модель
                         except json.JSONDecodeError as e:
                             print(f"[VideoAnalyzer] Ошибка парсинга JSON для перевода заголовка: {e}")
                             continue  # Пробуем следующую модель
                     else:
-                        print(f"[VideoAnalyzer] HTTP ошибка OpenRouter API для перевода заголовка: {response.status_code}")
+                        print(f"[VideoAnalyzer] HTTP ошибка {provider_name} API для перевода заголовка: {response.status_code}")
                         try:
                             error_details = response.json()
                             print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
@@ -749,19 +769,25 @@ class VideoAnalyzer:
         try:
             prompt = f"Сформулируй общую идею и выдели ОДНУ любопытную или неожиданную деталь. Изложи их в одной-двух фразах в ЕДКОЙ, ИРОНИЧНОЙ манере. ОТВЕТ ДОЛЖЕН СОСТОЯТЬ ТОЛЬКО ИЗ ЭТИХ ФРАЗ И БЫТЬ ДИНАМИЧНЫМ. Ответ не должен содержать никакого форматирования или тегов, только текст."
 
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
-            }
-            
             # Список моделей для попыток (основная + две резервные)
             models_to_try = [self.primary_model, self.fallback_model, self.fallback_model2]
             # Фильтруем None значения на случай, если какая-то модель не настроена
             models_to_try = [m for m in models_to_try if m]
             
             for model in models_to_try:
-                print(f"[VideoAnalyzer] Генерируем краткую версию с моделью: {model}")
+                api_url, api_key, provider_name = self._get_api_config(model)
+                
+                if not api_key:
+                    print(f"[VideoAnalyzer] Пропускаем модель {model} для краткой версии, так как ключ для {provider_name} не установлен")
+                    continue
+
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+                }
+                
+                print(f"[VideoAnalyzer] Генерируем краткую версию с моделью: {model} ({provider_name})")
                 
                 payload = {
                     "model": model,
@@ -771,55 +797,61 @@ class VideoAnalyzer:
                             "content": f"{prompt}{chr(10)}{chr(10)}{analysis_text}"
                         }
                     ],
-#                    "max_tokens": 200,  # Небольшое количество токенов для краткого ответа
                     "temperature": 0.8  # Немного выше для креативности
                 }
                 
                 # Простой запрос без retry логики
-                print(f"[VideoAnalyzer] Отправляем запрос к OpenRouter для краткой версии (модель: {model})...")
+                print(f"[VideoAnalyzer] Отправляем запрос к {provider_name} для краткой версии (модель: {model})...")
                 
-                response = requests.post(
-                    f"{self.openrouter_api_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
-                        print(f"[VideoAnalyzer] Ответ API для краткой версии (модель {model}): {data}")
-                        if 'choices' in data and len(data['choices']) > 0:
-                            content = data['choices'][0]['message']['content'].strip()
-                            print(f"[VideoAnalyzer] Сырой content от модели {model}: '{content}'")
-                            
-                            if content:  # Проверяем, что контент не пустой
-                                print(f"[VideoAnalyzer] Сгенерирована краткая версия от модели {model}: {content}")
-                                return content
+                try:
+                    response = requests.post(
+                        f"{api_url}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        try:
+                            data = response.json()
+                            print(f"[VideoAnalyzer] Ответ API для краткой версии (модель {model}): {data}")
+                            if 'choices' in data and len(data['choices']) > 0:
+                                content = data['choices'][0]['message']['content'].strip()
+                                print(f"[VideoAnalyzer] Сырой content от модели {model}: '{content}'")
+                                
+                                if content:  # Проверяем, что контент не пустой
+                                    print(f"[VideoAnalyzer] Сгенерирована краткая версия от модели {model}: {content}")
+                                    return content
+                                else:
+                                    print(f"[VideoAnalyzer] API вернул пустой ответ для краткой версии от модели {model}")
+                                    continue  # Пробуем следующую модель
                             else:
-                                print(f"[VideoAnalyzer] API вернул пустой ответ для краткой версии от модели {model}")
+                                print(f"[VideoAnalyzer] Неверный формат ответа для краткой версии от модели {model}")
                                 continue  # Пробуем следующую модель
-                        else:
-                            print(f"[VideoAnalyzer] Неверный формат ответа для краткой версии от модели {model}")
+                        except json.JSONDecodeError as e:
+                            print(f"[VideoAnalyzer] Ошибка парсинга JSON для краткой версии от модели {model}: {e}")
+                            print(f"[VideoAnalyzer] Текст ответа: {response.text[:500]}...")
                             continue  # Пробуем следующую модель
-                    except json.JSONDecodeError as e:
-                        print(f"[VideoAnalyzer] Ошибка парсинга JSON для краткой версии от модели {model}: {e}")
-                        print(f"[VideoAnalyzer] Текст ответа: {response.text[:500]}...")
-                        continue  # Пробуем следующую модель
-                else:
-                    print(f"[VideoAnalyzer] HTTP ошибка при генерации краткой версии от модели {model}: {response.status_code}")
-                    try:
-                        error_details = response.json()
-                        print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
-                        
-                        # Если это ошибка 503 "No instances available", сразу переходим к следующей модели
-                        if response.status_code == 503 and "No instances available" in str(error_details):
-                            print(f"[VideoAnalyzer] Модель {model} недоступна (503) для краткой версии, переходим к следующей")
-                            continue  # Переходим к следующей модели
+                    else:
+                        print(f"[VideoAnalyzer] HTTP ошибка при генерации краткой версии от модели {model}: {response.status_code}")
+                        try:
+                            error_details = response.json()
+                            print(f"[VideoAnalyzer] Детали ошибки: {error_details}")
                             
-                    except:
-                        print(f"[VideoAnalyzer] Текст ошибки: {response.text[:500]}...")
-                    continue  # Пробуем следующую модель
+                            # Если это ошибка 503 "No instances available", сразу переходим к следующей модели
+                            if response.status_code == 503 and "No instances available" in str(error_details):
+                                print(f"[VideoAnalyzer] Модель {model} недоступна (503) для краткой версии, переходим к следующей")
+                                continue  # Переходим к следующей модели
+                                
+                        except:
+                            print(f"[VideoAnalyzer] Текст ошибки: {response.text[:500]}...")
+                        continue  # Пробуем следующую модель
+                except requests.exceptions.Timeout:
+                    print(f"[VideoAnalyzer] Таймаут для модели {model} (краткая версия)")
+                    continue
+                except Exception as e:
+                    print(f"[VideoAnalyzer] Ошибка для модели {model} (краткая версия): {e}")
+                    continue
             
             print("[VideoAnalyzer] Все модели для краткой версии не сработали")
             return None
@@ -846,6 +878,7 @@ class VideoAnalyzer:
         print(f"[VideoAnalyzer] Yandex Token: {'УСТАНОВЛЕН' if self.yandex_token else 'НЕ УСТАНОВЛЕН'}")
         print(f"[VideoAnalyzer] Session ID: {'УСТАНОВЛЕН' if self.session_id else 'НЕ УСТАНОВЛЕН'}")
         print(f"[VideoAnalyzer] OpenRouter Key: {'УСТАНОВЛЕН' if self.openrouter_api_key else 'НЕ УСТАНОВЛЕН'}")
+        print(f"[VideoAnalyzer] LiteRouter Key: {'УСТАНОВЛЕН' if self.literouter_api_key else 'НЕ УСТАНОВЛЕН'}")
         
         result = {
             'video_url': video_url,
@@ -940,9 +973,9 @@ class VideoAnalyzer:
                 result['error'] = f"Контент не подлежит анализу ({reason})"
                 return result
 
-            # Анализируем текст через OpenRouter
-            print("[VideoAnalyzer] Отправляем текст на анализ в OpenRouter...")
-            analysis = self.analyze_text_with_openrouter(result['extracted_text'])
+            # Анализируем текст через AI
+            print("[VideoAnalyzer] Отправляем текст на анализ...")
+            analysis = self.analyze_text_with_ai(result['extracted_text'])
             
             if not analysis:
                 result['error'] = 'Не удалось проанализировать текст через OpenRouter'

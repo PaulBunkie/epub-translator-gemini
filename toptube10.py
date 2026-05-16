@@ -55,14 +55,69 @@ class TopTubeManager:
         if not self.api_key:
             raise ValueError("Не установлена переменная окружения YOUTUBE_API_KEY")
         
-        # OpenRouter API для LLM-фильтрации
+        # OpenRouter/LiteRouter API
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         self.openrouter_api_url = "https://openrouter.ai/api/v1"
+        self.literouter_api_key = os.getenv("LITEROUTER_API_KEY")
+        self.literouter_api_url = "https://api.literouter.com/v1"
         
         # Инициализируем БД
         video_db.init_video_db()
         
         print("[TopTube] Менеджер инициализирован")
+
+    def _get_api_config(self, model_name: str) -> tuple[str, str, str]:
+        """
+        Определяет API URL, ключ и название провайдера по имени модели.
+        """
+        if model_name and model_name.startswith("literouter/"):
+            return self.literouter_api_url, self.literouter_api_key, "LiteRouter"
+        return self.openrouter_api_url, self.openrouter_api_key, "OpenRouter"
+
+    def _call_ai_api(self, model_name: str, prompt: str, max_tokens: int = 100) -> Optional[str]:
+        """
+        Вспомогательный метод для вызова AI API (OpenRouter или LiteRouter).
+        """
+        api_url, api_key, provider_name = self._get_api_config(model_name)
+        
+        if not api_key:
+            print(f"[TopTube] {provider_name} API ключ не установлен, пропускаем")
+            return None
+            
+        try:
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0.1
+            }
+            
+            response = requests.post(
+                f"{api_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            
+            if response.status_code != 200:
+                print(f"[TopTube] Ошибка {provider_name} API: {response.status_code} - {response.text}")
+                return None
+                
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            print(f"[TopTube] Ошибка при вызове {provider_name} API: {e}")
+            return None
     
     def collect_videos(self, pages_to_fetch: int = 20) -> int:
         """
@@ -457,13 +512,11 @@ class TopTubeManager:
         Returns:
             Список видео без нецелевого контента
         """
-        if not self.openrouter_api_key:
-            print("[TopTube] OpenRouter API ключ не установлен, пропускаем LLM-фильтрацию")
-            return videos
-            
         if len(videos) == 0:
             return videos
             
+        model_name = workflow_model_config.DEFAULT_MODEL
+        
         # Формируем пронумерованный список заголовков
         titles_list = []
         for i, video in enumerate(videos, 1):
@@ -498,70 +551,39 @@ class TopTubeManager:
 Список видео:
 {titles_text}"""
 
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json"
-            }
+        print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации (игры + языки)...")
+        llm_response = self._call_ai_api(model_name, prompt)
+        
+        if not llm_response:
+            return videos
             
-            payload = {
-                "model": workflow_model_config.DEFAULT_MODEL,
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 100,
-                "temperature": 0.1
-            }
+        llm_response = llm_response.lower()
+        print(f"[TopTube] LLM ответ: '{llm_response}'")
+        
+        # Парсим ответ LLM
+        if llm_response == "нет" or "нет" in llm_response:
+            print("[TopTube] LLM не нашел контента для исключения")
+            return videos
             
-            print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации (игры + языки)...")
-            
-            response = requests.post(
-                f"{self.openrouter_api_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-            
-            if response.status_code != 200:
-                print(f"[TopTube] Ошибка LLM API: {response.status_code} - {response.text}")
-                return videos  # Возвращаем все видео если API недоступно
-                
-            result = response.json()
-            llm_response = result["choices"][0]["message"]["content"].strip().lower()
-            
-            print(f"[TopTube] LLM ответ: '{llm_response}'")
-            
-            # Парсим ответ LLM
-            if llm_response == "нет" or "нет" in llm_response:
-                print("[TopTube] LLM не нашел контента для исключения")
-                return videos
-                
-            # Извлекаем номера видео для исключения
-            exclude_indices = []
-            for part in llm_response.replace(" ", "").split(","):
-                try:
-                    if part.isdigit():
-                        exclude_indices.append(int(part) - 1)  # Переводим в 0-based индексы
-                except ValueError:
-                    continue
-            
-            # Фильтруем видео, исключая нецелевые
-            filtered_videos = []
-            for i, video in enumerate(videos):
-                if i not in exclude_indices:
-                    filtered_videos.append(video)
-                else:
-                    print(f"[TopTube] LLM исключил: {video['snippet']['title'][:70]}...")
-            
-            print(f"[TopTube] LLM-фильтрация: было {len(videos)}, стало {len(filtered_videos)} видео")
-            return filtered_videos
-            
-        except Exception as e:
-            print(f"[TopTube] Ошибка в LLM-фильтрации: {e}")
-            return videos  # Возвращаем все видео если что-то пошло не так
+        # Извлекаем номера видео для исключения
+        exclude_indices = []
+        for part in llm_response.replace(" ", "").split(","):
+            try:
+                if part.isdigit():
+                    exclude_indices.append(int(part) - 1)  # Переводим в 0-based индексы
+            except ValueError:
+                continue
+        
+        # Фильтруем видео, исключая нецелевые
+        filtered_videos = []
+        for i, video in enumerate(videos):
+            if i not in exclude_indices:
+                filtered_videos.append(video)
+            else:
+                print(f"[TopTube] LLM исключил: {video['snippet']['title'][:70]}...")
+        
+        print(f"[TopTube] LLM-фильтрация: было {len(videos)}, стало {len(filtered_videos)} видео")
+        return filtered_videos
 
     def _filter_serious_content_with_llm(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -573,12 +595,10 @@ class TopTubeManager:
         Returns:
             Список выбранных LLM видео
         """
-        if not self.openrouter_api_key:
-            print("[TopTube] OpenRouter API ключ не установлен, пропускаем LLM-фильтрацию серьезного контента")
-            return []
-            
         if len(videos) == 0:
             return []
+            
+        model_name = workflow_model_config.DEFAULT_MODEL
             
         # Формируем пронумерованный список заголовков
         titles_list = []
@@ -619,67 +639,38 @@ class TopTubeManager:
 Список видео:
 {titles_text}"""
 
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.openrouter_api_key}",
-                "Content-Type": "application/json"
-            }
+        print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации серьезного контента...")
+        llm_response = self._call_ai_api(model_name, prompt, max_tokens=500)
+        
+        if not llm_response:
+            return []
             
-            payload = {
-                "model": workflow_model_config.DEFAULT_MODEL,
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ]
-            }
+        llm_response = llm_response.lower()
+        print(f"[TopTube] LLM ответ: '{llm_response}'")
+        
+        # Парсим ответ LLM
+        if llm_response == "нет" or "нет" in llm_response:
+            print("[TopTube] LLM не нашел подходящего серьезного контента")
+            return []
             
-            print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации серьезного контента...")
-            
-            response = requests.post(
-                f"{self.openrouter_api_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-            
-            if response.status_code != 200:
-                print(f"[TopTube] Ошибка LLM API: {response.status_code} - {response.text}")
-                return []  # Возвращаем пустой список если API недоступно
-                
-            result = response.json()
-            llm_response = result["choices"][0]["message"]["content"].strip().lower()
-            
-            print(f"[TopTube] LLM ответ: '{llm_response}'")
-            
-            # Парсим ответ LLM
-            if llm_response == "нет" or "нет" in llm_response:
-                print("[TopTube] LLM не нашел подходящего серьезного контента")
-                return []
-                
-            # Извлекаем номера выбранных видео
-            selected_indices = []
-            for part in llm_response.replace(" ", "").split(","):
-                try:
-                    if part.isdigit():
-                        selected_indices.append(int(part) - 1)  # Переводим в 0-based индексы
-                except ValueError:
-                    continue
-            
-            # Фильтруем видео, оставляя только выбранные LLM
-            selected_videos = []
-            for i, video in enumerate(videos):
-                if i in selected_indices:
-                    selected_videos.append(video)
-                    print(f"[TopTube] LLM выбрал: {video['snippet']['title'][:70]}...")
-            
-            print(f"[TopTube] LLM-фильтрация серьезного контента: выбрано {len(selected_videos)} из {len(videos)} видео")
-            return selected_videos
-            
-        except Exception as e:
-            print(f"[TopTube] Ошибка в LLM-фильтрации серьезного контента: {e}")
-            return []  # Возвращаем пустой список если что-то пошло не так
+        # Извлекаем номера выбранных видео
+        selected_indices = []
+        for part in llm_response.replace(" ", "").split(","):
+            try:
+                if part.isdigit():
+                    selected_indices.append(int(part) - 1)  # Переводим в 0-based индексы
+            except ValueError:
+                continue
+        
+        # Фильтруем видео, оставляя только выбранные LLM
+        selected_videos = []
+        for i, video in enumerate(videos):
+            if i in selected_indices:
+                selected_videos.append(video)
+                print(f"[TopTube] LLM выбрал: {video['snippet']['title'][:70]}...")
+        
+        print(f"[TopTube] LLM-фильтрация серьезного контента: выбрано {len(selected_videos)} из {len(videos)} видео")
+        return selected_videos
 
 # Глобальный экземпляр менеджера
 _manager = None
