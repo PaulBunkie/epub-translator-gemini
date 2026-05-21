@@ -28,8 +28,11 @@ class ComicGenerator:
         "photorealistic human characters, realistic skin texture, natural anatomy and facial expressions, dramatic cinematic lighting, "
         "shallow depth of field, realistic environments, ultra-detailed movie still aesthetic, grounded realism, high-end sci-fi thriller atmosphere, "
         "dynamic camera angles, authentic film grain, anamorphic lens look, color graded like a modern HBO/Netflix production, emotionally expressive cinematic moments. "
-        "No text, no speech bubbles, no captions, no letters, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements, "
-        "no comic style, no cartoon, no cel shading, no illustration, no exaggerated features, no anime."
+        "ABSOLUTELY NO TEXT OF ANY KIND. Do not generate any words, letters, symbols, numbers, typography, captions, subtitles, speech bubbles, "
+        "logos, signatures, watermarks, labels, UI overlays, HUD elements, interface graphics, comic text boxes, signage, title cards, timestamps, "
+        "panel numbers, frame numbers, section numbers, written markings, or readable text anywhere in the image. Panels must remain completely unlabeled and unnumbered. "
+        "No text, no letters, no numbers, no captions, no subtitles, no labels, no numbering, no frame numbers, no panel numbers, no UI elements. "
+        "No comic style, no cartoon, no cel shading, no illustration, no anime, no exaggerated features, no stylization."
     )
 
     # Промпты инкапсулированы внутри модуля
