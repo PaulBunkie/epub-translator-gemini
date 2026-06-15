@@ -293,12 +293,13 @@ class GoogleTranslator(BaseTranslator):
 class OpenRouterTranslator(BaseTranslator):
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
     # Таймаут для запросов к API OpenRouter в секундах
-    API_TIMEOUT = 180
+    API_TIMEOUT = 600
 
     def __init__(self):
         self.api_key = os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("Не установлена переменная окружения OPENROUTER_API_KEY")
+        self.api_url = self.OPENROUTER_API_URL
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -511,12 +512,9 @@ class OpenRouterTranslator(BaseTranslator):
         operation_type: str = 'translate'
     ) -> Optional[str]:
         """Переводит чанк текста с использованием OpenRouter API с обработкой ошибок и лимитов."""
-        headers = {
-            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
-            "Content-Type": "application/json",
-            # "HTTP-Referer": os.getenv("YOUR_SITE_URL", "http://localhost:5000"), # Optional: Replace with your website URL
-            # "X-Title": os.getenv("YOUR_APP_NAME", "EPUB Translator"), # Optional: Replace with your app name
-        }
+        headers = self.headers.copy()
+        headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")
+        headers["X-Title"] = "EPUB Translator"
 
         # ИЗМЕНЕНИЕ: Теперь _build_prompt возвращает prompt и non_text_char_length
         prompt, estimated_non_text_char_length = self._build_prompt(
@@ -573,7 +571,7 @@ class OpenRouterTranslator(BaseTranslator):
                 json_str = json.dumps(data, ensure_ascii=False)
                 # Проверяем, что JSON валидный
                 json.loads(json_str)
-                response = requests.post(f"{self.OPENROUTER_API_URL}/chat/completions", headers=headers, data=json_str)
+                response = requests.post(f"{self.api_url}/chat/completions", headers=headers, data=json_str, timeout=self.API_TIMEOUT)
                 print(f"[OpenRouterTranslator] Получен ответ: Статус {response.status_code}")
 
                 # --- Проверка заголовков лимитов (опционально) ---
@@ -757,6 +755,7 @@ class LiteRouterTranslator(OpenRouterTranslator):
         self.api_key = os.getenv("LITEROUTER_API_KEY")
         if not self.api_key:
             raise ValueError("Не установлена переменная окружения LITEROUTER_API_KEY")
+        self.api_url = self.LITEROUTER_API_URL
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -792,15 +791,6 @@ class LiteRouterTranslator(OpenRouterTranslator):
             print(f"Ошибка при получении списка моделей LiteRouter: {e}")
             return []
 
-    def translate_chunk(self, *args, **kwargs):
-        # Используем базовую логику OpenRouter, но с нашим URL
-        # Временно подменяем OPENROUTER_API_URL
-        original_url = self.OPENROUTER_API_URL
-        self.__class__.OPENROUTER_API_URL = self.LITEROUTER_API_URL
-        try:
-            return super().translate_chunk(*args, **kwargs)
-        finally:
-            self.__class__.OPENROUTER_API_URL = original_url
 
 def configure_api() -> None:
     """
@@ -985,6 +975,10 @@ def get_context_length(model_name: str) -> int:
     model_info = next((m for m in all_models if m.get('name') == model_name), None)
     
     if model_info:
+        # Если модель от LiteRouter, возвращаем фиксированный большой лимит (настроено пользователем)
+        if model_info.get('source') == 'literouter':
+            return 64000
+            
         if 'input_token_limit' in model_info:
             return model_info['input_token_limit']
     
@@ -1011,6 +1005,10 @@ def get_model_output_token_limit(model_name: str) -> int:
     model_info = next((m for m in all_models if m.get('name') == model_name), None)
     
     if model_info:
+        # Если модель от LiteRouter, возвращаем фиксированный лимит
+        if model_info.get('source') == 'literouter':
+            return 32000 # Половина от 64000
+            
         output_limit = model_info.get('output_token_limit')
         if output_limit:
             return output_limit

@@ -1,0 +1,112 @@
+[1mdiff --git a/translation_module.py b/translation_module.py[m
+[1mindex 58c732d..f710e4a 100644[m
+[1m--- a/translation_module.py[m
+[1m+++ b/translation_module.py[m
+[36m@@ -293,12 +293,13 @@[m [mclass GoogleTranslator(BaseTranslator):[m
+ class OpenRouterTranslator(BaseTranslator):[m
+     OPENROUTER_API_URL = "https://openrouter.ai/api/v1"[m
+     # Таймаут для запросов к API OpenRouter в секундах[m
+[31m-    API_TIMEOUT = 180[m
+[32m+[m[32m    API_TIMEOUT = 600[m
+ [m
+     def __init__(self):[m
+         self.api_key = os.getenv("OPENROUTER_API_KEY")[m
+         if not self.api_key:[m
+             raise ValueError("Не установлена переменная окружения OPENROUTER_API_KEY")[m
+[32m+[m[32m        self.api_url = self.OPENROUTER_API_URL[m
+         self.headers = {[m
+             "Authorization": f"Bearer {self.api_key}",[m
+             "Content-Type": "application/json"[m
+[36m@@ -511,12 +512,9 @@[m [mclass OpenRouterTranslator(BaseTranslator):[m
+         operation_type: str = 'translate'[m
+     ) -> Optional[str]:[m
+         """Переводит чанк текста с использованием OpenRouter API с обработкой ошибок и лимитов."""[m
+[31m-        headers = {[m
+[31m-            "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",[m
+[31m-            "Content-Type": "application/json",[m
+[31m-            # "HTTP-Referer": os.getenv("YOUR_SITE_URL", "http://localhost:5000"), # Optional: Replace with your website URL[m
+[31m-            # "X-Title": os.getenv("YOUR_APP_NAME", "EPUB Translator"), # Optional: Replace with your app name[m
+[31m-        }[m
+[32m+[m[32m        headers = self.headers.copy()[m
+[32m+[m[32m        headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL", "http://localhost:5000")[m
+[32m+[m[32m        headers["X-Title"] = "EPUB Translator"[m
+ [m
+         # ИЗМЕНЕНИЕ: Теперь _build_prompt возвращает prompt и non_text_char_length[m
+         prompt, estimated_non_text_char_length = self._build_prompt([m
+[36m@@ -573,7 +571,7 @@[m [mclass OpenRouterTranslator(BaseTranslator):[m
+                 json_str = json.dumps(data, ensure_ascii=False)[m
+                 # Проверяем, что JSON валидный[m
+                 json.loads(json_str)[m
+[31m-                response = requests.post(f"{self.OPENROUTER_API_URL}/chat/completions", headers=headers, data=json_str)[m
+[32m+[m[32m                response = requests.post(f"{self.api_url}/chat/completions", headers=headers, data=json_str, timeout=self.API_TIMEOUT)[m
+                 print(f"[OpenRouterTranslator] Получен ответ: Статус {response.status_code}")[m
+ [m
+                 # --- Проверка заголовков лимитов (опционально) ---[m
+[36m@@ -757,6 +755,7 @@[m [mclass LiteRouterTranslator(OpenRouterTranslator):[m
+         self.api_key = os.getenv("LITEROUTER_API_KEY")[m
+         if not self.api_key:[m
+             raise ValueError("Не установлена переменная окружения LITEROUTER_API_KEY")[m
+[32m+[m[32m        self.api_url = self.LITEROUTER_API_URL[m
+         self.headers = {[m
+             "Authorization": f"Bearer {self.api_key}",[m
+             "Content-Type": "application/json"[m
+[36m@@ -792,15 +791,6 @@[m [mclass LiteRouterTranslator(OpenRouterTranslator):[m
+             print(f"Ошибка при получении списка моделей LiteRouter: {e}")[m
+             return [][m
+ [m
+[31m-    def translate_chunk(self, *args, **kwargs):[m
+[31m-        # Используем базовую логику OpenRouter, но с нашим URL[m
+[31m-        # Временно подменяем OPENROUTER_API_URL[m
+[31m-        original_url = self.OPENROUTER_API_URL[m
+[31m-        self.__class__.OPENROUTER_API_URL = self.LITEROUTER_API_URL[m
+[31m-        try:[m
+[31m-            return super().translate_chunk(*args, **kwargs)[m
+[31m-        finally:[m
+[31m-            self.__class__.OPENROUTER_API_URL = original_url[m
+ [m
+ def configure_api() -> None:[m
+     """[m
+[36m@@ -985,6 +975,10 @@[m [mdef get_context_length(model_name: str) -> int:[m
+     model_info = next((m for m in all_models if m.get('name') == model_name), None)[m
+     [m
+     if model_info:[m
+[32m+[m[32m        # Если модель от LiteRouter, возвращаем фиксированный большой лимит (настроено пользователем)[m
+[32m+[m[32m        if model_info.get('source') == 'literouter':[m
+[32m+[m[32m            return 64000[m
+[32m+[m[41m            [m
+         if 'input_token_limit' in model_info:[m
+             return model_info['input_token_limit'][m
+     [m
+[36m@@ -1011,6 +1005,10 @@[m [mdef get_model_output_token_limit(model_name: str) -> int:[m
+     model_info = next((m for m in all_models if m.get('name') == model_name), None)[m
+     [m
+     if model_info:[m
+[32m+[m[32m        # Если модель от LiteRouter, возвращаем фиксированный лимит[m
+[32m+[m[32m        if model_info.get('source') == 'literouter':[m
+[32m+[m[32m            return 32000 # Половина от 64000[m
+[32m+[m[41m            [m
+         output_limit = model_info.get('output_token_limit')[m
+         if output_limit:[m
+             return output_limit[m
+[1mdiff --git a/workflow_translation_module.py b/workflow_translation_module.py[m
+[1mindex e682a48..b777f5e 100644[m
+[1m--- a/workflow_translation_module.py[m
+[1m+++ b/workflow_translation_module.py[m
+[36m@@ -839,7 +839,7 @@[m [mclass WorkflowTranslator:[m
+                      return None, model_name[m
+                 url = f"{self.OPENROUTER_API_URL}/chat/completions"[m
+                 api_key = self.openrouter_api_key[m
+[31m-                log_prefix = "[OpenRouter]"[m
+[32m+[m[32m                log_prefix = "[OpenRouterTranslator]"[m
+             else:[m
+                 if not self.literouter_api_key:[m
+                      print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: LITEROUTER_API_KEY не установлен. Модели LiteRouter будут пропускаться.")[m
+[36m@@ -847,7 +847,7 @@[m [mclass WorkflowTranslator:[m
+                 [m
+                 url = f"{self.LITEROUTER_API_URL}/chat/completions"[m
+                 api_key = self.literouter_api_key[m
+[31m-                log_prefix = "[LiteRouter]"[m
+[32m+[m[32m                log_prefix = "[OpenRouterTranslator]"[m
+ [m
+             headers = {[m
+                 "Authorization": f"Bearer {api_key}",[m

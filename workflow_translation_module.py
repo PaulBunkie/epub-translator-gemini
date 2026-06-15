@@ -839,7 +839,7 @@ class WorkflowTranslator:
                      return None, model_name
                 url = f"{self.OPENROUTER_API_URL}/chat/completions"
                 api_key = self.openrouter_api_key
-                log_prefix = "[OpenRouter]"
+                log_prefix = "[OpenRouterTranslator]"
             else:
                 if not self.literouter_api_key:
                      print("[WorkflowTranslator] ПРЕДУПРЕЖДЕНИЕ: LITEROUTER_API_KEY не установлен. Модели LiteRouter будут пропускаться.")
@@ -847,7 +847,7 @@ class WorkflowTranslator:
                 
                 url = f"{self.LITEROUTER_API_URL}/chat/completions"
                 api_key = self.literouter_api_key
-                log_prefix = "[LiteRouter]"
+                log_prefix = "[OpenRouterTranslator]"
 
             headers = {
                 "Authorization": f"Bearer {api_key}",
