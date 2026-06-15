@@ -456,6 +456,54 @@ def init_football_db():
             print("[FootballDB] Migration completed.")
         print("[FootballDB] Table 'football_telegram_subscriptions' created/verified.")
 
+        # --- Создание/наполнение таблицы football_leagues ---
+        print("[FootballDB] Checking/Creating 'football_leagues' table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS football_leagues (
+                league_key TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                is_active INTEGER NOT NULL DEFAULT 0,
+                in_default_list INTEGER NOT NULL DEFAULT 0,
+                is_soccer INTEGER NOT NULL DEFAULT 1,
+                last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+        # Проверяем, есть ли уже данные в таблице
+        cursor.execute("SELECT COUNT(*) FROM football_leagues")
+        league_count = cursor.fetchone()[0]
+
+        if league_count == 0:
+            print(f"[FootballDB] Таблица football_leagues пуста. Заполняем из статических списков...")
+            
+            # Заполняем все известные лиги из ALL_AVAILABLE_FOOTBALL_LEAGUES
+            # Те, что в DEFAULT_FOOTBALL_LEAGUES — помечаем is_active=1
+            default_set = set(DEFAULT_FOOTBALL_LEAGUES)
+            all_set = set(ALL_AVAILABLE_FOOTBALL_LEAGUES)
+            
+            # Объединяем все ключи
+            all_keys = all_set | default_set
+            
+            for key in all_keys:
+                is_active = 1 if key in default_set else 0
+                in_default = 1 if key in default_set else 0
+                # Извлекаем читаемое название из ключа
+                title = key.replace('soccer_', '').replace('_', ' ').title()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO football_leagues (league_key, title, is_active, in_default_list)
+                    VALUES (?, ?, ?, ?)
+                """, (key, title, is_active, in_default))
+            
+            conn.commit()
+            total = len(all_keys)
+            active = len(default_set)
+            print(f"[FootballDB] Заполнено {total} лиг (активных: {active})")
+        else:
+            print(f"[FootballDB] Таблица football_leagues уже содержит {league_count} записей")
+
         print("[FootballDB] Database initialization complete.")
 
     except sqlite3.Error as e:
@@ -1203,6 +1251,116 @@ class FootballManager:
             import traceback
             print(traceback.format_exc())
             return []
+
+    def sync_leagues(self) -> Dict[str, Any]:
+        """
+        Запрашивает актуальный список футбольных лиг из API.
+        Обновляет/добавляет записи в таблице football_leagues.
+        Логирует новые лиги, которых нет ни в ALL_AVAILABLE_FOOTBALL_LEAGUES, ни в DEFAULT_FOOTBALL_LEAGUES.
+
+        Returns:
+            Словарь со статистикой: {'total': int, 'active': int, 'new': int, 'updated': int, 'new_leagues': list}
+        """
+        result = {
+            'total': 0,
+            'active': 0,
+            'new': 0,
+            'updated': 0,
+            'new_leagues': []
+        }
+
+        try:
+            # Получаем список лиг из API (уже отфильтрованный по футболу)
+            api_leagues = self.get_available_soccer_leagues()
+
+            if not api_leagues:
+                print("[Football Leagues] Не удалось получить список лиг из API")
+                return result
+
+            # Создаём множество известных ключей из статических списков
+            all_known_keys = set(ALL_AVAILABLE_FOOTBALL_LEAGUES) | set(DEFAULT_FOOTBALL_LEAGUES)
+            default_set = set(DEFAULT_FOOTBALL_LEAGUES)
+
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+
+            new_leagues_found = []
+            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            for league in api_leagues:
+                league_key = league.get('key', '')
+                title = league.get('title', '')
+                active = league.get('active', True)
+
+                if not league_key:
+                    continue
+
+                # Проверяем, есть ли лига в нашем статическом списке
+                is_in_default = 1 if league_key in default_set else 0
+                is_in_known = league_key in all_known_keys
+
+                # Обновляем или вставляем запись в БД
+                cursor.execute("""
+                    SELECT league_key FROM football_leagues WHERE league_key = ?
+                """, (league_key,))
+                existing = cursor.fetchone()
+
+                if existing:
+                    # Обновляем существующую запись
+                    cursor.execute("""
+                        UPDATE football_leagues
+                        SET title = ?,
+                            last_seen_at = ?,
+                            updated_at = ?
+                        WHERE league_key = ?
+                    """, (title, now_str, now_str, league_key))
+                    result['updated'] += 1
+                else:
+                    # Новая лига
+                    # Если она уже была в нашем статическом списке — помечаем is_active=1 (как в DEFAULT_FOOTBALL_LEAGUES)
+                    is_active = 1 if is_in_default else 0
+                    cursor.execute("""
+                        INSERT INTO football_leagues (league_key, title, is_active, in_default_list, last_seen_at, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (league_key, title, is_active, is_in_default, now_str, now_str, now_str))
+                    result['new'] += 1
+                    
+                    # Если лиги нет в нашем статическом списке — логируем как новую
+                    if not is_in_known:
+                        new_leagues_found.append({
+                            'key': league_key,
+                            'title': title,
+                            'active': bool(active)
+                        })
+
+                result['total'] += 1
+                if active:
+                    result['active'] += 1
+
+            conn.commit()
+            conn.close()
+
+            # Логируем новые лиги
+            if new_leagues_found:
+                print(f"[Football Leagues] ⚠️ Обнаружены НОВЫЕ лиги, которых нет в статическом списке ({len(new_leagues_found)}):")
+                for nl in new_leagues_found:
+                    status = "активна" if nl['active'] else "неактивна"
+                    print(f"[Football Leagues]   ➡️ {nl['key']} ({nl['title']}) - {status}")
+                    print(f"[Football Leagues]      Добавлена в БД с is_active=0. Чтобы начать сбор, установите is_active=1 в таблице или добавьте лигу в .env FOOTBALL_LEAGUES")
+                result['new_leagues'] = new_leagues_found
+            else:
+                print(f"[Football Leagues] Новых лиг не обнаружено. Все лиги из API уже есть в статическом списке.")
+
+            print(f"[Football Leagues] Итого: {result['total']} лиг в API, {result['active']} активных, "
+                  f"обновлено {result['updated']}, добавлено {result['new']} новых в БД")
+
+            return result
+
+        except Exception as e:
+            print(f"[Football Leagues ERROR] Ошибка синхронизации лиг: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return result
 
     def _normalize_team_name(self, name: str) -> str:
         """
@@ -5525,6 +5683,76 @@ def is_football_subscribed(user_id: str) -> bool:
     finally:
         if conn:
             conn.close()
+
+# === Функции для работы со списком лиг ===
+
+def get_leagues() -> List[Dict[str, Any]]:
+    """
+    Получает список всех лиг из БД для UI.
+    
+    Returns:
+        Список словарей: [{'league_key': ..., 'title': ..., 'is_active': ..., 'in_default_list': ..., 'last_seen_at': ...}, ...]
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT league_key, title, is_active, in_default_list, last_seen_at, created_at, updated_at
+            FROM football_leagues
+            ORDER BY is_active DESC, title ASC
+        """)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка получения списка лиг: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def set_league_active(league_key: str, active: bool) -> bool:
+    """
+    Устанавливает is_active для лиги.
+    
+    Args:
+        league_key: Ключ лиги
+        active: True/False
+    
+    Returns:
+        True если успешно
+    """
+    conn = None
+    try:
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE football_leagues
+            SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE league_key = ?
+        """, (1 if active else 0, league_key))
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка установки is_active для лиги {league_key}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def sync_leagues_task() -> Dict[str, Any]:
+    """Задача для планировщика - синхронизация лиг."""
+    try:
+        manager = get_manager()
+        return manager.sync_leagues()
+    except Exception as e:
+        print(f"[Football] Ошибка в задаче синхронизации лиг: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return {'error': str(e)}
+
 
 # === Функции для APScheduler ===
 

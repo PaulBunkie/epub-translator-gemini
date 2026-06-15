@@ -435,6 +435,9 @@
                 <button class="btn btn-outline-secondary ms-2" id="auto-refresh-button" onclick="toggleAutoRefresh()">
                     <i class="fas fa-pause" id="auto-refresh-icon"></i> <span id="auto-refresh-text">Автообновление: ВКЛ</span>
                 </button>
+                <button class="btn btn-success ms-2" id="leagues-button" onclick="toggleLeaguesOverlay()">
+                    <i class="fas fa-list-ul"></i> Лиги
+                </button>
                 <span class="ms-2 text-muted" id="last-update-time" style="font-size: 0.85rem;"></span>
             </div>
             {% endif %}
@@ -3768,6 +3771,162 @@
         </a>
         {% endif %}
     </div>
+    <!-- Оверлей для управления лигами -->
+    <div id="leaguesOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:2000; overflow-y:auto;">
+        <div style="max-width:800px; margin:40px auto; background:#fff; border-radius:15px; padding:25px; color:#333;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3 style="color:#1e3c72;"><i class="fas fa-list-ul"></i> Управление лигами</h3>
+                <button class="btn btn-close" onclick="toggleLeaguesOverlay()"></button>
+            </div>
+            <p class="text-muted mb-3">
+                Включите/отключите лиги для сбора матчей. 
+                Новые лиги, обнаруженные в API, появляются здесь с отметкой <span class="badge bg-warning text-dark">NEW</span>.
+                <button class="btn btn-sm btn-outline-primary ms-2" onclick="syncLeagues()">
+                    <i class="fas fa-sync-alt"></i> Синхронизировать
+                </button>
+            </p>
+            <div id="leaguesSpinner" class="text-center py-3" style="display:none;">
+                <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Загрузка...</span></div>
+                <p class="mt-2">Загрузка списка лиг...</p>
+            </div>
+            <div id="leaguesContainer" class="row"></div>
+            <div class="mt-3 text-end">
+                <button class="btn btn-secondary" onclick="toggleLeaguesOverlay()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // === Функции для управления лигами ===
+
+    function toggleLeaguesOverlay() {
+        const overlay = document.getElementById('leaguesOverlay');
+        if (overlay.style.display === 'none' || overlay.style.display === '') {
+            overlay.style.display = 'block';
+            loadLeagues();
+        } else {
+            overlay.style.display = 'none';
+        }
+    }
+
+    async function loadLeagues() {
+        const container = document.getElementById('leaguesContainer');
+        const spinner = document.getElementById('leaguesSpinner');
+        container.innerHTML = '';
+        spinner.style.display = 'block';
+
+        try {
+            const resp = await fetch('/api/football/leagues');
+            const data = await resp.json();
+            spinner.style.display = 'none';
+
+            if (!data.success) {
+                container.innerHTML = '<div class="alert alert-danger">Ошибка загрузки лиг</div>';
+                return;
+            }
+
+            const leagues = data.leagues || [];
+            
+            // Группируем: активные сверху, затем остальные, внутри по заголовку
+            const active = leagues.filter(l => l.is_active);
+            const inactive = leagues.filter(l => !l.is_active);
+
+            let html = '';
+
+            // Активные
+            if (active.length) {
+                html += '<div class="col-12 mb-3"><h5 class="text-success"><i class="fas fa-check-circle"></i> Активные (' + active.length + ')</h5></div>';
+                active.forEach(league => {
+                    html += renderLeagueCard(league);
+                });
+            }
+
+            // Неактивные
+            if (inactive.length) {
+                html += '<div class="col-12 mb-3 mt-3"><h5 class="text-muted"><i class="fas fa-circle"></i> Неактивные (' + inactive.length + ')</h5></div>';
+                inactive.forEach(league => {
+                    html += renderLeagueCard(league);
+                });
+            }
+
+            container.innerHTML = html;
+
+        } catch (e) {
+            spinner.style.display = 'none';
+            container.innerHTML = '<div class="alert alert-danger">Ошибка соединения: ' + e.message + '</div>';
+        }
+    }
+
+    function renderLeagueCard(league) {
+        const isNew = league.in_default_list === 0; // Не было в DEFAULT_FOOTBALL_LEAGUES
+        const badgeHtml = isNew ? ' <span class="badge bg-warning text-dark" style="font-size:0.7rem;">NEW</span>' : '';
+        const activeClass = league.is_active ? 'btn-success active' : 'btn-outline-secondary';
+        const activeText = league.is_active ? 'Выключить' : 'Включить';
+
+        return `
+            <div class="col-md-6 mb-2">
+                <div class="card" style="border:1px solid #dee2e6; border-radius:8px;">
+                    <div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">
+                        <div style="flex:1; min-width:0;">
+                            <strong style="font-size:0.9rem;">${league.title}${badgeHtml}</strong>
+                            <br><small class="text-muted" style="font-size:0.75rem;word-break:break-all;">${league.league_key}</small>
+                        </div>
+                        <button class="btn btn-sm ${activeClass} ms-2" style="white-space:nowrap; flex-shrink:0;"
+                                onclick="toggleLeague('${league.league_key}', ${league.is_active ? 0 : 1})">
+                            ${activeText}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    async function toggleLeague(leagueKey, newActive) {
+        try {
+            const resp = await fetch('/api/football/leagues/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ league_key: leagueKey, active: newActive === 1 })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                // Перезагружаем список лиг
+                await loadLeagues();
+                // Если мы меняли активные лиги — перезагружаем матчи
+                if (typeof loadMatches === 'function') {
+                    loadMatches();
+                }
+            } else {
+                alert('Ошибка: ' + (data.error || 'Не удалось переключить лигу'));
+            }
+        } catch (e) {
+            alert('Ошибка соединения: ' + e.message);
+        }
+    }
+
+    async function syncLeagues() {
+        const btn = event.target;
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/api/football/leagues/sync', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                // Обновляем список
+                await loadLeagues();
+                if (data.sync_result && data.sync_result.new_leagues && data.sync_result.new_leagues.length) {
+                    alert('Обнаружены новые лиги: ' + data.sync_result.new_leagues.map(l => l.title).join(', '));
+                }
+            } else {
+                alert('Ошибка синхронизации: ' + data.error);
+            }
+        } catch (e) {
+            alert('Ошибка соединения: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+    </script>
+
 </body>
 </html>
 

@@ -233,6 +233,19 @@ if True:  # is_fly_io:
     )
     print("[Scheduler] ✅ Задание 'thesportsdb_scores_job' добавлено (обновление счетов из TheSportsDB каждые 2 минуты)")
 
+    # --- СИНХРОНИЗАЦИЯ ЛИГ: раз в день (бесплатный запрос к /sports) ---
+    # При старте сразу запускаем, затем раз в сутки
+    scheduler.add_job(
+        football.sync_leagues_task,
+        trigger='interval',
+        days=1,
+        id='sync_football_leagues_job',
+        replace_existing=True,
+        misfire_grace_time=3600,  # 1 час grace time
+        next_run_time=datetime.datetime.now() + timedelta(seconds=30)  # Через 30 секунд после старта
+    )
+    print("[Scheduler] ✅ Задание 'sync_football_leagues_job' добавлено (синхронизация лиг каждый день)")
+
 else:
     print("[Scheduler] 🏠 Локальный запуск - фоновые задачи отключены")
     print("[Scheduler] 📍 Поиск локаций и анализ видео доступны только через API")
@@ -3455,6 +3468,52 @@ def request_entity_too_large(error):
     return redirect(url_for('list_media_files'))
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ МЕДИАФАЙЛОВ ---
+
+# --- API для управления лигами ---
+
+@app.route('/api/football/leagues', methods=['GET'])
+def api_get_football_leagues():
+    """API: получить список всех лиг."""
+    try:
+        leagues = football.get_leagues()
+        return jsonify({'success': True, 'leagues': leagues})
+    except Exception as e:
+        print(f"[API] Ошибка получения лиг: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/football/leagues/sync', methods=['POST'])
+def api_sync_football_leagues():
+    """API: синхронизировать список лиг с API."""
+    try:
+        manager = football.get_manager()
+        result = manager.sync_leagues()
+        # После синхронизации возвращаем обновлённый список
+        leagues = football.get_leagues()
+        return jsonify({'success': True, 'sync_result': result, 'leagues': leagues})
+    except Exception as e:
+        print(f"[API] Ошибка синхронизации лиг: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/football/leagues/toggle', methods=['POST'])
+def api_toggle_football_league():
+    """API: включить/выключить лигу."""
+    try:
+        data = request.get_json()
+        league_key = data.get('league_key')
+        active = data.get('active', False)
+        if not league_key:
+            return jsonify({'success': False, 'error': 'league_key is required'}), 400
+        result = football.set_league_active(league_key, active)
+        if result:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'League not found'}), 404
+    except Exception as e:
+        print(f"[API] Ошибка переключения лиги: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 # --- Запуск приложения ---
 if __name__ == '__main__':
