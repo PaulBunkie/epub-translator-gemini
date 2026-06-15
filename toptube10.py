@@ -517,15 +517,16 @@ class TopTubeManager:
             
         model_name = workflow_model_config.DEFAULT_MODEL
         
-        # Формируем пронумерованный список заголовков
+        # Формируем пронумерованный список заголовков с НАЗВАНИЕМ КАНАЛА
         titles_list = []
         for i, video in enumerate(videos, 1):
             title = video["snippet"]["title"]
-            titles_list.append(f"{i}. {title}")
+            channel = video["snippet"]["channelTitle"]
+            titles_list.append(f"{i}. {title} | Канал: {channel}")
         
         titles_text = "\n".join(titles_list)
         
-        prompt = f"""Ниже пронумерованный список заголовков YouTube видео. Максимально ЖЕСТКО и АГРЕССИВНО определи, какие из них НЕ подходят для серьезной аудитории. Исключи ВСЁ, что связано с играми и развлечениями низкого уровня.
+        prompt = f"""Ниже пронумерованный список YouTube видео (заголовок + канал). Максимально ЖЕСТКО и АГРЕССИВНО определи, какие из них НЕ подходят для серьезной аудитории. Исключи ВСЁ, что связано с играми и развлечениями низкого уровня.
 
 1) ИГРОВОЙ КОНТЕНТ (ИСКЛЮЧАТЬ БЕЗЖАЛОСТНО):
 - Любые компьютерные, консольные или мобильные игры (Minecraft, Roblox, GTA, Fortnite, Dota, CS и др.)
@@ -537,42 +538,51 @@ class TopTubeManager:
 2) НЕЦЕЛЕВОЙ РЕГИОНАЛЬНЫЙ КОНТЕНТ (ИНДИЯ И ДР. - ИСКЛЮЧАТЬ ЖЕСТКО):
 - Видео на вьетнамском, корейском, тайском языках
 - Видео на языках народов Индии, Пакистана, Бангладеш (Hindi, Punjabi, Tamil и др.)
-- Контент от каналов типа T-Series, SET India, Zee Music и прочих индийских медиа-гигантов
+- Контент от каналов типа T-Series, SET India, Zee Music, Zee TV, Sony Music India, Colors TV и прочих индийских медиа-гигантов
 - Любые индийские влоги, шоу, сериалы и музыка
-- Даже если заголовок на английском, но видео явно индийское (по именам, тематике) — исключай!
+- Даже если заголовок на английском, но видео явно индийское (по именам, тематике, названию канала) — исключай!
 
 НЕ исключай:
 - Глубокие интервью, политические новости, документальные фильмы
 - Обзоры технологий (не игровых), научпоп
 - Бизнес, финансы, культура
 
-В ответе укажи ТОЛЬКО номера видео для исключения через запятую (например: 1, 3, 7). Если исключать нечего, ответь "нет".
+В ответе укажи ТОЛЬКО номера видео для исключения через запятую (например: 1, 3, 7). Если исключать нечего, ответь ровно одним словом: "нет". НЕ пиши никаких пояснений, ТОЛЬКО номера или "нет".
 
 Список видео:
 {titles_text}"""
 
-        print(f"[TopTube] Отправка {len(videos)} заголовков для LLM-фильтрации (игры + языки)...")
-        llm_response = self._call_ai_api(model_name, prompt)
+        print(f"[TopTube] Отправка {len(videos)} видео для LLM-фильтрации (игры + языки)...")
+        llm_response = self._call_ai_api(model_name, prompt, max_tokens=1000)
         
         if not llm_response:
             return videos
             
-        llm_response = llm_response.lower()
-        print(f"[TopTube] LLM ответ: '{llm_response}'")
+        llm_response_clean = llm_response.lower().strip()
+        print(f"[TopTube] LLM ответ: '{llm_response_clean}'")
         
-        # Парсим ответ LLM
-        if llm_response == "нет" or "нет" in llm_response:
+        # Парсим ответ LLM: если ответ содержит "нет" И не содержит цифр — исключать нечего
+        # Это корректно обрабатывает "нет", "Нет, исключать нечего" и т.д.
+        if "нет" in llm_response_clean and not any(c.isdigit() for c in llm_response_clean):
             print("[TopTube] LLM не нашел контента для исключения")
             return videos
             
         # Извлекаем номера видео для исключения
         exclude_indices = []
-        for part in llm_response.replace(" ", "").split(","):
+        for part in llm_response_clean.replace(" ", "").split(","):
             try:
-                if part.isdigit():
-                    exclude_indices.append(int(part) - 1)  # Переводим в 0-based индексы
+                # Извлекаем все последовательности цифр из части
+                import re
+                numbers = re.findall(r'\d+', part)
+                for num in numbers:
+                    idx = int(num) - 1  # Переводим в 0-based индексы
+                    if 0 <= idx < len(videos):
+                        exclude_indices.append(idx)
             except ValueError:
                 continue
+        
+        # Удаляем дубликаты индексов
+        exclude_indices = list(set(exclude_indices))
         
         # Фильтруем видео, исключая нецелевые
         filtered_videos = []
@@ -580,9 +590,9 @@ class TopTubeManager:
             if i not in exclude_indices:
                 filtered_videos.append(video)
             else:
-                print(f"[TopTube] LLM исключил: {video['snippet']['title'][:70]}...")
+                print(f"[TopTube] LLM исключил [{i+1}]: {video['snippet']['title'][:60]}... | {video['snippet']['channelTitle'][:30]}")
         
-        print(f"[TopTube] LLM-фильтрация: было {len(videos)}, стало {len(filtered_videos)} видео")
+        print(f"[TopTube] LLM-фильтрация: было {len(videos)}, исключено {len(exclude_indices)}, стало {len(filtered_videos)} видео")
         return filtered_videos
 
     def _filter_serious_content_with_llm(self, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
