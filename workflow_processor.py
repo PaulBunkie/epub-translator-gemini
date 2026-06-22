@@ -84,19 +84,33 @@ class WorkflowQueueManager:
 workflow_queue_manager = WorkflowQueueManager()
 
 def resume_all_workflows(app):
-    """Возобновляет все незавершенные воркфлоу при старте."""
+    """Возобновляет все незавершенные воркфлоу при старте.
+    Проверяет статусы отдельных этапов, а не общий статус книги,
+    чтобы гарантированно подхватить книги, зависшие на любом этапе
+    (в т.ч. epub_creation, если общий статус по какой-то причине 'completed')."""
     print("[WorkflowProcessor] Возобновление всех незавершенных воркфлоу...")
     with app.app_context():
         # 1. Сбрасываем зависшие задачи
         workflow_db_manager.reset_stuck_workflow_tasks()
         
-        # 2. Находим незавершенные книги
+        # 2. Проверяем каждую книгу по статусам отдельных этапов
         all_books = workflow_db_manager.get_all_books_workflow()
+        resumed_count = 0
         for book in all_books:
-            status = book.get('current_workflow_status')
-            if status not in ['completed', 'awaiting_edit']:
-                print(f"[WorkflowProcessor] Книга {book['book_id']} ({status}) ставится в очередь на возобновление.")
+            book_stage_statuses = book.get('book_stage_statuses', {})
+            needs_resume = False
+            for stage_name, stage_data in book_stage_statuses.items():
+                status = stage_data.get('status', 'pending')
+                if status in ['pending', 'error', 'processing', 'queued']:
+                    needs_resume = True
+                    break
+            
+            if needs_resume:
+                print(f"[WorkflowProcessor] Книга {book['book_id']} ({book.get('current_workflow_status', '?')}) ставится в очередь на возобновление (этап '{stage_name}' = '{status}').")
                 workflow_queue_manager.add_book_to_queue(book['book_id'], app)
+                resumed_count += 1
+        
+        print(f"[WorkflowProcessor] Возобновление завершено: {resumed_count} книг поставлено в очередь.")
 
 # --- Constants for Workflow Processor ---
 MIN_SECTION_LENGTH = 3000 # Minimum length of clean text for summarization/analysis

@@ -1883,17 +1883,15 @@ def workflow_download_epub(book_id):
             return "Failed to regenerate EPUB file", 500
 
     try:
-        # Читаем файл и отправляем его
-        with open(epub_filepath, 'rb') as f:
-            epub_content = f.read()
-        download_filename = epub_filename
-        return Response(
-            epub_content,
+        # Отправляем файл напрямую без чтения в память (предотвращает OOM)
+        return send_file(
+            str(epub_filepath),
             mimetype="application/epub+zip",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{download_filename}"}
+            as_attachment=True,
+            download_name=epub_filename
         )
     except Exception as e:
-        print(f"  [DownloadEPUB] ОШИБКА при чтении EPUB файла {epub_filepath}: {e}")
+        print(f"  [DownloadEPUB] ОШИБКА при отправке EPUB файла {epub_filepath}: {e}")
         return "Error reading EPUB file", 500
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ EPUB ---
