@@ -14,6 +14,7 @@ import threading
 import datetime
 from datetime import timedelta
 import logging
+import shutil  # Для операций с файлами (перемещение, удаление)
 
 # Flask и связанные утилиты
 from flask import (
@@ -70,7 +71,7 @@ except ImportError:
     print("[App] Telegram бот недоступен (модуль не найден)")
 
 # --- Настройки ---
-from config import UPLOADS_DIR, CACHE_DIR, FULL_TRANSLATION_DIR, MEDIA_DIR, MAX_CONTENT_LENGTH
+from config import UPLOADS_DIR, CACHE_DIR, FULL_TRANSLATION_DIR, MEDIA_DIR, MAX_CONTENT_LENGTH, WORKFLOW_DB_FILE
 
 UPLOAD_FOLDER = str(UPLOADS_DIR)
 ALLOWED_EXTENSIONS = {'epub'}
@@ -993,6 +994,9 @@ def workflow_upload_file():
 
         book_id = _get_epub_id(temp_filepath); print(f"Вычислен Book ID: {book_id}")
 
+        # Убеждаемся что таблицы БД созданы (могли быть удалены при cleanup)
+        workflow_db_manager.init_workflow_db()
+
         # Проверяем, существует ли книга уже в новой БД
         if workflow_db_manager.get_book_workflow(book_id):
              print(f"Книга с ID {book_id} уже существует в Workflow DB.")
@@ -1154,6 +1158,9 @@ def user_upload_file():
 
         book_id = _get_epub_id(temp_filepath); print(f"Вычислен Book ID: {book_id}")
 
+        # Убеждаемся что таблицы БД созданы (могли быть удалены при cleanup)
+        workflow_db_manager.init_workflow_db()
+
         # Проверяем, существует ли книга уже в новой БД
         if workflow_db_manager.get_book_workflow(book_id):
              print(f"Книга с ID {book_id} уже существует в Workflow DB.")
@@ -1271,6 +1278,10 @@ def workflow_index():
     
     # Проверяем параметр admin (включая сессию)
     admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
+    
+    # Если admin определен из URL параметров, сохраняем в сессию для AJAX запросов
+    if admin and not session.get('admin_mode'):
+        session['admin_mode'] = True
 
     workflow_books = []
     try:
@@ -1886,6 +1897,95 @@ def workflow_download_epub(book_id):
         return "Error reading EPUB file", 500
 
 # --- КОНЕЦ НОВОГО ЭНДПОЙНТА СКАЧИВАНИЯ EPUB ---
+
+# --- ЭНДПОЙНТ ДЛЯ ОЧИСТКИ WORKFLOW ---
+@app.route('/workflow_cleanup', methods=['POST'])
+def workflow_cleanup():
+    """Очищает workflow: перемещает готовые файлы в медиатеку и удаляет БД и кэш."""
+    # Проверка, что запрос - POST и от админа (аналогично другим workflow маршрутам)
+    is_admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
+    if not is_admin:
+        return jsonify({'status': 'error', 'message': 'Admin mode required'}), 403
+
+    try:
+        translated_dir = UPLOADS_DIR / "translated"
+        media_dir = UPLOADS_DIR / "media"
+        media_dir.mkdir(exist_ok=True)
+        workflow_cache_dir = CACHE_DIR / "workflow"
+
+        # --- ШАГ 1: Собираем ВСЮ информацию из БД ДО удаления ---
+        all_books = workflow_db_manager.get_all_books_workflow()
+        print(f"  [Cleanup] Найдено {len(all_books)} книг в Workflow DB.")
+
+        # --- ШАГ 2: Перемещаем готовые EPUB из uploads/translated ---
+        moved_epub_count = 0
+        if translated_dir.exists():
+            for epub_file in translated_dir.glob("*.epub"):
+                dest = media_dir / epub_file.name
+                shutil.move(str(epub_file), str(dest))
+                print(f"  Moved translated EPUB: {epub_file.name}")
+                moved_epub_count += 1
+
+        # --- ШАГ 3: Перемещаем файлы анализа (только для книг из БД, по имени файла) ---
+        moved_analysis_count = 0
+        for book in all_books:
+            book_id = book['book_id']
+            filename = book.get('filename', '')
+            target_language = book.get('target_language', 'unknown')
+
+            if not filename:
+                print(f"  [Cleanup] Пропуск книги {book_id}: filename пустой в БД")
+                continue
+
+            base_name = os.path.splitext(filename)[0]
+            analysis_name = f"{base_name}_{target_language}_analysis.txt"
+
+            analyze_file = workflow_cache_dir / book_id / "analyze" / "result.txt"
+            if analyze_file.exists():
+                dest = media_dir / analysis_name
+                shutil.move(str(analyze_file), str(dest))
+                print(f"  Moved analysis: {analyze_file} -> {analysis_name}")
+                moved_analysis_count += 1
+
+        # --- ШАГ 4: Удаляем workflow.db через файловую систему ---
+        # Сначала закрываем ВСЕ открытые соединения с БД
+        workflow_db_manager.close_all_workflow_db_connections()
+        print("  [Cleanup] Все соединения с workflow.db закрыты.")
+
+        if WORKFLOW_DB_FILE.exists():
+            WORKFLOW_DB_FILE.unlink()
+            print("  Deleted workflow.db")
+
+        # --- ШАГ 5: Удаляем .epub_cache/workflow ---
+        if workflow_cache_dir.exists():
+            shutil.rmtree(workflow_cache_dir)
+            print("  Deleted .epub_cache/workflow")
+
+        # --- ШАГ 6: Удаляем uploads/ кроме media/ ---
+        for item in UPLOADS_DIR.iterdir():
+            if item.name == "media":
+                continue
+            if item.is_dir():
+                shutil.rmtree(item)
+                print(f"  Deleted uploads/{item.name}")
+            else:
+                item.unlink()
+                print(f"  Deleted uploads/{item.name}")
+
+        result_msg = (
+            f"Очистка завершена: перемещено {moved_epub_count} EPUB, "
+            f"{moved_analysis_count} файлов анализа в media/, "
+            f"workflow.db, .epub_cache/workflow и uploads/ удалены."
+        )
+        print(f"  [Cleanup] {result_msg}")
+        return jsonify({'status': 'success', 'message': result_msg})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': f'Ошибка при очистке: {str(e)}'}), 500
+
+# --- КОНЕЦ ЭНДПОЙНТА ОЧИСТКИ WORKFLOW ---
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ПЕРЕВОДА ---
 def get_news_content():

@@ -503,26 +503,68 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (e.target.classList.contains('start-workflow-button')) {
-            const bookId = e.target.getAttribute('data-book-id');
-            showProgressOverlay('Starting workflow...');
-            fetch(`/workflow_start_existing_book/${bookId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ admin: admin })
-            })
-            .then(r => r.json())
-            .then(d => {
-                if (d.status === 'success') {
-                    startPolling(bookId);
-                } else {
-                    alert('Error: ' + d.message);
-                    hideProgressOverlay();
-                }
-            });
-            return;
-        }
-    });
+     if (e.target.classList.contains('start-workflow-button')) {
+             const bookId = e.target.getAttribute('data-book-id');
+             showProgressOverlay('Starting workflow...');
+             fetch(`/workflow_start_existing_book/${bookId}`, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ admin: admin })
+             })
+             .then(r => r.json())
+             .then(d => {
+                 if (d.status === 'success') {
+                     startPolling(bookId);
+                 } else {
+                     alert('Error: ' + d.message);
+                     hideProgressOverlay();
+                 }
+             });
+             return;
+         }
+         
+         // Workflow cleanup button handler
+         if (e.target.id === 'workflowCleanupBtn') {
+             e.preventDefault();
+             if (!confirm('Вы уверены? Это удалит всю историю рабочего процесса и кэш. Это действие необратимо.\\n\\nПродолжить?')) {
+                 return;
+             }
+             
+             const cleanupBtn = e.target;
+             const cleanupResult = document.getElementById('cleanupResult');
+             
+             // Disable button and show loading state
+             cleanupBtn.disabled = true;
+             cleanupBtn.innerText = 'Выполняется...';
+             cleanupResult.textContent = 'Выполняется очистка...';
+             
+             fetch(`/workflow_cleanup`, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' }
+             })
+             .then(r => r.json())
+             .then(data => {
+                 if (data.status === 'success') {
+                     cleanupResult.textContent = data.message;
+                     cleanupResult.style.color = '#28a745'; // Green for success
+                     // Reload page after 2 seconds to reflect changes
+                     setTimeout(() => location.reload(), 2000);
+                 } else {
+                     cleanupResult.textContent = 'Ошибка: ' + data.message;
+                     cleanupResult.style.color = '#dc3545'; // Red for error
+                     cleanupBtn.disabled = false;
+                     cleanupBtn.innerText = 'Очистить workflow';
+                 }
+             })
+             .catch(error => {
+                 cleanupResult.textContent = 'Ошибка сети: ' + error.message;
+                 cleanupResult.style.color = '#dc3545';
+                 cleanupBtn.disabled = false;
+                 cleanupBtn.innerText = 'Очистить workflow';
+             });
+             return;
+         }
+     });
 
     function loadBookSections(bookId, container, showSpinner) {
         if (showSpinner) container.innerHTML = '<div style="padding:10px;text-align:center;"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';

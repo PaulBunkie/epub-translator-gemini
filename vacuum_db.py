@@ -18,8 +18,16 @@ def run_vacuum():
 
     print(f"Начало процесса VACUUM для {db_path}...")
     print("ВНИМАНИЕ: Это может занять несколько минут и временно заблокировать базу данных.")
-    
+
     try:
+        # Закрываем все открытые соединения с workflow.db перед VACUUM
+        try:
+            from workflow_db_manager import close_all_workflow_db_connections
+            close_all_workflow_db_connections()
+            print("[VACUUM] Все открытые соединения с БД закрыты.")
+        except Exception as e:
+            print(f"[VACUUM] Не удалось закрыть соединения через workflow_db_manager: {e}")
+
         # Устанавливаем большой таймаут, так как операция длительная
         conn = sqlite3.connect(db_path, timeout=300)
         conn.execute("VACUUM")

@@ -5,9 +5,12 @@ import json
 import os
 import time
 import traceback
+import threading
 from flask import g # Используем Flask's g для управления соединением
 from typing import List, Dict, Any
 from collections import OrderedDict
+
+_thread_local = threading.local()
 
 # --- Настройки новой базы данных ---
 from config import WORKFLOW_DB_FILE
@@ -15,7 +18,7 @@ from config import WORKFLOW_DB_FILE
 DATABASE_FILE = str(WORKFLOW_DB_FILE)
 
 def get_workflow_db():
-    """Универсальный доступ к базе: Flask/g если есть, иначе standalone."""
+    """Универсальный доступ к базе: Flask/g если есть, иначе thread-local."""
     try:
         from flask import g
         try:
@@ -28,17 +31,68 @@ def get_workflow_db():
             db.execute("PRAGMA foreign_keys = ON;")
         return db
     except (ImportError, RuntimeError):
-        # Не Flask-контекст — просто открываем соединение
-        db = sqlite3.connect(DATABASE_FILE, isolation_level=None)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys = ON;")
+        # Не Flask-контекст — используем thread-local storage (переиспользуем соединение на поток)
+        db = getattr(_thread_local, 'workflow_db', None)
+        if db is None:
+            db = sqlite3.connect(DATABASE_FILE, isolation_level=None)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys = ON;")
+            _thread_local.workflow_db = db
         return db
 
 def close_workflow_db(e=None):
     """Закрывает соединение с новой базой данных."""
-    db = getattr(g, '_workflow_database', None)
+    try:
+        from flask import g
+        db = getattr(g, '_workflow_database', None)
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+            g._workflow_database = None
+    except (ImportError, RuntimeError):
+        pass
+
+
+def close_workflow_db_connection():
+    """Закрывает thread-local соединение (для использования вне Flask контекста)."""
+    db = getattr(_thread_local, 'workflow_db', None)
     if db is not None:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
+        _thread_local.workflow_db = None
+
+
+def close_all_workflow_db_connections():
+    """Закрывает ВСЕ открытые соединения (Flask g + thread-local). Вызывать перед cleanup операциями."""
+    # Закрываем thread-local соединение
+    close_workflow_db_connection()
+    # Пытаемся закрыть Flask g соединение
+    try:
+        from flask import g
+        db = getattr(g, '_workflow_database', None)
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+            g._workflow_database = None
+    except (ImportError, RuntimeError):
+        pass
+
+
+def reset_thread_local_db():
+    """Принудительно закрывает и сбрасывает thread-local соединение (для восстановления после ошибок)."""
+    db = getattr(_thread_local, 'workflow_db', None)
+    if db is not None:
+        try:
+            db.close()
+        except Exception:
+            pass
+        _thread_local.workflow_db = None
 
 # В app.py нужно будет добавить привязку close_workflow_db к teardown_appcontext
 
