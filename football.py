@@ -411,11 +411,25 @@ def init_football_db():
         else:
             print("[FootballDB] Column 'sport_key' already exists.")
         
+        # --- Проверка и добавление полей home_team_sofascore_id / away_team_sofascore_id ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        for col_name in ['home_team_sofascore_id', 'away_team_sofascore_id']:
+            if col_name not in columns:
+                print(f"[FootballDB] Adding '{col_name}' column to 'matches' table...")
+                cursor.execute(f"ALTER TABLE matches ADD COLUMN {col_name} INTEGER")
+                conn.commit()
+                print(f"[FootballDB] Column '{col_name}' added successfully.")
+            else:
+                print(f"[FootballDB] Column '{col_name}' already exists.")
+        
         # --- Создание индексов ---
         print("[FootballDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(match_date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_fixture_id ON matches(fixture_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_home_sofascore_id ON matches(home_team_sofascore_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_away_sofascore_id ON matches(away_team_sofascore_id)")
         conn.commit()
         
         # --- Создание/миграция таблицы подписок Telegram ---
@@ -1961,10 +1975,32 @@ class FootballManager:
                             if event_data:
                                 event_id = event_data['event_id']
                                 # Формируем JSON для сохранения в sofascore_join
+                                # Получаем homeTeam и awayTeam из event_data (ответ от _match_sofascore_event_by_team_and_time)
+                                home_team_obj = {}
+                                away_team_obj = {}
+                                for ev in sofascore_events:
+                                    if ev.get('id') == event_id:
+                                        home_team_obj = ev.get('homeTeam', {})
+                                        away_team_obj = ev.get('awayTeam', {})
+                                        break
+                                
                                 sofascore_join_data = {
                                     'slug': event_data.get('slug', ''),
-                                    'startTimestamp': event_data.get('startTimestamp')
+                                    'startTimestamp': event_data.get('startTimestamp'),
+                                    'homeTeamId': home_team_obj.get('id'),
+                                    'awayTeamId': away_team_obj.get('id'),
                                 }
+                                
+                                # Также сразу обновляем home_team_sofascore_id / away_team_sofascore_id в таблице
+                                home_id = home_team_obj.get('id')
+                                away_id = away_team_obj.get('id')
+                                cursor.execute("""
+                                    UPDATE matches
+                                    SET home_team_sofascore_id = ?,
+                                        away_team_sofascore_id = ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                """, (home_id, away_id, match_dict['id']))
                                 sofascore_join_json = json.dumps(sofascore_join_data, ensure_ascii=False)
                                 
                                 # Обновляем sofascore_event_id и sofascore_join в БД
