@@ -2858,6 +2858,23 @@ def bet_page():
     admin = request.args.get('admin') == 'true'
     return render_template('bet.html', admin=admin)
 
+@app.route('/api/team-logo/<int:sofascore_team_id>')
+def api_team_logo(sofascore_team_id):
+    registry_path = os.path.join(os.path.dirname(__file__), 'team_registry.db')
+    if not os.path.isfile(registry_path):
+        return make_response('', 204)
+    conn = sqlite3.connect(registry_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        'SELECT logo_data, logo_format FROM teams WHERE sofascore_team_id = ?',
+        (sofascore_team_id,)
+    ).fetchone()
+    conn.close()
+    if not row or not row['logo_data']:
+        return make_response('', 204)
+    return Response(row['logo_data'], mimetype=f'image/{row["logo_format"] or "png"}')
+
+
 @app.route('/api/football/matches', methods=['GET'])
 def api_get_football_matches():
     """API эндпойнт для получения списка матчей с фаворитом."""

@@ -5862,6 +5862,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
         if filter_fav:
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
+                       home_team_sofascore_id, away_team_sofascore_id,
                        match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
                        status, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
                        bet_alt_code, bet_alt_odds, bet_alt_confirm,
@@ -5875,6 +5876,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
         else:
             cursor.execute("""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
+                       home_team_sofascore_id, away_team_sofascore_id,
                        match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
                        status, bet, bet_ai, bet_ai_odds, bet_ai_model_name,
                        bet_alt_code, bet_alt_odds, bet_alt_confirm,
