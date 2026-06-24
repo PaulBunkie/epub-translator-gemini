@@ -2860,19 +2860,20 @@ def bet_page():
 
 @app.route('/api/team-logo/<int:sofascore_team_id>')
 def api_team_logo(sofascore_team_id):
+    import sqlite3 as _sqlite3
     registry_path = os.path.join(os.path.dirname(__file__), 'team_registry.db')
     if not os.path.isfile(registry_path):
         return make_response('', 204)
-    conn = sqlite3.connect(registry_path)
-    conn.row_factory = sqlite3.Row
+    conn = _sqlite3.connect(registry_path)
+    conn.row_factory = _sqlite3.Row
     row = conn.execute(
-        'SELECT logo_data, logo_format FROM teams WHERE sofascore_team_id = ?',
+        'SELECT logo_data FROM teams WHERE sofascore_team_id = ?',
         (sofascore_team_id,)
     ).fetchone()
     conn.close()
     if not row or not row['logo_data']:
         return make_response('', 204)
-    return Response(row['logo_data'], mimetype=f'image/{row["logo_format"] or "png"}')
+    return Response(row['logo_data'], mimetype='image/png')
 
 
 @app.route('/api/football/matches', methods=['GET'])
@@ -3627,6 +3628,75 @@ def api_toggle_football_league():
             return jsonify({'success': False, 'error': 'League not found'}), 404
     except Exception as e:
         print(f"[API] Ошибка переключения лиги: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/football/sync-team-ids', methods=['POST'])
+def api_sync_team_ids():
+    """API: одноразовый apдейт home_team_sofascore_id / away_team_sofascore_id
+    в football_matches.db из team_registry.db.
+    Запускать один раз после деплоя правильной registry."""
+    import unicodedata
+    import sqlite3 as _sqlite3
+
+    MATCHES_DB = 'football_matches.db'
+    REGISTRY_DB = 'team_registry.db'
+
+    def _strip_accents(s):
+        return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
+    def _norm(s):
+        return _strip_accents(s.lower().strip())
+
+    def _find_team_id(name, registry):
+        name_norm = _norm(name)
+        if name_norm in registry:
+            return registry[name_norm][0]
+        best_id, best_len = None, 0
+        for rn, (tid, _) in registry.items():
+            if len(rn) < 3 or len(name_norm) < 3:
+                continue
+            if rn in name_norm or name_norm in rn:
+                ml = min(len(rn), len(name_norm))
+                if ml > best_len:
+                    best_len, best_id = ml, tid
+        return best_id
+
+    try:
+        # Load registry
+        reg = _sqlite3.connect(REGISTRY_DB)
+        registry = {}
+        for row in reg.execute('SELECT sofascore_team_id, name FROM teams'):
+            registry[_norm(row[1])] = (row[0], row[1])
+        reg.close()
+
+        # Find matches needing IDs
+        conn = _sqlite3.connect(MATCHES_DB)
+        rows = conn.execute("""
+            SELECT id, home_team, away_team
+            FROM matches
+            WHERE home_team_sofascore_id IS NULL OR away_team_sofascore_id IS NULL
+        """).fetchall()
+
+        updated = 0
+        for match_id, home, away in rows:
+            hid = _find_team_id(home, registry)
+            aid = _find_team_id(away, registry)
+            if hid or aid:
+                conn.execute("""
+                    UPDATE matches
+                    SET home_team_sofascore_id = COALESCE(?, home_team_sofascore_id),
+                        away_team_sofascore_id = COALESCE(?, away_team_sofascore_id)
+                    WHERE id = ?
+                """, (hid, aid, match_id))
+                updated += 1
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'updated': updated, 'registry_teams': len(registry)})
+    except Exception as e:
+        print(f"[API] Ошибка sync-team-ids: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

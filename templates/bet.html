@@ -2698,8 +2698,8 @@
                     <td>${adminDeleteBtnHtml}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
-                    <td>${match.home_team} ${match.homeTeamId ? `<img src="/api/team-logo/${match.homeTeamId}" class="team-logo" alt="" onerror="this.style.display='none'">` : ''}</td>
-                    <td>${match.away_team} ${match.awayTeamId ? `<img src="/api/team-logo/${match.awayTeamId}" class="team-logo" alt="" onerror="this.style.display='none'">` : ''}</td>
+                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" onerror="this.style.display='none'"> ` : ''}${match.home_team}</td>
+                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" onerror="this.style.display='none'"> ` : ''}${match.away_team}</td>
                     <td><span class="fav-team">${match.fav}</span></td>
                     <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
                     <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
@@ -2940,8 +2940,8 @@
                     <td>${adminDeleteBtnHtmlAll}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
-                    <td>${match.home_team} ${match.homeTeamId ? `<img src="/api/team-logo/${match.homeTeamId}" class="team-logo" alt="" onerror="this.style.display='none'">` : ''}</td>
-                    <td>${match.away_team} ${match.awayTeamId ? `<img src="/api/team-logo/${match.awayTeamId}" class="team-logo" alt="" onerror="this.style.display='none'">` : ''}</td>
+                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" onerror="this.style.display='none'"> ` : ''}${match.home_team}</td>
+                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" onerror="this.style.display='none'"> ` : ''}${match.away_team}</td>
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
