@@ -5859,8 +5859,12 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
         # Исключаем большие поля: bet_ai_reason, stats_60min (не используются в шаблоне напрямую)
         # stats_60min можно загружать отдельно по требованию для конкретного матча
         # Добавляем флаг has_stats_60min для проверки наличия статистики без загрузки содержимого
+        # Всегда ограничиваем выборку одной неделей в прошлое и неделей в будущее,
+        # чтобы не тащить все строки из БД. Старые матчи сохраняются в БД.
+        date_range_condition = "AND match_date >= date('now', '-7 days') AND match_date <= date('now', '+7 days')"
+
         if filter_fav:
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
                        home_team_sofascore_id, away_team_sofascore_id,
                        match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
@@ -5870,11 +5874,11 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
                        CASE WHEN stats_60min IS NOT NULL AND stats_60min != '' THEN 1 ELSE 0 END AS has_stats_60min,
                        created_at, updated_at
                 FROM matches
-                WHERE fav != 'NONE'
+                WHERE fav != 'NONE' {date_range_condition}
                 ORDER BY match_date DESC, match_time DESC
             """)
         else:
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT id, fixture_id, sofascore_event_id, home_team, away_team, fav, fav_team_id,
                        home_team_sofascore_id, away_team_sofascore_id,
                        match_date, match_time, initial_odds, last_odds, live_odds, live_odds_1, live_odds_x, live_odds_2,
@@ -5884,6 +5888,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
                        CASE WHEN stats_60min IS NOT NULL AND stats_60min != '' THEN 1 ELSE 0 END AS has_stats_60min,
                        created_at, updated_at
                 FROM matches
+                WHERE 1=1 {date_range_condition}
                 ORDER BY match_date DESC, match_time DESC
             """)
 
