@@ -3639,8 +3639,8 @@ def api_sync_team_ids():
     import unicodedata
     import sqlite3 as _sqlite3
 
-    MATCHES_DB = 'football_matches.db'
-    REGISTRY_DB = 'team_registry.db'
+    MATCHES_DB = '/data/football_matches.db'
+    REGISTRY_DB = '/data/team_registry.db'
 
     def _strip_accents(s):
         return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
