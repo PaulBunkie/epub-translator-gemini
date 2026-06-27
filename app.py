@@ -3512,12 +3512,14 @@ def list_media_files():
     files = []
     if os.path.exists(MEDIA_DIR):
         files = [f for f in os.listdir(MEDIA_DIR) if os.path.isfile(os.path.join(MEDIA_DIR, f))]
+        files = sorted(files, key=lambda x: x.lower())
     
     from urllib.parse import unquote
+    is_admin = request.args.get('admin') == 'true'
     def url_decode(s):
         return unquote(s)
 
-    return render_template('files.html', files=files, url_decode=url_decode)
+    return render_template('files.html', files=files, url_decode=url_decode, is_admin=is_admin)
 
 @app.route('/files/upload', methods=['POST'])
 def upload_media_file():
@@ -3563,6 +3565,13 @@ def download_media_file(filename):
 @app.route('/files/delete/<path:filename>', methods=['POST'])
 def delete_media_file(filename):
     """Эндпойнт для удаления медиафайла."""
+    # Проверка режима администратора
+    is_admin = request.args.get('admin') == 'true'
+    if not is_admin:
+        from flask import flash
+        flash('Доступ запрещён: требуется режим администратора (?admin=true)', 'danger')
+        return redirect(url_for('list_media_files'))
+    
     file_path = os.path.join(MEDIA_DIR, filename)
     if os.path.exists(file_path):
         try:

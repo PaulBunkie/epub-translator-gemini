@@ -54,9 +54,11 @@
                         <td>
                             <div class="btn-group" role="group">
                                 <a href="{{ url_for('download_media_file', filename=file) }}" class="btn btn-sm btn-success">Скачать</a>
+                                {% if is_admin %}
                                 <form action="{{ url_for('delete_media_file', filename=file) }}" method="post" style="display:inline;" onsubmit="return confirm('Вы уверены, что хотите удалить этот файл?');">
                                     <button type="submit" class="btn btn-sm btn-danger">Удалить</button>
                                 </form>
+                                {% endif %}
                             </div>
                         </td>
                     </tr>
