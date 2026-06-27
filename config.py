@@ -24,6 +24,7 @@ MAIN_DB_FILE = BASE_DIR / "epub_translator.db"
 WORKFLOW_DB_FILE = BASE_DIR / "workflow.db"
 VIDEO_DB_FILE = BASE_DIR / "video_analyzer.db"
 FOOTBALL_DB_FILE = BASE_DIR / "football_matches.db"
+TEAM_REGISTRY_DB_FILE = BASE_DIR / "team_registry.db"
 
 # --- Создание директорий при импорте ---
 def ensure_directories():

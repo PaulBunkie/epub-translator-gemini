@@ -11,8 +11,11 @@ import time
 import urllib.request
 import unicodedata
 
+from config import TEAM_REGISTRY_DB_FILE
+
 ARCHIVE_DIR = 'static/team_logos_archive'
-REGISTRY_DB = 'team_registry.db'
+
+REGISTRY_DB = str(TEAM_REGISTRY_DB_FILE)
 API_BASE = 'https://api.sofascore1.com/api/v1'
 
 HEADERS = {

@@ -16,8 +16,10 @@ import time
 import json
 import urllib.request
 
-MATCHES_DB = 'football_matches.db'
-REGISTRY_DB = 'team_registry.db'
+from config import FOOTBALL_DB_FILE, TEAM_REGISTRY_DB_FILE
+
+MATCHES_DB = str(FOOTBALL_DB_FILE)
+REGISTRY_DB = str(TEAM_REGISTRY_DB_FILE)
 API_BASE = 'https://api.sofascore1.com/api/v1'
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',

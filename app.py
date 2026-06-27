@@ -2861,7 +2861,8 @@ def bet_page():
 @app.route('/api/team-logo/<int:sofascore_team_id>')
 def api_team_logo(sofascore_team_id):
     import sqlite3 as _sqlite3
-    registry_path = os.path.join(os.path.dirname(__file__), 'team_registry.db')
+    from config import TEAM_REGISTRY_DB_FILE
+    registry_path = str(TEAM_REGISTRY_DB_FILE)
     if not os.path.isfile(registry_path):
         return make_response('', 204)
     conn = _sqlite3.connect(registry_path)
@@ -3639,8 +3640,9 @@ def api_sync_team_ids():
     import unicodedata
     import sqlite3 as _sqlite3
 
-    MATCHES_DB = '/data/football_matches.db'
-    REGISTRY_DB = '/data/team_registry.db'
+    from config import FOOTBALL_DB_FILE, TEAM_REGISTRY_DB_FILE
+    MATCHES_DB = str(FOOTBALL_DB_FILE)
+    REGISTRY_DB = str(TEAM_REGISTRY_DB_FILE)
 
     def _strip_accents(s):
         return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
