@@ -3527,13 +3527,13 @@ def upload_media_file():
     if 'media_file' not in request.files:
         from flask import flash
         flash('Файл не найден', 'danger')
-        return redirect(url_for('list_media_files'))
+        return redirect(url_for('list_media_files', admin='true'))
     
     file = request.files['media_file']
     if file.filename == '':
         from flask import flash
         flash('Файл не выбран', 'danger')
-        return redirect(url_for('list_media_files'))
+        return redirect(url_for('list_media_files', admin='true'))
 
     if file:
         from urllib.parse import quote
@@ -3546,13 +3546,13 @@ def upload_media_file():
         if check_ext not in media_exts:
             from flask import flash
             flash(f'Неподдерживаемый тип файла: {check_ext}', 'danger')
-            return redirect(url_for('list_media_files'))
+            return redirect(url_for('list_media_files', admin='true'))
 
         file_path = os.path.join(MEDIA_DIR, filename)
         file.save(file_path)
         from flask import flash
         flash(f'Файл {filename} успешно загружен', 'success')
-        return redirect(url_for('list_media_files'))
+        return redirect(url_for('list_media_files', admin='true'))
 
 @app.route('/media/<path:filename>')
 def download_media_file(filename):
@@ -3570,7 +3570,7 @@ def delete_media_file(filename):
     if not is_admin:
         from flask import flash
         flash('Доступ запрещён: требуется режим администратора (?admin=true)', 'danger')
-        return redirect(url_for('list_media_files'))
+        return redirect(url_for('list_media_files', admin='true'))
     
     file_path = os.path.join(MEDIA_DIR, filename)
     if os.path.exists(file_path):
@@ -3584,14 +3584,14 @@ def delete_media_file(filename):
     else:
         from flask import flash
         flash('Файл не найден', 'warning')
-    return redirect(url_for('list_media_files'))
+    return redirect(url_for('list_media_files', admin='true'))
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
     """Обработчик ошибки превышения размера файла."""
     from flask import flash
     flash('Ошибка: Файл слишком большой. Максимальный размер — 50 МБ.', 'danger')
-    return redirect(url_for('list_media_files'))
+    return redirect(url_for('list_media_files', admin='true'))
 
 # --- КОНЕЦ МАРШРУТОВ ДЛЯ МЕДИАФАЙЛОВ ---
 
