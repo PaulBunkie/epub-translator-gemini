@@ -291,7 +291,7 @@ FIFA_SLUG_TO_NAME = {
     'algeria': 'Algeria', 'argentina': 'Argentina', 'australia': 'Australia',
     'austria': 'Austria', 'belgium': 'Belgium', 'brazil': 'Brazil',
     'bosnia-and-herzegovina': 'Bosnia & Herzegovina', 'canada': 'Canada',
-    'cape-verde': 'Cape Verde', 'colombia': 'Colombia', 'croatia': 'Croatia',
+    'cape-verde': 'Cabo Verde', 'colombia': 'Colombia', 'croatia': 'Croatia',
     'curacao': 'Curaçao', 'czechia': 'Czech Republic',
     'democratic-republic-of-the-congo': 'DR Congo',
     'ecuador': 'Ecuador', 'egypt': 'Egypt', 'england': 'England',

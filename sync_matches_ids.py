@@ -28,12 +28,19 @@ HEADERS = {
     'Origin': 'https://www.sofascore.com',
 }
 
+# Name aliases: Odds API (English) -> SofaScore (original)
+# Needed when team names from Odds API differ from those in team_registry.db
+NAME_ALIASES = {
+    'Cape Verde': 'Cabo Verde',
+}
+
 
 def strip_accents(s):
     return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
 
 
 def normalize(s):
+    s = NAME_ALIASES.get(s.strip(), s.strip())
     return strip_accents(s.lower().strip())
 
 

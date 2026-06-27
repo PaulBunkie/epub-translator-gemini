@@ -3644,10 +3644,16 @@ def api_sync_team_ids():
     MATCHES_DB = str(FOOTBALL_DB_FILE)
     REGISTRY_DB = str(TEAM_REGISTRY_DB_FILE)
 
+    # Name aliases: Odds API (English) -> SofaScore (original)
+    _NAME_ALIASES = {
+        'Cape Verde': 'Cabo Verde',
+    }
+
     def _strip_accents(s):
         return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
 
     def _norm(s):
+        s = _NAME_ALIASES.get(s.strip(), s.strip())
         return _strip_accents(s.lower().strip())
 
     def _find_team_id(name, registry):
