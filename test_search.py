@@ -1,7 +1,7 @@
 import requests
 API = "https://api.sofascore1.com/api/v1"
 H = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.sofascore.com/"}
-for t in ["Spain", "Austria", "Portugal", "Croatia", "Switzerland", "Algeria"]:
+for t in ["Spain", "Austria", "Portugal", "Croatia", "Switzerland", "Algeria", "Cabo Verde", "Cape Verde", "Argentina"]:
     r = requests.get(API + "/search/events?q=" + t + "&page=0", headers=H, timeout=10)
     d = r.json()
     results = d.get("results", [])
