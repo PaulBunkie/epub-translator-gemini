@@ -2877,6 +2877,20 @@ def api_team_logo(sofascore_team_id):
     return Response(row['logo_data'], mimetype='image/png')
 
 
+
+@app.route('/api/football/favorites-today', methods=['GET'])
+def api_get_favorites_today_tomorrow():
+    """API эндпойнт для получения матчей с фаворитом на сегодня и завтра."""
+    try:
+        matches = football.get_favorites_today_tomorrow()
+        return jsonify({
+            'success': True,
+            'matches': matches
+        }), 200
+    except Exception as e:
+        print(f"[Football API] Ошибка получения матчей на сегодня/завтра: {e}")
+        return jsonify({'error': f'Ошибка получения матчей: {str(e)}'}), 500
+
 @app.route('/api/football/matches', methods=['GET'])
 def api_get_football_matches():
     """API эндпойнт для получения списка матчей с фаворитом."""

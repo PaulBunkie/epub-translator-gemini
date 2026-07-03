@@ -23,7 +23,7 @@ except ImportError as e:
 
 
 
-from config import FOOTBALL_DB_FILE
+from config import FOOTBALL_DB_FILE, TEAM_REGISTRY_DB_FILE
 from workflow_model_config import get_model_for_operation
 from workflow_translation_module import WorkflowTranslator
 
@@ -1536,6 +1536,73 @@ class FootballManager:
         print(f"[Football SofaScore ERROR] Не удалось получить данные за {max_retries} попыток")
         return None
 
+    def _search_sofascore_event_by_team(self, home_team: str, away_team: str) -> Optional[Dict]:
+        """
+        Поиск события в SofaScore по названию домашней команды через /search/events.
+        Возвращает dict с event_id, homeTeamId, awayTeamId или None.
+        """
+        import random
+        url = f"{SOFASCORE_API_URL}/search/events?q={requests.utils.quote(home_team)}&page=0"
+        headers = SOFASCORE_DEFAULT_HEADERS.copy()
+        headers["User-Agent"] = random.choice(SOFASCORE_USER_AGENTS)
+
+        try:
+            response = requests.get(url, headers=headers, timeout=15.0)
+            if response.status_code != 200:
+                print(f"[Football SofaScore Search] HTTP {response.status_code} для поиска '{home_team}'")
+                return None
+
+            data = response.json()
+            results = data.get("results", [])
+
+            away_lower = away_team.lower().strip()
+            for item in results:
+                e = item.get("entity", {})
+                h = e.get("homeTeam", {})
+                a = e.get("awayTeam", {})
+                h_name = h.get("name", "").lower().strip()
+                a_name = a.get("name", "").lower().strip()
+
+                # Проверяем совпадение обеих команд
+                if (home_team.lower().strip() in h_name or h_name in home_team.lower().strip()) and \
+                   (away_lower in a_name or a_name in away_lower):
+                    return {
+                        "event_id": e.get("id"),
+                        "homeTeamId": h.get("id"),
+                        "awayTeamId": a.get("id"),
+                        "slug": e.get("slug", ""),
+                        "startTimestamp": e.get("startTimestamp"),
+                    }
+
+            # Если точное совпадение не найдено, пробуем поискать по away_team
+            url2 = f"{SOFASCORE_API_URL}/search/events?q={requests.utils.quote(away_team)}&page=0"
+            time.sleep(0.5)
+            response2 = requests.get(url2, headers=headers, timeout=15.0)
+            if response2.status_code == 200:
+                results2 = response2.json().get("results", [])
+                home_lower = home_team.lower().strip()
+                for item in results2:
+                    e = item.get("entity", {})
+                    h = e.get("homeTeam", {})
+                    a = e.get("awayTeam", {})
+                    h_name = h.get("name", "").lower().strip()
+                    a_name = a.get("name", "").lower().strip()
+                    if (home_lower in h_name or h_name in home_lower) and \
+                       (away_lower in a_name or a_name in away_lower):
+                        return {
+                            "event_id": e.get("id"),
+                            "homeTeamId": h.get("id"),
+                            "awayTeamId": a.get("id"),
+                            "slug": e.get("slug", ""),
+                            "startTimestamp": e.get("startTimestamp"),
+                        }
+
+            return None
+
+        except Exception as e:
+            print(f"[Football SofaScore Search] Ошибка поиска '{home_team}' vs '{away_team}': {e}")
+            return None
+
     def _match_sofascore_event(self, match: Dict, sofascore_events: List[Dict]) -> Optional[int]:
         """
         Сопоставляет матч из The Odds API с событием из SofaScore по названиям команд.
@@ -1926,7 +1993,27 @@ class FootballManager:
                     # Получаем события из SofaScore для этой даты
                     events = self._fetch_sofascore_events(date_str)
                     if not events:
-                        stats['failed'] += 1
+                        print(f"[Football SofaScore] Scheduled-events unavailable for {date_str}, trying search by team names")
+                        cursor.execute("SELECT id, fixture_id, home_team, away_team, match_date, match_time, sofascore_event_id, status FROM matches WHERE match_date = ? AND sofascore_event_id IS NULL AND status IN ('scheduled', 'in_progress')", (date_str,))
+                        fallback_matches = cursor.fetchall()
+                        if fallback_matches:
+                            print(f"[Football SofaScore] Searching {len(fallback_matches)} matches on {date_str} via search/events")
+                            for fm in fallback_matches:
+                                fm_dict = dict(fm)
+                                search_result = self._search_sofascore_event_by_team(fm_dict['home_team'], fm_dict['away_team'])
+                                if search_result:
+                                    event_id = search_result['event_id']
+                                    home_id = search_result.get('homeTeamId')
+                                    away_id = search_result.get('awayTeamId')
+                                    sofascore_join_data = {'slug': search_result.get('slug', ''), 'startTimestamp': search_result.get('startTimestamp'), 'homeTeamId': home_id, 'awayTeamId': away_id}
+                                    sofascore_join_json = json.dumps(sofascore_join_data, ensure_ascii=False)
+                                    cursor.execute("UPDATE matches SET sofascore_event_id = ?, sofascore_join = ?, home_team_sofascore_id = ?, away_team_sofascore_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (event_id, sofascore_join_json, home_id, away_id, fm_dict['id']))
+                                    stats['updated'] += 1
+                                    print(f"[Football SofaScore Search] Found event_id={event_id} for {fm_dict['home_team']} vs {fm_dict['away_team']} (home={home_id}, away={away_id})")
+                                else:
+                                    stats['failed'] += 1
+                                time.sleep(0.5)
+                            conn.commit()
                         continue
                     
                     stats['dates_processed'] += 1
@@ -5901,6 +5988,98 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
     finally:
         if conn:
             conn.close()
+
+
+def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
+    """
+    Получает матчи с фаворитом на сегодня и завтра.
+    Названия команд берутся из team_registry.db (по sofascore_team_id).
+
+    Returns:
+        Список матчей с полями:
+        home_team, away_team (из registry), date, time_utc, favorite, k0, k1, k60
+    """
+    conn = None
+    registry_conn = None
+    try:
+        # Даты сегодня и завтра в UTC
+        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        conn = get_football_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT home_team, away_team, fav, fav_team_id,
+                   match_date, match_time,
+                   initial_odds, last_odds, live_odds,
+                   home_team_sofascore_id, away_team_sofascore_id
+            FROM matches
+            WHERE fav != 'NONE'
+              AND match_date IN (?, ?)
+            ORDER BY match_date ASC, match_time ASC
+        """, (today, tomorrow))
+
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        # Загружаем team_registry для маппинга имён
+        registry_path = str(TEAM_REGISTRY_DB_FILE)
+        team_name_map = {}
+        try:
+            import os as _os
+            if _os.path.isfile(registry_path):
+                registry_conn = sqlite3.connect(registry_path)
+                reg_cursor = registry_conn.cursor()
+                reg_cursor.execute("SELECT sofascore_team_id, name FROM teams")
+                for reg_row in reg_cursor.fetchall():
+                    team_name_map[reg_row[0]] = reg_row[1]
+        except Exception as e:
+            print(f"[Football] Предупреждение: не удалось загрузить team_registry: {e}")
+
+        result = []
+        for row in rows:
+            # Маппинг имён из registry
+            home_id = row['home_team_sofascore_id']
+            away_id = row['away_team_sofascore_id']
+
+            home_name = team_name_map.get(home_id, row['home_team']) if home_id else row['home_team']
+            away_name = team_name_map.get(away_id, row['away_team']) if away_id else row['away_team']
+
+            # Если fav_team_id=1, фаворит — home, иначе — away
+            if row['fav_team_id'] == 1:
+                favorite = home_name
+            else:
+                favorite = away_name
+
+            result.append({
+                'home_team': home_name,
+                'away_team': away_name,
+                'date': row['match_date'],
+                'time_utc': row['match_time'],
+                'favorite': favorite,
+                'k0': row['initial_odds'],
+                'k1': row['last_odds'],
+                'k60': row['live_odds'],
+            })
+
+        return result
+
+    except sqlite3.Error as e:
+        print(f"[Football ERROR] Ошибка получения матчей на сегодня/завтра: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+        if registry_conn:
+            try:
+                registry_conn.close()
+            except:
+                pass
 
 
 def get_api_limits() -> Dict[str, Any]:
