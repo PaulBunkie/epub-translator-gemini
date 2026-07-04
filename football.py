@@ -1540,32 +1540,102 @@ class FootballManager:
         """
         Поиск события в SofaScore по названию домашней команды через /search/events.
         Возвращает dict с event_id, homeTeamId, awayTeamId или None.
+        Использует как нормализованные имена, так и оригинальные названия для сравнения.
         """
         import random
-        url = f"{SOFASCORE_API_URL}/search/events?q={requests.utils.quote(home_team)}&page=0"
-        headers = SOFASCORE_DEFAULT_HEADERS.copy()
-        headers["User-Agent"] = random.choice(SOFASCORE_USER_AGENTS)
 
-        try:
-            response = requests.get(url, headers=headers, timeout=15.0)
-            if response.status_code != 200:
-                print(f"[Football SofaScore Search] HTTP {response.status_code} для поиска '{home_team}'")
+        def _match_teams(h_name_raw, a_name_raw, target_home, target_away):
+            """Проверяет совпадение обеих команд различными способами"""
+            # Нормализованные варианты
+            h_norm = self._normalize_team_name(h_name_raw)
+            a_norm = self._normalize_team_name(a_name_raw)
+            th_norm = self._normalize_team_name(target_home)
+            ta_norm = self._normalize_team_name(target_away)
+
+            # 1. Точное совпадение нормализованных
+            if h_norm == th_norm and a_norm == ta_norm:
+                return True
+
+            # 2. Обратный порядок
+            if h_norm == ta_norm and a_norm == th_norm:
+                return True
+
+            # 3. Частичное совпадение (нормализованное)
+            h_ok = (th_norm == h_norm) or (len(th_norm) >= 3 and len(h_norm) >= 3 and (th_norm in h_norm or h_norm in th_norm))
+            a_ok = (ta_norm == a_norm) or (len(ta_norm) >= 3 and len(a_norm) >= 3 and (ta_norm in a_norm or a_norm in ta_norm))
+            if h_ok and a_ok:
+                return True
+
+            # 4. Обратное частичное
+            h_ok_rev = (th_norm == a_norm) or (len(th_norm) >= 3 and len(a_norm) >= 3 and (th_norm in a_norm or a_norm in th_norm))
+            a_ok_rev = (ta_norm == h_norm) or (len(ta_norm) >= 3 and len(h_norm) >= 3 and (ta_norm in h_norm or h_norm in ta_norm))
+            if h_ok_rev and a_ok_rev:
+                return True
+
+            # 5. Оригинальные названия (нижний регистр) — для случаев Cape/Cabo, Иран/Iran и т.п.
+            h_low = h_name_raw.lower().strip()
+            a_low = a_name_raw.lower().strip()
+            th_low = target_home.lower().strip()
+            ta_low = target_away.lower().strip()
+
+            # Частичное совпадение оригиналов
+            if (th_low in h_low or h_low in th_low) and (ta_low in a_low or a_low in ta_low):
+                return True
+            if (th_low in a_low or a_low in th_low) and (ta_low in h_low or h_low in ta_low):
+                return True
+
+            # 6. Первые 3+ символа совпадают (абревиатуры и вариации написания)
+            if len(th_low) >= 3 and len(h_low) >= 3:
+                if th_low[:3] == h_low[:3] and ta_low[:3] == a_low[:3]:
+                    return True
+            if len(ta_low) >= 3 and len(a_low) >= 3:
+                if ta_low[:3] == a_low[:3] and th_low[:3] == h_low[:3]:
+                    return True
+
+            # 7. Обе целевые команды присутствуют в матче (любой порядок, любая часть названия)
+            # Например: "Cape Verde" vs "Cabo Verde", "Ivory Coast" vs "Côte d'Ivoire"
+            h_contains_th = th_low in h_low or h_low in th_low or (len(th_low) >= 3 and len(h_low) >= 3 and th_low[:3] == h_low[:3])
+            a_contains_th = th_low in a_low or a_low in th_low or (len(th_low) >= 3 and len(a_low) >= 3 and th_low[:3] == a_low[:3])
+            h_contains_ta = ta_low in h_low or h_low in ta_low or (len(ta_low) >= 3 and len(h_low) >= 3 and ta_low[:3] == h_low[:3])
+            a_contains_ta = ta_low in a_low or a_low in ta_low or (len(ta_low) >= 3 and len(a_low) >= 3 and ta_low[:3] == a_low[:3])
+
+            # Цель: обе команды присутствуют, одна как home, другая как away
+            th_found = h_contains_th or a_contains_th
+            ta_found = h_contains_ta or a_contains_ta
+            if th_found and ta_found:
+                # Убедимся что это не один и тот же матч с одной командой 2 раза
+                if (h_contains_th and a_contains_ta) or (h_contains_ta and a_contains_th):
+                    return True
+
+            # 8. Совпадение по словам длиной >= 3 (для Cape/Cabo Verde и т.п.)
+            def _words_match(s1, s2):
+                w1 = set(s1.lower().split())
+                w2 = set(s2.lower().split())
+                common = w1 & w2
+                return any(len(w) >= 3 for w in common)
+
+            if (_words_match(h_name_raw, target_home) and _words_match(a_name_raw, target_away)) or \
+               (_words_match(h_name_raw, target_away) and _words_match(a_name_raw, target_home)):
+                return True
+
+            return False
+
+        def _search(query_team):
+            url = f"{SOFASCORE_API_URL}/search/events?q={requests.utils.quote(query_team)}&page=0"
+            hdrs = SOFASCORE_DEFAULT_HEADERS.copy()
+            hdrs["User-Agent"] = random.choice(SOFASCORE_USER_AGENTS)
+            resp = requests.get(url, headers=hdrs, timeout=15.0)
+            if resp.status_code != 200:
                 return None
-
-            data = response.json()
+            data = resp.json()
             results = data.get("results", [])
-
-            away_lower = away_team.lower().strip()
             for item in results:
                 e = item.get("entity", {})
                 h = e.get("homeTeam", {})
                 a = e.get("awayTeam", {})
-                h_name = h.get("name", "").lower().strip()
-                a_name = a.get("name", "").lower().strip()
-
-                # Проверяем совпадение обеих команд
-                if (home_team.lower().strip() in h_name or h_name in home_team.lower().strip()) and \
-                   (away_lower in a_name or a_name in away_lower):
+                h_name = h.get("name", "")
+                a_name = a.get("name", "")
+                if _match_teams(h_name, a_name, home_team, away_team):
                     return {
                         "event_id": e.get("id"),
                         "homeTeamId": h.get("id"),
@@ -1573,29 +1643,19 @@ class FootballManager:
                         "slug": e.get("slug", ""),
                         "startTimestamp": e.get("startTimestamp"),
                     }
+            return None
 
-            # Если точное совпадение не найдено, пробуем поискать по away_team
-            url2 = f"{SOFASCORE_API_URL}/search/events?q={requests.utils.quote(away_team)}&page=0"
+        try:
+            # 1. Поиск по home_team
+            result = _search(home_team)
+            if result:
+                return result
+
+            # 2. Поиск по away_team
             time.sleep(0.5)
-            response2 = requests.get(url2, headers=headers, timeout=15.0)
-            if response2.status_code == 200:
-                results2 = response2.json().get("results", [])
-                home_lower = home_team.lower().strip()
-                for item in results2:
-                    e = item.get("entity", {})
-                    h = e.get("homeTeam", {})
-                    a = e.get("awayTeam", {})
-                    h_name = h.get("name", "").lower().strip()
-                    a_name = a.get("name", "").lower().strip()
-                    if (home_lower in h_name or h_name in home_lower) and \
-                       (away_lower in a_name or a_name in away_lower):
-                        return {
-                            "event_id": e.get("id"),
-                            "homeTeamId": h.get("id"),
-                            "awayTeamId": a.get("id"),
-                            "slug": e.get("slug", ""),
-                            "startTimestamp": e.get("startTimestamp"),
-                        }
+            result = _search(away_team)
+            if result:
+                return result
 
             return None
 
