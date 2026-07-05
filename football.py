@@ -6082,7 +6082,23 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
 
         rows = cursor.fetchall()
         if not rows:
-            return []
+            # Fallback: если нет матчей с фаворитом на сегодня/завтра,
+            # берём один ближайший по дате матч (любой, включая без фаворита)
+            print("[Football Favorites] Нет матчей с фаворитом на сегодня/завтра. Ищем ближайший матч...")
+            cursor.execute("""
+                SELECT home_team, away_team, fav, fav_team_id,
+                       match_date, match_time,
+                       initial_odds, last_odds, live_odds,
+                       home_team_sofascore_id, away_team_sofascore_id
+                FROM matches
+                WHERE match_date >= ?
+                  AND fav != 'NONE'
+                ORDER BY match_date ASC, match_time ASC
+                LIMIT 1
+            """, (today,))
+            rows = cursor.fetchall()
+            if not rows:
+                return []
 
         # Загружаем team_registry для маппинга имён
         registry_path = str(TEAM_REGISTRY_DB_FILE)
