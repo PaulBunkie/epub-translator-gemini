@@ -6054,6 +6054,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     """
     Получает матчи с фаворитом на ближайшие 10 дней (включая сегодня).
     Названия команд берутся из team_registry.db (по sofascore_team_id).
+    ВРЕМЕННО: также добавляет 3 последних прошедших матча.
 
     Returns:
         Список матчей с полями:
@@ -6064,10 +6065,14 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     try:
         # Даты на ближайшие 10 дней в UTC (включая сегодня)
         today = datetime.now(timezone.utc)
-        dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(10)]
+        future_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(10)]
+        
+        # ВРЕМЕННО: добавляем 3 последних прошедших матча
+        past_dates = [(today - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(1, 4)]
         
         # Создаем плейсхолдеры для SQL запроса (?, ?, ?, ...)
-        placeholders = ','.join('?' for _ in dates)
+        placeholders = ','.join('?' for _ in future_dates)
+        past_placeholders = ','.join('?' for _ in past_dates)
 
         conn = get_football_db_connection()
         cursor = conn.cursor()
@@ -6082,10 +6087,29 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             WHERE fav != 'NONE'
               AND match_date IN ({placeholders})
             ORDER BY match_date ASC, match_time ASC
-        """, tuple(dates))
+        """, tuple(future_dates))
 
         rows = cursor.fetchall()
-        if not rows:
+        
+        # ВРЕМЕННО: если есть будущие матчи, добавляем 3 прошедших
+        all_rows = list(rows)
+        if rows:
+            cursor.execute(f"""
+                SELECT home_team, away_team, fav, fav_team_id,
+                       match_date, match_time,
+                       initial_odds, last_odds, live_odds,
+                       home_team_sofascore_id, away_team_sofascore_id,
+                       sofascore_event_id
+                FROM matches
+                WHERE fav != 'NONE'
+                  AND match_date IN ({past_placeholders})
+                ORDER BY match_date DESC, match_time DESC
+                LIMIT 3
+            """, tuple(past_dates))
+            
+            past_rows = cursor.fetchall()
+            all_rows.extend(past_rows)
+        if not all_rows:
             # Fallback: если нет матчей с фаворитом на сегодня/завтра,
             # берём один ближайший по дате матч (любой, включая без фаворита)
             print("[Football Favorites] Нет матчей с фаворитом на сегодня/завтра. Ищем ближайший матч...")
@@ -6101,8 +6125,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 ORDER BY match_date ASC, match_time ASC
                 LIMIT 1
             """, (today,))
-            rows = cursor.fetchall()
-            if not rows:
+            all_rows = cursor.fetchall()
+            if not all_rows:
                 return []
 
         # Загружаем team_registry для маппинга имён
@@ -6120,7 +6144,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             print(f"[Football] Предупреждение: не удалось загрузить team_registry: {e}")
 
         result = []
-        for row in rows:
+        for row in all_rows:
             # Маппинг имён из registry
             home_id = row['home_team_sofascore_id']
             away_id = row['away_team_sofascore_id']
