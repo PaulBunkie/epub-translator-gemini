@@ -3134,9 +3134,10 @@ def api_test_firebase_push():
         score_away = str(_random.randint(0, 5))
         minute = str(_random.randint(1, 90))
         status = 'live'
-        k0 = str(round(_random.uniform(1.10, 3.50), 2))
-        k1 = str(round(_random.uniform(1.10, 3.50), 2))
-        k60 = str(round(_random.uniform(1.50, 5.00), 2))
+        
+        # Случайный event_type
+        event_types = ['heartbeat', 'favorite_trouble', 'goal']
+        event_type = _random.choice(event_types)
         
         # Отправляем push с реальными данными матча
         result = firebase_notifier.send_match_update(
@@ -3147,7 +3148,8 @@ def api_test_firebase_push():
             minute=minute,
             k0=k0,
             k1=k1,
-            k60=k60
+            k60=k60,
+            event_type=event_type
         )
         
         if result:
@@ -3166,7 +3168,8 @@ def api_test_firebase_push():
                     'minute': minute,
                     'k0': k0,
                     'k1': k1,
-                    'k60': k60
+                    'k60': k60,
+                    'event_type': event_type
                 }
             }), 200
         else:
