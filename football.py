@@ -6076,7 +6076,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
                    initial_odds, last_odds, live_odds,
-                   home_team_sofascore_id, away_team_sofascore_id
+                   home_team_sofascore_id, away_team_sofascore_id,
+                   sofascore_event_id
             FROM matches
             WHERE fav != 'NONE'
               AND match_date IN ({placeholders})
@@ -6092,7 +6093,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 SELECT home_team, away_team, fav, fav_team_id,
                        match_date, match_time,
                        initial_odds, last_odds, live_odds,
-                       home_team_sofascore_id, away_team_sofascore_id
+                       home_team_sofascore_id, away_team_sofascore_id,
+                       sofascore_event_id
                 FROM matches
                 WHERE match_date >= ?
                   AND fav != 'NONE'
@@ -6137,6 +6139,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'away_team': away_name,
                 'home_team_sofascore_id': home_id,
                 'away_team_sofascore_id': away_id,
+                'sofascore_event_id': row['sofascore_event_id'],
                 'date': row['match_date'],
                 'time_utc': row['match_time'],
                 'favorite': favorite,
