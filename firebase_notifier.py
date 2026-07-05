@@ -98,7 +98,8 @@ class FirebaseNotifier:
         minute: str = "",
         k0: str = "",
         k1: str = "",
-        k60: str = ""
+        k60: str = "",
+        event_type: str = ""
     ) -> bool:
         """
         Отправляет тихий пуш для обновления виджетов.
@@ -112,6 +113,7 @@ class FirebaseNotifier:
             k0: Начальный коэффициент фаворита
             k1: Текущий коэффициент фаворита
             k60: Коэффициент фаворита на 60-й минуте
+            event_type: Тип события (pre_match, heartbeat, goal, favorite_trouble, postponed, match_end)
         
         Returns:
             bool: True если уведомление отправлено успешно
@@ -130,6 +132,7 @@ class FirebaseNotifier:
                 "k0": str(k0),
                 "k1": str(k1),
                 "k60": str(k60),
+                "event_type": str(event_type),
             }
             
             message = messaging.Message(
@@ -138,7 +141,7 @@ class FirebaseNotifier:
             )
             
             response = messaging.send(message)
-            print(f"[FirebaseNotifier] ✅ Push отправлен для матча {match_id}: {response}")
+            print(f"[FirebaseNotifier] ✅ Push отправлен для матча {match_id} (event_type={event_type}): {response}")
             return True
             
         except Exception as e:

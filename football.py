@@ -431,6 +431,17 @@ def init_football_db():
             else:
                 print(f"[FootballDB] Column '{col_name}' already exists.")
         
+        # --- Проверка и добавление поля live_minute (реальная минута матча из SofaScore) ---
+        cursor.execute("PRAGMA table_info(matches)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'live_minute' not in columns:
+            print("[FootballDB] Adding 'live_minute' column to 'matches' table...")
+            cursor.execute("ALTER TABLE matches ADD COLUMN live_minute INTEGER")
+            conn.commit()
+            print("[FootballDB] Column 'live_minute' added successfully.")
+        else:
+            print("[FootballDB] Column 'live_minute' already exists.")
+
         # --- Создание индексов ---
         print("[FootballDB] Creating indexes...")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status)")
@@ -599,6 +610,14 @@ class FootballManager:
         # Уведомление «фаворит вничью на N-й минуте» (шансы высокие, ставки выросли)
         # Ключ: fixture_id, Значение: True (уведомление уже отправлено)
         self.favorite_draw_at_minute_notifications_sent = {}
+        
+        # Хранилище предыдущего счёта для детекта голов
+        # Ключ: fixture_id, Значение: (home_score, away_score)
+        self.last_scores = {}
+        
+        # Хранилище флага "trouble уже отправлен" для favourite_trouble
+        # Ключ: fixture_id, Значение: True
+        self.favorite_trouble_sent = {}
         
         # Получаем список лиг для сбора (из переменной окружения или по умолчанию)
         leagues_env = os.getenv("FOOTBALL_LEAGUES")
@@ -3283,6 +3302,36 @@ class FootballManager:
                     if minutes_diff < 0:
                         continue
 
+                    # Проверка на postponed/cancelled — за 5 минут до начала и позже
+                    if match['status'] == 'scheduled' and minutes_diff >= -5:
+                        sofascore_eid = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() else None
+                        if sofascore_eid:
+                            event_status = self._fetch_sofascore_event_status(sofascore_eid)
+                            if event_status and event_status in ('postponed', 'canceled', 'cancelled'):
+                                print(f"[Football] Матч {fixture_id} отложен/отменён (SofaScore: {event_status}), пропускаем")
+                                cursor.execute(
+                                    "UPDATE matches SET status = 'postponed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                    (match_id,)
+                                )
+                                conn.commit()
+                                # Отправляем push о переносе
+                                if FIREBASE_PUSH_AVAILABLE:
+                                    try:
+                                        firebase_notifier.send_match_update(
+                                            match_id=fixture_id,
+                                            score_home="0",
+                                            score_away="0",
+                                            status="postponed",
+                                            minute="0",
+                                            k0=str(match['initial_odds'] or ""),
+                                            k1=str(match['last_odds'] or ""),
+                                            k60="",
+                                            event_type="postponed"
+                                        )
+                                    except Exception:
+                                        pass
+                                continue  # пропускаем дальнейшую обработку
+
                     if match['status'] == 'scheduled':
                         cursor.execute(
                             "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -3321,6 +3370,20 @@ class FootballManager:
 
                     if minutes_diff < 0:
                         continue
+
+                    # Проверка на postponed/cancelled для scheduled матчей без фаворита
+                    if match['status'] == 'scheduled' and minutes_diff > 15:
+                        sofascore_eid = match['sofascore_event_id'] if 'sofascore_event_id' in match.keys() else None
+                        if sofascore_eid:
+                            event_status = self._fetch_sofascore_event_status(sofascore_eid)
+                            if event_status and event_status in ('postponed', 'canceled', 'cancelled'):
+                                print(f"[Football] Матч без фаворита {fixture_id} отложен/отменён (SofaScore: {event_status}), пропускаем")
+                                cursor.execute(
+                                    "UPDATE matches SET status = 'postponed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                    (match_id,)
+                                )
+                                conn.commit()
+                                continue
 
                     if match['status'] == 'scheduled':
                         cursor.execute(
@@ -3934,6 +3997,73 @@ class FootballManager:
 
         print(f"[Football SofaScore] Не удалось получить данные события для event_id={sofascore_event_id} после {max_retries} попыток")
         return None
+
+    def _get_live_match_minute(self, sofascore_event_id: int) -> Optional[int]:
+        """
+        Получает реальную минуту матча из SofaScore API.
+        Использует event.time.currentPeriodStartTimestamp для вычисления минуты.
+        
+        Формула: минута = (now_utc - currentPeriodStartTimestamp) / 60 [+ 45 если 2-й тайм]
+        Тайм определяем по status.description (строка вида "62'" -> 2-й тайм, "HT" -> перерыв)
+        
+        Args:
+            sofascore_event_id: ID события в SofaScore
+            
+        Returns:
+            Текущая минута матча (int) или None если не удалось получить
+        """
+        from datetime import datetime, timezone
+        import random
+        
+        url = f"{SOFASCORE_API_URL}/event/{sofascore_event_id}"
+        try:
+            headers = SOFASCORE_DEFAULT_HEADERS.copy()
+            headers["User-Agent"] = random.choice(SOFASCORE_USER_AGENTS)
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            event = data.get('event', {})
+            
+            # Способ 1: парсим status.description (строка вида "62'", "HT", "90+3'")
+            status = event.get('status', {})
+            desc = status.get('description', '') if isinstance(status, dict) else ''
+            
+            if desc:
+                import re
+                # Ищем число перед апострофом: "62'", "90+3'", "45+1'"
+                m = re.search(r"(\d+)'", desc)
+                if m:
+                    return int(m.group(1))
+                # HT = 45, FT = 90
+                if 'HT' in desc or 'Half Time' in desc:
+                    return 45
+                if 'FT' in desc or 'Full Time' in desc or 'Ended' in desc:
+                    return 90
+            
+            # Способ 2: вычисляем из currentPeriodStartTimestamp
+            t = event.get('time', {})
+            cpst = t.get('currentPeriodStartTimestamp')
+            if cpst:
+                now_utc = datetime.now(timezone.utc).timestamp()
+                elapsed = int((now_utc - cpst) / 60)
+                # Определяем тайм: если описание содержит 2-ю половину — добавляем 45
+                is_second_half = ('2nd' in desc if desc else False) or (elapsed > 50)
+                if is_second_half and elapsed < 50:
+                    elapsed += 45
+                return max(0, elapsed)
+            
+            # Способ 3: из status.code (для finished матчей code=100)
+            code = status.get('code') if isinstance(status, dict) else None
+            if code == 100:
+                return 90  # finished
+            
+            return None
+            
+        except Exception as e:
+            print(f"[Football Minute] Ошибка получения минуты для event_id={sofascore_event_id}: {e}")
+            return None
 
     def _get_live_odds(self, fixture_id: str, sport_key: Optional[str] = None) -> Optional[float]:
         """
@@ -6171,6 +6301,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
                    initial_odds, last_odds, live_odds,
+                   live_odds_1, live_odds_x, live_odds_2,
                    home_team_sofascore_id, away_team_sofascore_id,
                    sofascore_event_id
             FROM matches
@@ -6228,29 +6359,29 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 else:
                     favorite = away_name
                 k0 = row['initial_odds']
+                k1 = row['last_odds']
             else:
-                # ВРЕМЕННО: нет фаворита — вычисляем по меньшему initial_odds
-                # Сравниваем initial_odds (если есть) — у фаворита он меньше
-                # Если initial_odds нет, пробуем last_odds
-                home_odds = row['initial_odds'] or row['last_odds']
-                away_odds = row['last_odds']  # last_odds для away берём из live_odds_2 если есть, иначе None
-                # Пытаемся получить коэффициент гостей — у нас нет отдельной колонки, 
-                # поэтому используем тот же initial_odds/last_odds как прокси:
-                # если initial_odds есть и это коэффициент фаворита (обычно home),
-                # то для away используем last_odds как приближение
-                if home_odds:
-                    # Считаем что home_odds — это коэффициент на home, 
-                    # а away коэффициент ≈ 1 / (1 - 1/home_odds) очень грубо,
-                    # поэтому просто: если home_odds < 2.0, то home фаворит
-                    if home_odds <= 2.5:
+                # ВРЕМЕННО: нет фаворита — вычисляем по live_odds_1/2
+                # Используем коэффициенты 1X2 из БД для не-фаворитов
+                odd1 = row['live_odds_1']  # home win
+                odd2 = row['live_odds_2']  # away win
+                if odd1 and odd2:
+                    if odd1 <= odd2:
                         favorite = home_name
-                        k0 = home_odds
+                        k0 = float(odd1) if odd1 else None
                     else:
                         favorite = away_name
-                        k0 = home_odds  # используем тот что есть
+                        k0 = float(odd2) if odd2 else None
+                elif odd1:
+                    favorite = home_name
+                    k0 = float(odd1) if odd1 else None
+                elif odd2:
+                    favorite = away_name
+                    k0 = float(odd2) if odd2 else None
                 else:
                     favorite = home_name  # fallback
                     k0 = None
+                k1 = k0  # <<< ВРЕМЕННО: для не-фаворитов k1 = k0
 
             result.append({
                 'home_team': home_name,
@@ -6262,7 +6393,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'time_utc': row['match_time'],
                 'favorite': favorite,
                 'k0': k0,
-                'k1': row['last_odds'],
+                'k1': k1,
                 'k60': row['live_odds'],
             })
 
