@@ -199,6 +199,7 @@ if True:  # is_fly_io:
         replace_existing=True,
         misfire_grace_time=1440  # 1 день grace time (в минутах)
     )
+    print("[FAVOURITE_TRACKING] 📅 Scheduler: collect_football_matches_job (сбор матчей каждый день)")
     print("[Scheduler] ✅ Задание 'collect_football_matches_job' добавлено (сбор матчей каждый день)")
 
     scheduler.add_job(
@@ -210,6 +211,7 @@ if True:  # is_fly_io:
         misfire_grace_time=180,  # 3 минуты grace time
         next_run_time=datetime.datetime.now() + timedelta(minutes=3)  # Запуск через 3 минуты после старта
     )
+    print("[FAVOURITE_TRACKING] 🔄 Scheduler: check_football_matches_60min_job (60-я минута проверка каждые 3 минуты)")
     print("[Scheduler] ✅ Задание 'check_football_matches_60min_job' добавлено (статус/60-я минута каждые 3 минуты)")
 
     # Отдельная задача для финального счета - каждые 5 минут
@@ -221,6 +223,7 @@ if True:  # is_fly_io:
         replace_existing=True,
         misfire_grace_time=300  # 5 минут grace time
     )
+    print("[FAVOURITE_TRACKING] 🏁 Scheduler: check_football_matches_final_job (финальный счет каждые 5 минут)")
     print("[Scheduler] ✅ Задание 'check_football_matches_final_job' добавлено (финальный счет каждые 5 минут)")
 
     # Обновление текущих счетов из TheSportsDB каждые 2 минуты (только для in_progress)
@@ -232,6 +235,7 @@ if True:  # is_fly_io:
         replace_existing=True,
         misfire_grace_time=120
     )
+    print("[FAVOURITE_TRACKING] ⚡ Scheduler: thesportsdb_scores_job (обновление счетов каждые 2 минуты)")
     print("[Scheduler] ✅ Задание 'thesportsdb_scores_job' добавлено (обновление счетов из TheSportsDB каждые 2 минуты)")
 
     # --- СИНХРОНИЗАЦИЯ ЛИГ: раз в день (бесплатный запрос к /sports) ---

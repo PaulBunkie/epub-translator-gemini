@@ -956,10 +956,12 @@ class FootballManager:
         """
         # Пропускаем, если нет фаворита
         if fav_team_id is None or fav_team_id == -1 or not fav_team_name or fav_team_name == 'NONE':
+            print(f"[FAVOURITE_TRACKING] 🚫 No favourite for fixture={fixture_id}, skipping losing check")
             return
         
         # Пропускаем, если уведомление уже было отправлено
         if self.favorite_losing_notifications_sent.get(fixture_id, False):
+            print(f"[FAVOURITE_TRACKING] 🔁 Already notified losing for fixture={fixture_id}, skipping")
             return
         
         # Проверяем, проигрывает ли фаворит (счёт против него)
@@ -971,6 +973,8 @@ class FootballManager:
         elif fav_team_id == 0:  # Фаворит в гостях
             if away_score < home_score:
                 is_favorite_losing = True
+        
+        print(f"[FAVOURITE_TRACKING] 🔍 Checking favourite losing | fixture={fixture_id} | fav={fav_team_name} | fav_team_id={fav_team_id} | score={home_score}-{away_score} | is_losing={is_favorite_losing}")
         
         # Если фаворит проигрывает, отправляем уведомление
         if is_favorite_losing:
@@ -1082,8 +1086,10 @@ class FootballManager:
         Ситуация: шансы фаворита остаются высокими, а коэффициенты уже выросли — момент для внимания.
         """
         if fav_team_id is None or fav_team_id == -1 or not fav_team_name or fav_team_name == 'NONE':
+            print(f"[FAVOURITE_TRACKING] 🚫 No favourite for draw-at-minute check, fixture={fixture_id}")
             return
         if self.favorite_draw_at_minute_notifications_sent.get(fixture_id, False):
+            print(f"[FAVOURITE_TRACKING] 🔁 Already notified draw-at-minute for fixture={fixture_id}, skipping")
             return
         try:
             if not TELEGRAM_AVAILABLE:

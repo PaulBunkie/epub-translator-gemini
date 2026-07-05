@@ -141,11 +141,11 @@ class FirebaseNotifier:
             )
             
             response = messaging.send(message)
-            print(f"[FirebaseNotifier] ✅ Push отправлен для матча {match_id} (event_type={event_type}): {response}")
+            print(f"[FAVOURITE_TRACKING] 📲 PUSH SENT via Firebase | match_id={match_id} | event_type={event_type} | score={score_home}-{score_away} | minute={minute} | k0={k0} | k1={k1} | k60={k60} | response={response}")
             return True
             
         except Exception as e:
-            print(f"[FirebaseNotifier] ❌ Ошибка отправки push для матча {match_id}: {e}")
+            print(f"[FAVOURITE_TRACKING] ❌ PUSH FAILED via Firebase | match_id={match_id} | event_type={event_type} | error={e}")
             print(traceback.format_exc())
             return False
     
