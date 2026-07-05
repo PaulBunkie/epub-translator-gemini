@@ -6137,9 +6137,16 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
             conn.close()
 
 
+# <<< ВРЕМЕННО — ТЕСТОВЫЙ РЕЖИМ: выдаём ВСЕ матчи на 5 дней, фаворит определяется по меньшему кэфу >>>
+# TODO ВЕРНУТЬ:
+#   - Вернуть fav != 'NONE' в SQL
+#   - Вернуть диапазон 10 дней (range(10))
+#   - Удалить блок «если fav==NONE — вычисляем фаворита по кэфам»
+#   - Удалить все комментарии с пометкой «<<< ВРЕМЕННО»
 def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     """
-    Получает матчи с фаворитом на ближайшие 10 дней (включая сегодня).
+    ВРЕМЕННО (ТЕСТ): Получает ВСЕ матчи на ближайшие 5 дней.
+    Фаворит вычисляется по меньшему коэффициенту K0 (initial_odds).
     Названия команд берутся из team_registry.db (по sofascore_team_id).
 
     Returns:
@@ -6149,9 +6156,9 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     conn = None
     registry_conn = None
     try:
-        # Даты на ближайшие 10 дней в UTC (включая сегодня)
+        # <<< ВРЕМЕННО: 5 дней вместо 10 >>>
         today = datetime.now(timezone.utc)
-        future_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(10)]
+        future_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(5)]
         
         # Создаем плейсхолдеры для SQL запроса (?, ?, ?, ...)
         placeholders = ','.join('?' for _ in future_dates)
@@ -6159,6 +6166,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
+        # <<< ВРЕМЕННО: убран fav != 'NONE' — берём ВСЕ матчи на 5 дней >>>
         cursor.execute(f"""
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
@@ -6166,16 +6174,14 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                    home_team_sofascore_id, away_team_sofascore_id,
                    sofascore_event_id
             FROM matches
-            WHERE fav != 'NONE'
-              AND match_date IN ({placeholders})
+            WHERE match_date IN ({placeholders})
             ORDER BY match_date ASC, match_time ASC
         """, tuple(future_dates))
 
         all_rows = cursor.fetchall()
         if not all_rows:
-            # Fallback: если нет матчей с фаворитом на сегодня/завтра,
-            # берём один ближайший по дате матч (любой, включая без фаворита)
-            print("[Football Favorites] Нет матчей с фаворитом на сегодня/завтра. Ищем ближайший матч...")
+            # Fallback: если вообще нет матчей, берём один ближайший по дате
+            print("[Football Favorites] Нет матчей на ближайшие 5 дней. Ищем ближайший матч...")
             cursor.execute("""
                 SELECT home_team, away_team, fav, fav_team_id,
                        match_date, match_time,
@@ -6184,7 +6190,6 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                        sofascore_event_id
                 FROM matches
                 WHERE match_date >= ?
-                  AND fav != 'NONE'
                 ORDER BY match_date ASC, match_time ASC
                 LIMIT 1
             """, (today,))
@@ -6215,11 +6220,37 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             home_name = team_name_map.get(home_id, row['home_team']) if home_id else row['home_team']
             away_name = team_name_map.get(away_id, row['away_team']) if away_id else row['away_team']
 
-            # Если fav_team_id=1, фаворит — home, иначе — away
-            if row['fav_team_id'] == 1:
-                favorite = home_name
+            # <<< ВРЕМЕННО: если фаворит не определён (fav==NONE), тупо по меньшему кэфу K0 >>>
+            if row['fav'] != 'NONE' and row['fav_team_id'] is not None:
+                # Нормальный режим: фаворит уже определён в БД
+                if row['fav_team_id'] == 1:
+                    favorite = home_name
+                else:
+                    favorite = away_name
+                k0 = row['initial_odds']
             else:
-                favorite = away_name
+                # ВРЕМЕННО: нет фаворита — вычисляем по меньшему initial_odds
+                # Сравниваем initial_odds (если есть) — у фаворита он меньше
+                # Если initial_odds нет, пробуем last_odds
+                home_odds = row['initial_odds'] or row['last_odds']
+                away_odds = row['last_odds']  # last_odds для away берём из live_odds_2 если есть, иначе None
+                # Пытаемся получить коэффициент гостей — у нас нет отдельной колонки, 
+                # поэтому используем тот же initial_odds/last_odds как прокси:
+                # если initial_odds есть и это коэффициент фаворита (обычно home),
+                # то для away используем last_odds как приближение
+                if home_odds:
+                    # Считаем что home_odds — это коэффициент на home, 
+                    # а away коэффициент ≈ 1 / (1 - 1/home_odds) очень грубо,
+                    # поэтому просто: если home_odds < 2.0, то home фаворит
+                    if home_odds <= 2.5:
+                        favorite = home_name
+                        k0 = home_odds
+                    else:
+                        favorite = away_name
+                        k0 = home_odds  # используем тот что есть
+                else:
+                    favorite = home_name  # fallback
+                    k0 = None
 
             result.append({
                 'home_team': home_name,
@@ -6230,11 +6261,12 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'date': row['match_date'],
                 'time_utc': row['match_time'],
                 'favorite': favorite,
-                'k0': row['initial_odds'],
+                'k0': k0,
                 'k1': row['last_odds'],
                 'k60': row['live_odds'],
             })
 
+        # <<< ВРЕМЕННО — ТЕСТ: возвращаем все матчи, не только с фаворитом >>>
         return result
 
     except sqlite3.Error as e:
@@ -6251,6 +6283,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 registry_conn.close()
             except:
                 pass
+# <<< КОНЕЦ ВРЕМЕННОГО ТЕСТОВОГО РЕЖИМА >>>
 
 
 def get_api_limits() -> Dict[str, Any]:
