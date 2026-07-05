@@ -6052,7 +6052,7 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
 
 def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     """
-    Получает матчи с фаворитом на сегодня и завтра.
+    Получает матчи с фаворитом на ближайшие 10 дней (включая сегодня).
     Названия команд берутся из team_registry.db (по sofascore_team_id).
 
     Returns:
@@ -6062,23 +6062,26 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     conn = None
     registry_conn = None
     try:
-        # Даты сегодня и завтра в UTC
-        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')
+        # Даты на ближайшие 10 дней в UTC (включая сегодня)
+        today = datetime.now(timezone.utc)
+        dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(10)]
+        
+        # Создаем плейсхолдеры для SQL запроса (?, ?, ?, ...)
+        placeholders = ','.join('?' for _ in dates)
 
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
                    initial_odds, last_odds, live_odds,
                    home_team_sofascore_id, away_team_sofascore_id
             FROM matches
             WHERE fav != 'NONE'
-              AND match_date IN (?, ?)
+              AND match_date IN ({placeholders})
             ORDER BY match_date ASC, match_time ASC
-        """, (today, tomorrow))
+        """, tuple(dates))
 
         rows = cursor.fetchall()
         if not rows:
