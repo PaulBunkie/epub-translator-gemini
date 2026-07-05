@@ -876,6 +876,25 @@ class FootballManager:
                     conn.commit()
                     updated += 1
                     
+                    # ВРЕМЕННО ДЛЯ ТЕСТА: отправляем Firebase push для ВСЕХ матчей (не только с фаворитом)
+                    # TODO: Убрать после теста
+                    print(f"[FAVOURITE_TRACKING] 🚀 TEST PUSH for ALL match | fixture={row['fixture_id']} | score={h_val}-{a_val}")
+                    if FIREBASE_PUSH_AVAILABLE:
+                        try:
+                            firebase_notifier.send_match_update(
+                                match_id=row['fixture_id'],
+                                score_home=str(h_val),
+                                score_away=str(a_val),
+                                status="live",
+                                minute="",
+                                k0="",
+                                k1="",
+                                k60="",
+                                event_type="heartbeat"
+                            )
+                        except Exception as _fb_err:
+                            print(f"[FAVOURITE_TRACKING] ❌ TEST PUSH FAILED | fixture={row['fixture_id']} | error={_fb_err}")
+                    
                     # Проверяем и отправляем уведомление, когда фаворит начинает проигрывать
                     fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
                     fav_team_name = row['fav'] if 'fav' in row.keys() else None
