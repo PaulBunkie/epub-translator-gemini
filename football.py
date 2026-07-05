@@ -35,6 +35,14 @@ except ImportError:
     TELEGRAM_AVAILABLE = False
     print("[Football] Telegram notifier не доступен")
 
+# Попытка импортировать firebase_notifier (может отсутствовать)
+try:
+    from firebase_notifier import firebase_notifier
+    FIREBASE_PUSH_AVAILABLE = True
+except ImportError:
+    FIREBASE_PUSH_AVAILABLE = False
+    print("[Football] Firebase notifier не доступен")
+
 load_dotenv()
 
 FOOTBALL_DATABASE_FILE = str(FOOTBALL_DB_FILE)
@@ -980,6 +988,55 @@ class FootballManager:
                     # Помечаем, что уведомление отправлено
                     self.favorite_losing_notifications_sent[fixture_id] = True
                     print(f"[Football] Отправлено уведомление о проигрыше фаворита: {fixture_id} ({home_team} vs {away_team}, счет {home_score}-{away_score})")
+                    
+                    # Отправляем Firebase push-уведомление
+                    if FIREBASE_PUSH_AVAILABLE:
+                        try:
+                            # Получаем коэффициенты из БД для push
+                            conn_fb = get_football_db_connection()
+                            cursor_fb = conn_fb.cursor()
+                            cursor_fb.execute("""
+                                SELECT initial_odds, last_odds, live_odds
+                                FROM matches WHERE fixture_id = ?
+                            """, (fixture_id,))
+                            odds_row = cursor_fb.fetchone()
+                            conn_fb.close()
+                            
+                            k0 = str(odds_row['initial_odds']) if odds_row and odds_row['initial_odds'] else ""
+                            k1 = str(odds_row['last_odds']) if odds_row and odds_row['last_odds'] else ""
+                            k60 = str(odds_row['live_odds']) if odds_row and odds_row['live_odds'] else ""
+                            
+                            # Вычисляем приблизительную минуту
+                            minute_str = ""
+                            try:
+                                conn_min = get_football_db_connection()
+                                cursor_min = conn_min.cursor()
+                                cursor_min.execute("""
+                                    SELECT match_date, match_time FROM matches WHERE fixture_id = ?
+                                """, (fixture_id,))
+                                min_row = cursor_min.fetchone()
+                                conn_min.close()
+                                if min_row and min_row['match_date'] and min_row['match_time']:
+                                    match_start_naive = datetime.strptime(f"{min_row['match_date']} {min_row['match_time']}", "%Y-%m-%d %H:%M")
+                                    match_start = match_start_naive.replace(tzinfo=timezone.utc)
+                                    now_utc = datetime.now(timezone.utc)
+                                    elapsed = int(round((now_utc - match_start).total_seconds() / 60.0))
+                                    minute_str = str(max(0, elapsed))
+                            except Exception:
+                                pass
+                            
+                            firebase_notifier.send_match_update(
+                                match_id=fixture_id,
+                                score_home=str(home_score),
+                                score_away=str(away_score),
+                                status="live",
+                                minute=minute_str,
+                                k0=k0,
+                                k1=k1,
+                                k60=k60
+                            )
+                        except Exception as fb_err:
+                            print(f"[Football] Ошибка отправки Firebase push для {fixture_id}: {fb_err}")
                 else:
                     print(f"[Football] Не удалось отправить уведомление о проигрыше фаворита {fixture_id}: все попытки неудачны")
                     
@@ -1033,6 +1090,36 @@ class FootballManager:
             if success_count > 0:
                 self.favorite_draw_at_minute_notifications_sent[fixture_id] = True
                 print(f"[Football] Отправлено уведомление «фаворит вничью на {minute_elapsed}-й минуте»: {fixture_id} ({home_team} vs {away_team})")
+                
+                # Отправляем Firebase push-уведомление
+                if FIREBASE_PUSH_AVAILABLE:
+                    try:
+                        # Получаем коэффициенты из БД для push
+                        conn_fb = get_football_db_connection()
+                        cursor_fb = conn_fb.cursor()
+                        cursor_fb.execute("""
+                            SELECT initial_odds, last_odds, live_odds
+                            FROM matches WHERE fixture_id = ?
+                        """, (fixture_id,))
+                        odds_row = cursor_fb.fetchone()
+                        conn_fb.close()
+                        
+                        k0 = str(initial_odds) if initial_odds else (str(odds_row['initial_odds']) if odds_row and odds_row['initial_odds'] else "")
+                        k1 = str(last_odds) if last_odds else (str(odds_row['last_odds']) if odds_row and odds_row['last_odds'] else "")
+                        k60 = str(odds_row['live_odds']) if odds_row and odds_row['live_odds'] else ""
+                        
+                        firebase_notifier.send_match_update(
+                            match_id=fixture_id,
+                            score_home=str(home_score),
+                            score_away=str(away_score),
+                            status="live",
+                            minute=str(minute_elapsed),
+                            k0=k0,
+                            k1=k1,
+                            k60=k60
+                        )
+                    except Exception as fb_err:
+                        print(f"[Football] Ошибка отправки Firebase push для {fixture_id}: {fb_err}")
         except Exception as e:
             print(f"[Football ERROR] Ошибка уведомления «фаворит вничью на минуте» для {fixture_id}: {e}")
             import traceback
