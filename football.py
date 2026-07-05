@@ -6132,6 +6132,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             result.append({
                 'home_team': home_name,
                 'away_team': away_name,
+                'home_team_sofascore_id': home_id,
+                'away_team_sofascore_id': away_id,
                 'date': row['match_date'],
                 'time_utc': row['match_time'],
                 'favorite': favorite,
