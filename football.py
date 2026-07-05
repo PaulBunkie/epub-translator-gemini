@@ -828,7 +828,8 @@ class FootballManager:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, fixture_id, home_team, away_team, match_date, match_time,
-                       final_score_home, final_score_away, fav_team_id, fav, initial_odds, last_odds
+                       final_score_home, final_score_away, fav_team_id, fav, initial_odds, last_odds,
+                       sofascore_event_id
                 FROM matches
                 WHERE status = 'in_progress'
             """)
@@ -888,6 +889,18 @@ class FootballManager:
                     self.last_scores[row['fixture_id']] = (h_val, a_val)
                     # ===== КОНЕЦ ДЕТЕКТА ГОЛА =====
                     
+                    # ===== ПОЛУЧАЕМ live минуту из SofaScore (только для фаворитов) =====
+                    live_minute = None
+                    fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
+                    sofascore_eid = row['sofascore_event_id'] if 'sofascore_event_id' in row.keys() else None
+                    if fav_team_id is not None and fav_team_id != -1 and sofascore_eid:
+                        live_minute = self._get_live_match_minute(sofascore_eid)
+                        if live_minute is not None:
+                            print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore live minute | fixture={row['fixture_id']} | minute={live_minute} | event_id={sofascore_eid}")
+                        else:
+                            print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore minute unavailable | fixture={row['fixture_id']} | event_id={sofascore_eid}")
+                    # ===== КОНЕЦ ПОЛУЧЕНИЯ МИНУТЫ =====
+                    
                     if FIREBASE_PUSH_AVAILABLE:
                         try:
                             event_type = "goal" if is_goal else "heartbeat"
@@ -896,13 +909,13 @@ class FootballManager:
                                 score_home=str(h_val),
                                 score_away=str(a_val),
                                 status="live",
-                                minute="",
+                                minute=str(live_minute) if live_minute is not None else "",
                                 k0="",
                                 k1="",
                                 k60="",
                                 event_type=event_type
                             )
-                            print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | event_type={event_type} | score={h_val}-{a_val}{' ⚽ GOAL!' if is_goal else ''}")
+                            print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute}{' ⚽ GOAL!' if is_goal else ''}")
                         except Exception as _fb_err:
                             print(f"[FAVOURITE_TRACKING] ❌ Push FAILED | fixture={row['fixture_id']} | error={_fb_err}")
                     
