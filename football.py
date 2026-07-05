@@ -876,11 +876,21 @@ class FootballManager:
                     conn.commit()
                     updated += 1
                     
-                    # ВРЕМЕННО ДЛЯ ТЕСТА: отправляем Firebase push для ВСЕХ матчей (не только с фаворитом)
-                    # TODO: Убрать после теста
-                    print(f"[FAVOURITE_TRACKING] 🚀 TEST PUSH for ALL match | fixture={row['fixture_id']} | score={h_val}-{a_val}")
+                    # ===== ДЕТЕКТ ГОЛА: сравниваем текущий счёт с предыдущим =====
+                    prev_score = self.last_scores.get(row['fixture_id'])
+                    is_goal = False
+                    total_goals = h_val + a_val
+                    prev_total = (prev_score[0] + prev_score[1]) if prev_score else -1
+                    if prev_score is not None and total_goals > prev_total:
+                        is_goal = True
+                        print(f"[FAVOURITE_TRACKING] ⚽ GOAL DETECTED | fixture={row['fixture_id']} | score={h_val}-{a_val} | prev={prev_score[0]}-{prev_score[1]}")
+                    # Сохраняем новый счёт для следующего сравнения
+                    self.last_scores[row['fixture_id']] = (h_val, a_val)
+                    # ===== КОНЕЦ ДЕТЕКТА ГОЛА =====
+                    
                     if FIREBASE_PUSH_AVAILABLE:
                         try:
+                            event_type = "goal" if is_goal else "heartbeat"
                             firebase_notifier.send_match_update(
                                 match_id=row['fixture_id'],
                                 score_home=str(h_val),
@@ -890,10 +900,11 @@ class FootballManager:
                                 k0="",
                                 k1="",
                                 k60="",
-                                event_type="heartbeat"
+                                event_type=event_type
                             )
+                            print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | event_type={event_type} | score={h_val}-{a_val}{' ⚽ GOAL!' if is_goal else ''}")
                         except Exception as _fb_err:
-                            print(f"[FAVOURITE_TRACKING] ❌ TEST PUSH FAILED | fixture={row['fixture_id']} | error={_fb_err}")
+                            print(f"[FAVOURITE_TRACKING] ❌ Push FAILED | fixture={row['fixture_id']} | error={_fb_err}")
                     
                     # Проверяем и отправляем уведомление, когда фаворит начинает проигрывать
                     fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
