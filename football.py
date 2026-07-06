@@ -4247,12 +4247,30 @@ class FootballManager:
                 conn.commit()
                 conn.close()
             
-            # Находим фаворита по медианному коэффициенту
-            fav_info = self._determine_favorite(data)
-            if fav_info:
-                return fav_info['odds']
-            
-            print(f"[Football] Не удалось определить фаворита для fixture {fixture_id}")
+            # Берем исходного фаворита из БД (fav_team_id: 1=home, 0=away)
+            # чтобы K60 всегда соответствовал изначально выбранному фавориту,
+            # а не переопределялся по текущим коэффициентам
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT fav_team_id FROM matches WHERE fixture_id = ?",
+                (fixture_id,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and row['fav_team_id'] is not None and row['fav_team_id'] >= 0:
+                fav_team_id = int(row['fav_team_id'])
+                # fav_team_id = 1 → фаворит дома, 0 → фаворит в гостях
+                if fav_team_id == 1:
+                    if live_odds_1 is not None:
+                        return live_odds_1
+                elif fav_team_id == 0:
+                    if live_odds_2 is not None:
+                        return live_odds_2
+
+            # fallback: если fav_team_id не указан, возвращаем None
+            print(f"[Football] Не удалось определить K60 для fixture {fixture_id} (fav_team_id={row['fav_team_id'] if row else 'N/A'})")
             return None
             
         except Exception as e:
