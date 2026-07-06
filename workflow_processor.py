@@ -113,7 +113,7 @@ def resume_all_workflows(app):
             needs_resume = False
             for stage_name, stage_data in book_stage_statuses.items():
                 status = stage_data.get('status', 'pending')
-                if status in ['pending', 'error', 'processing', 'queued']:
+                if status in ['pending', 'error', 'processing', 'queued', 'completed_with_errors']:
                     needs_resume = True
                     break
             
@@ -370,7 +370,7 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
                      print(f"[WorkflowProcessor] Ошибка: Модель вернула CONTEXT_LIMIT_ERROR на попытке {attempt + 1}. Не ретраим.")
                      break
                 elif summarized_text == workflow_translation_module.SAFETY_FILTER_ERROR:
-                     status = 'error'
+                     status = 'censored'
                      error_message = "Safety filter: контент заблокирован (finish_reason=safety/content_filter). НЕ ретраим."
                      print(f"[WorkflowProcessor] SAFETY: Модель заблокировала контент на попытке {attempt + 1}. Не ретраим.")
                      break
@@ -572,7 +572,7 @@ def update_overall_workflow_book_status(book_id):
     elif all_pending:
         final_status = 'uploaded'
     elif has_completed_with_errors:
-        final_status = 'completed_with_errors'
+        final_status = 'processing'
     elif all_completed:
         final_status = 'completed'
     else:
@@ -641,7 +641,7 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
             for section in sections:
                 section_id = section['section_id']
                 section_stage_status = section.get('stage_statuses', {}).get(stage_name, {}).get('status', 'pending')
-                if section_stage_status in ['completed', 'completed_empty', 'skipped', 'passed']:
+                if section_stage_status in ['completed', 'completed_empty', 'skipped', 'passed', 'censored']:
                     continue
                 if stage_name == 'summarize':
                     result = process_section_summarization(book_id, section_id, admin=book_admin_mode)
@@ -705,14 +705,12 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
             # Отправляем уведомление в Telegram
             send_telegram_notification(book_id, 'completed')
         elif has_errors:
-            # Если есть ошибки, отправляем уведомление об ошибке
-            workflow_db_manager.update_book_workflow_status(book_id, 'completed_with_errors')
-            print(f"[WorkflowProcessor] Перевод завершен с ошибками. Статус книги {book_id} обновлен на 'completed_with_errors'.")
-            
-            # Отправляем уведомление об ошибке в Telegram
-            send_telegram_notification(book_id, 'completed_with_errors')
+            workflow_db_manager.update_book_workflow_status(book_id, 'error')
+            print(f"[WorkflowProcessor] Ошибка при переводе. Статус книги {book_id} обновлен на 'error'.")
         else:
-            print(f"[WorkflowProcessor] Не все этапы завершены. Статус книги {book_id} остается текущим.")
+            # Этапы с completed_with_errors — книга остаётся в processing
+            update_overall_workflow_book_status(book_id)
+            print(f"[WorkflowProcessor] Не все этапы завершены. Статус книги {book_id} пересчитан через update_overall_workflow_book_status.")
     
     print(f"[WorkflowProcessor] Рабочий процесс для книги ID: {book_id} завершен. Финальный статус: {book_info.get('current_workflow_status') if book_info else 'unknown'}.")
     return True
@@ -1040,15 +1038,17 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
             translated_text = result
             used_model = None
         
-        # Если результат — SAFETY_FILTER_ERROR, сразу помечаем как error без ретрая
+        # Если результат — SAFETY_FILTER_ERROR, помечаем как censored и сохраняем "CENSORED" в кэш
         if translated_text == workflow_translation_module.SAFETY_FILTER_ERROR:
-            status = 'error'
+            status = 'censored'
             error_message = "Safety filter: контент заблокирован (finish_reason=safety/content_filter). НЕ ретраим."
-            print(f"[WorkflowProcessor] SAFETY: Контент секции {section_id} заблокирован. Статус: error.")
+            print(f"[WorkflowProcessor] SAFETY: Контент секции {section_id} заблокирован. Статус: censored.")
+            # Сохраняем "CENSORED" в кэш перевода чтобы в EPUB была не дыра
+            workflow_cache_manager.save_section_stage_result(book_id, section_id, 'translate', "CENSORED")
             workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, model_name=used_model, error_message=error_message)
             recalculate_book_stage_status(book_id, 'translate')
             update_overall_workflow_book_status(book_id)
-            return False
+            return True
         # --- КОНЕЦ ПРОВЕРКИ SAFETY ---
             
         print(f"[WorkflowProcessor] Результат translate_text: {translated_text[:100] if translated_text else 'None'}... (длина {len(translated_text) if translated_text is not None else 'None'})")

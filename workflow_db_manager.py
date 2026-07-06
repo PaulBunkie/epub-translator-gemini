@@ -304,6 +304,7 @@ def reset_stuck_workflow_tasks():
             db.execute("UPDATE book_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
             
             # Сброс общих error (кроме терминальных) — чтобы перезапустить упавшие этапы при рестарте
+            # censored НЕ сбрасываем — это safety filter, не исправится ретраем
             db.execute(
                 "UPDATE section_stage_statuses SET status = 'pending' "
                 "WHERE status = 'error' "
