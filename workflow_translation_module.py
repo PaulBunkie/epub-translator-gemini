@@ -19,6 +19,11 @@ CONTEXT_LIMIT_ERROR = "CONTEXT_LIMIT_ERROR"
 # Константа для обозначения ошибки пустого ответа
 EMPTY_RESPONSE_ERROR = "__EMPTY_RESPONSE_AFTER_RETRIES__"
 
+# Константа для обозначения ошибки safety/content filter
+# Возвращается, если API заблокировал контент (finish_reason=safety/content_filter/blocked)
+# НЕ ретраить — третья попытка ничего не изменит
+SAFETY_FILTER_ERROR = "__SAFETY_FILTER__"
+
 # Единый лимит размера чанка для всех операций
 CHUNK_SIZE_LIMIT_CHARS = 30000
 
@@ -765,6 +770,23 @@ class WorkflowTranslator:
                 
                 response = model.generate_content(prompt, safety_settings=safety_settings)
                 
+                # --- ДЕТЕКТОР SAFETY (Vertex AI) ---
+                if response.candidates and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    if candidate.finish_reason == FinishReason.SAFETY:
+                        print(f"[WorkflowTranslator] SAFETY: Vertex AI заблокировал контент (finish_reason=SAFETY). НЕ ретраим.")
+                        return SAFETY_FILTER_ERROR, model_name
+                    if candidate.finish_reason == FinishReason.BLOCKLIST:
+                        print(f"[WorkflowTranslator] SAFETY: Vertex AI заблокировал контент (finish_reason=BLOCKLIST). НЕ ретраим.")
+                        return SAFETY_FILTER_ERROR, model_name
+                    # Проверяем safety_ratings на высокий уровень блокировки
+                    if candidate.safety_ratings:
+                        for rating in candidate.safety_ratings:
+                            if rating.probability >= HarmBlockThreshold.HARM_BLOCK_THRESHOLD_UNSPECIFIED:
+                                print(f"[WorkflowTranslator] SAFETY: Vertex AI safety rating высокий для категории {rating.category}. НЕ ретраим.")
+                                return SAFETY_FILTER_ERROR, model_name
+                # --- КОНЕЦ ДЕТЕКТОРА SAFETY ---
+                
                 if not response.text:
                     print("[WorkflowTranslator] Vertex AI вернул пустой ответ.")
                     return None, model_name
@@ -806,6 +828,15 @@ class WorkflowTranslator:
                 }
                 
                 response = model.generate_content(prompt, safety_settings=safety_settings)
+                
+                # --- ДЕТЕКТОР SAFETY (Google API) ---
+                if response.candidates and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    finish_reason_str = str(candidate.finish_reason).lower() if candidate.finish_reason else ""
+                    if 'safety' in finish_reason_str or 'blocklist' in finish_reason_str:
+                        print(f"[WorkflowTranslator] SAFETY: Google API заблокировал контент (finish_reason={candidate.finish_reason}). НЕ ретраим.")
+                        return SAFETY_FILTER_ERROR, model_name
+                # --- КОНЕЦ ДЕТЕКТОРА SAFETY ---
                 
                 # Проверка на пустой ответ
                 if not response.text:
@@ -940,6 +971,19 @@ class WorkflowTranslator:
                                 
                                 finish_reason = choice.get('finish_reason')
                                 print(f"[WorkflowTranslator] finish_reason: {finish_reason}")
+                                
+                                # --- ДЕТЕКТОР SAFETY/CONTENT FILTER (OpenRouter/LiteRouter) ---
+                                # Если API заблокировал контент — не ретраить, сразу возвращаем SAFETY_FILTER_ERROR
+                                if finish_reason in ('content_filter', 'safety'):
+                                    print(f"[WorkflowTranslator] SAFETY: Модель заблокировала контент (finish_reason='{finish_reason}'). НЕ ретраим.")
+                                    return SAFETY_FILTER_ERROR, model_name
+                                # Также проверяем тело ответа на blocked/moderated content
+                                output_content_lower = output_content.lower() if output_content else ""
+                                if any(blocked_marker in output_content_lower for blocked_marker in ['"blocked": true', 'content policy', 'moderation flag', 'i cannot translate']):
+                                    print(f"[WorkflowTranslator] SAFETY: Ответ содержит признаки блокировки контента. НЕ ретраим.")
+                                    return SAFETY_FILTER_ERROR, model_name
+                                # --- КОНЕЦ ДЕТЕКТОРА SAFETY ---
+                                
                                 if finish_reason != 'stop' and finish_reason is not None:
                                     print(f"[WorkflowTranslator] ОШИБКА: Модель вернула finish_reason='{finish_reason}' вместо 'stop'.")
                                     if finish_reason == 'length': return None, model_name
@@ -1114,6 +1158,15 @@ class WorkflowTranslator:
             )
             
             last_used_model = actual_model
+            
+            # --- ПРЕРЫВАНИЕ ПРИ SAFETY ---
+            # Если контент заблокирован — не пытаться переводить другие чанки.
+            # Весь текст в этой секции — порнуха, нет смысла продолжать.
+            if result == SAFETY_FILTER_ERROR:
+                print(f"[WorkflowTranslator] SAFETY: Контент заблокирован на чанке {i+1}. Прерываем обработку сегмента.")
+                return SAFETY_FILTER_ERROR, actual_model
+            # --- КОНЕЦ ПРЕРЫВАНИЯ ---
+            
             if not result:
                 print(f"[WorkflowTranslator] Ошибка перевода чанка {i+1}")
                 return None, actual_model
@@ -1155,6 +1208,14 @@ class WorkflowTranslator:
         for attempt in range(max_retries + 1):
             result, actual_model = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id, admin=admin)
             last_used_model = actual_model
+            
+            # --- ПРОВЕРКА НА SAFETY FILTER ---
+            # Если API заблокировал контент — не ретраить никогда.
+            # Третий запрос с тем же промптом ничего не изменит.
+            if result == SAFETY_FILTER_ERROR:
+                print(f"[WorkflowTranslator] SAFETY: Контент заблокирован. НЕ ретраим чанк.")
+                return SAFETY_FILTER_ERROR, actual_model
+            # --- КОНЕЦ ПРОВЕРКИ SAFETY ---
             
             # --- ПРОВЕРКА НА БЛОКИРОВКУ ПРОВАЙДЕРА ---
             # Если после вызова API провайдер оказался в списке заблокированных, 
@@ -1276,6 +1337,15 @@ class WorkflowTranslator:
                 book_id,
                 admin=admin
             )
+            
+            # --- ПРЕРЫВАНИЕ ПРИ SAFETY (F3 уровень) ---
+            # Бессмысленно пробовать другие модели — все равно заблокируют.
+            if result == SAFETY_FILTER_ERROR:
+                print(f"[WorkflowTranslator] SAFETY: Контент заблокирован. НЕ перебираем другие модели.")
+                if return_model:
+                    return SAFETY_FILTER_ERROR, actual_model
+                return SAFETY_FILTER_ERROR
+            # --- КОНЕЦ ПРЕРЫВАНИЯ SAFETY ---
             
             if result:
                 # Сохраняем модель для book-level операций (когда section_id=None)

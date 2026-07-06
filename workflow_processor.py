@@ -351,6 +351,11 @@ def process_section_summarization(book_id: str, section_id: int, admin: bool = F
                      error_message = "API вернул CONTEXT_LIMIT_ERROR."
                      print(f"[WorkflowProcessor] Ошибка: Модель вернула CONTEXT_LIMIT_ERROR на попытке {attempt + 1}. Не ретраим.")
                      break
+                elif summarized_text == workflow_translation_module.SAFETY_FILTER_ERROR:
+                     status = 'error'
+                     error_message = "Safety filter: контент заблокирован (finish_reason=safety/content_filter). НЕ ретраим."
+                     print(f"[WorkflowProcessor] SAFETY: Модель заблокировала контент на попытке {attempt + 1}. Не ретраим.")
+                     break
                 else: # None или пустая строка
                     error_message = "Модель вернула пустой результат (None или пустая строка)."
                     print(f"[WorkflowProcessor] Предупреждение: Модель вернула пустой результат на попытке {attempt + 1}.")
@@ -837,6 +842,11 @@ def process_book_analysis(book_id: str, admin: bool = False):
                         error_message = "API returned CONTEXT_LIMIT_ERROR."
                         print(f"[WorkflowProcessor] Error: Model returned CONTEXT_LIMIT_ERROR on attempt {attempt + 1}. No retry.")
                         break
+                    elif analysis_result == workflow_translation_module.SAFETY_FILTER_ERROR:
+                        status = 'error'
+                        error_message = "Safety filter: контент заблокирован (finish_reason=safety/content_filter). НЕ ретраим."
+                        print(f"[WorkflowProcessor] SAFETY: Модель заблокировала контент на попытке {attempt + 1}. Не ретраим.")
+                        break
                     elif analysis_result and len(collected_summary_text) > 5000:
                         if len(analysis_result) > len(collected_summary_text):
                             error_message = "Анализ больше исходного текста."
@@ -1004,12 +1014,24 @@ def process_section_translate(book_id: str, section_id: int, admin: bool = False
             admin=admin
         )
         
-        # Получаем результат и модель
+        # --- ПРОВЕРКА НА SAFETY FILTER (до извлечения used_model) ---
+        # translate_text с return_model=True возвращает tuple (result, model) или строку
         if isinstance(result, tuple) and len(result) == 2:
             translated_text, used_model = result
         else:
             translated_text = result
             used_model = None
+        
+        # Если результат — SAFETY_FILTER_ERROR, сразу помечаем как error без ретрая
+        if translated_text == workflow_translation_module.SAFETY_FILTER_ERROR:
+            status = 'error'
+            error_message = "Safety filter: контент заблокирован (finish_reason=safety/content_filter). НЕ ретраим."
+            print(f"[WorkflowProcessor] SAFETY: Контент секции {section_id} заблокирован. Статус: error.")
+            workflow_db_manager.update_section_stage_status_workflow(book_id, section_id, 'translate', status, model_name=used_model, error_message=error_message)
+            recalculate_book_stage_status(book_id, 'translate')
+            update_overall_workflow_book_status(book_id)
+            return False
+        # --- КОНЕЦ ПРОВЕРКИ SAFETY ---
             
         print(f"[WorkflowProcessor] Результат translate_text: {translated_text[:100] if translated_text else 'None'}... (длина {len(translated_text) if translated_text is not None else 'None'})")
         if used_model:
