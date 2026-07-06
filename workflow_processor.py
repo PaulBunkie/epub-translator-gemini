@@ -87,17 +87,29 @@ def resume_all_workflows(app):
     """Возобновляет все незавершенные воркфлоу при старте.
     Проверяет статусы отдельных этапов, а не общий статус книги,
     чтобы гарантированно подхватить книги, зависшие на любом этапе
-    (в т.ч. epub_creation, если общий статус по какой-то причине 'completed')."""
+    (в т.ч. epub_creation, если общий статус по какой-то причине 'completed').
+    
+    ВАЖНО: get_all_books_workflow() НЕ загружает book_stage_statuses
+    (оптимизация для списка книг). Поэтому для каждой книги загружаем
+    полную информацию через get_book_workflow с include_sections=False."""
     print("[WorkflowProcessor] Возобновление всех незавершенных воркфлоу...")
     with app.app_context():
-        # 1. Сбрасываем зависшие задачи
+        # 1. Сбрасываем зависшие задачи (processing/queued -> pending, error тоже -> pending)
         workflow_db_manager.reset_stuck_workflow_tasks()
         
         # 2. Проверяем каждую книгу по статусам отдельных этапов
+        # get_all_books_workflow() не включает book_stage_statuses — грузим отдельно
         all_books = workflow_db_manager.get_all_books_workflow()
         resumed_count = 0
         for book in all_books:
-            book_stage_statuses = book.get('book_stage_statuses', {})
+            book_id = book['book_id']
+            # Загружаем полную информацию с book_stage_statuses (но без секций — для скорости)
+            full_book_info = workflow_db_manager.get_book_workflow(book_id, include_sections=False)
+            if not full_book_info:
+                print(f"[WorkflowProcessor] Книга {book_id} не найдена в БД, пропускаем.")
+                continue
+            
+            book_stage_statuses = full_book_info.get('book_stage_statuses', {})
             needs_resume = False
             for stage_name, stage_data in book_stage_statuses.items():
                 status = stage_data.get('status', 'pending')
@@ -106,9 +118,15 @@ def resume_all_workflows(app):
                     break
             
             if needs_resume:
-                print(f"[WorkflowProcessor] Книга {book['book_id']} ({book.get('current_workflow_status', '?')}) ставится в очередь на возобновление (этап '{stage_name}' = '{status}').")
-                workflow_queue_manager.add_book_to_queue(book['book_id'], app)
+                print(f"[WorkflowProcessor] Книга {book_id} (общий статус: {book.get('current_workflow_status', '?')}) ставится в очередь на возобновление (этап '{stage_name}' = '{status}').")
+                workflow_queue_manager.add_book_to_queue(book_id, app)
                 resumed_count += 1
+            else:
+                # Все этапы завершены — проверяем общий статус и синхронизируем если нужно
+                current_status = book.get('current_workflow_status')
+                if current_status not in ['completed', 'completed_with_errors']:
+                    print(f"[WorkflowProcessor] Книга {book_id}: все этапы завершены, но общий статус '{current_status}'. Синхронизируем.")
+                    update_overall_workflow_book_status(book_id)
         
         print(f"[WorkflowProcessor] Возобновление завершено: {resumed_count} книг поставлено в очередь.")
 

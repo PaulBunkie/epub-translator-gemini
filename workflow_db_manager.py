@@ -292,16 +292,28 @@ def init_workflow_db():
 
 
 def reset_stuck_workflow_tasks():
-    """Сбрасывает статусы 'processing' и 'queued' в 'pending' для всех секций и книг, а также комиксов."""
+    """Сбрасывает зависшие статусы при рестарте сервера.
+    processing/queued -> pending (задачи были прерваны)
+    error -> pending (кроме терминальных: error_context_limit, safety_filter)
+    Терминальные ошибки НЕ сбрасываем — они не исправятся при повторной попытке."""
     db = get_workflow_db()
     try:
         with db:
-            # Сброс статусов этапов
+            # Сброс processing/queued (прерванные задачи)
             db.execute("UPDATE section_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
             db.execute("UPDATE book_stage_statuses SET status = 'pending' WHERE status IN ('processing', 'queued');")
-            # Сброс статуса комикса (так как фоновые потоки не выживают после перезагрузки)
+            
+            # Сброс общих error (кроме терминальных) — чтобы перезапустить упавшие этапы при рестарте
+            db.execute(
+                "UPDATE section_stage_statuses SET status = 'pending' "
+                "WHERE status = 'error' "
+                "AND (error_message IS NULL OR error_message NOT LIKE '%CONTEXT_LIMIT%' AND error_message NOT LIKE '%safety%' AND error_message NOT LIKE '%Safety%');"
+            )
+            db.execute("UPDATE book_stage_statuses SET status = 'pending' WHERE status = 'error';")
+            
+            # Сброс статуса комикса (фоновые потоки не выживают после перезагрузки)
             db.execute("UPDATE books SET comic_status = 'error' WHERE comic_status = 'processing';")
-        print("[WorkflowDB] Все зависшие статусы 'processing' и 'queued' сброшены.")
+        print("[WorkflowDB] Зависшие статусы (processing/queued/error) сброшены в pending.")
         return True
     except Exception as e:
         print(f"[WorkflowDB] ОШИБКА при сбросе зависших задач: {e}")
