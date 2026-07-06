@@ -141,7 +141,7 @@ class FirebaseNotifier:
             )
             
             response = messaging.send(message)
-            print(f"[FAVOURITE_TRACKING] 📲 PUSH SENT via Firebase | match_id={match_id} | event_type={event_type} | score={score_home}-{score_away} | minute={minute} | k0={k0} | k1={k1} | k60={k60} | response={response}")
+            print(f"[FAVOURITE_TRACKING] 📲 PUSH SENT via Firebase | match_id={match_id} | status={status} | event_type={event_type} | score={score_home}-{score_away} | minute={minute} | k0={k0} | k1={k1} | k60={k60} | response={response}")
             return True
             
         except Exception as e:

@@ -905,7 +905,7 @@ class FootballManager:
                         try:
                             event_type = "goal" if is_goal else "heartbeat"
                             firebase_notifier.send_match_update(
-                                match_id=str(sofascore_eid) if sofascore_eid else row['fixture_id'],
+                                match_id=str(sofascore_eid),
                                 score_home=str(h_val),
                                 score_away=str(a_val),
                                 status="live",
@@ -1091,8 +1091,16 @@ class FootballManager:
                             except Exception:
                                 pass
                             
+                            # Получаем sofascore_event_id для push
+                            conn_sei = get_football_db_connection()
+                            cursor_sei = conn_sei.cursor()
+                            cursor_sei.execute("SELECT sofascore_event_id FROM matches WHERE fixture_id = ?", (fixture_id,))
+                            sei_row = cursor_sei.fetchone()
+                            conn_sei.close()
+                            sofascore_event_id_for_push = sei_row['sofascore_event_id'] if sei_row else None
+                            
                             firebase_notifier.send_match_update(
-                                match_id=fixture_id,
+                                match_id=str(sofascore_event_id_for_push) if sofascore_event_id_for_push else fixture_id,
                                 score_home=str(home_score),
                                 score_away=str(away_score),
                                 status="live",
@@ -1177,8 +1185,16 @@ class FootballManager:
                         k1 = str(last_odds) if last_odds else (str(odds_row['last_odds']) if odds_row and odds_row['last_odds'] else "")
                         k60 = str(odds_row['live_odds']) if odds_row and odds_row['live_odds'] else ""
                         
+                        # Получаем sofascore_event_id для push
+                        conn_sei = get_football_db_connection()
+                        cursor_sei = conn_sei.cursor()
+                        cursor_sei.execute("SELECT sofascore_event_id FROM matches WHERE fixture_id = ?", (fixture_id,))
+                        sei_row = cursor_sei.fetchone()
+                        conn_sei.close()
+                        sofascore_event_id_for_push = sei_row['sofascore_event_id'] if sei_row else None
+                        
                         firebase_notifier.send_match_update(
-                            match_id=fixture_id,
+                            match_id=str(sofascore_event_id_for_push) if sofascore_event_id_for_push else fixture_id,
                             score_home=str(home_score),
                             score_away=str(away_score),
                             status="live",
@@ -3369,7 +3385,7 @@ class FootballManager:
                                 if FIREBASE_PUSH_AVAILABLE:
                                     try:
                                         firebase_notifier.send_match_update(
-                                            match_id=str(match.get('sofascore_event_id') or fixture_id),
+                                            match_id=str(sofascore_eid),
                                             score_home="0",
                                             score_away="0",
                                             status="postponed",
