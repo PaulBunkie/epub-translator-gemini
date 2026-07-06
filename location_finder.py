@@ -69,7 +69,7 @@ class LocationFinderAI:
         """
         try:
             if not self.google_api_key:
-                print(f"{LF_PRINT_PREFIX} Google API ключ не установлен")
+                #print(f"{LF_PRINT_PREFIX} Google API ключ не установлен")
                 return None
             
             # Инициализация Gemini
@@ -78,20 +78,20 @@ class LocationFinderAI:
             
             # Промпт
             prompt = self._get_location_prompt_template(person_name, news_summaries_text)
-            print(f"{LF_PRINT_PREFIX} [Google] Отправка запроса к {model_name} для '{person_name}'...")
+            #print(f"{LF_PRINT_PREFIX} [Google] Отправка запроса к {model_name} для '{person_name}'...")
             
             response = model.generate_content(prompt)
             
             if response.text:
                 location_text_raw = response.text.strip()
-                print(f"{LF_PRINT_PREFIX} [Google] Ответ от {model_name}: '{location_text_raw}'")
+                #print(f"{LF_PRINT_PREFIX} [Google] Ответ от {model_name}: '{location_text_raw}'")
                 return self._parse_location_response(location_text_raw, person_name)
             else:
-                print(f"{LF_PRINT_PREFIX} [Google] Пустой ответ от {model_name}")
+                #print(f"{LF_PRINT_PREFIX} [Google] Пустой ответ от {model_name}")
                 return None
                 
         except Exception as e:
-            print(f"{LF_PRINT_PREFIX} [Google] Ошибка при анализе с {model_name}: {e}")
+            #print(f"{LF_PRINT_PREFIX} [Google] Ошибка при анализе с {model_name}: {e}")
             return None
     
     def _analyze_with_openrouter(self, person_name: str, news_summaries_text: str, model_name: str) -> Optional[dict]:
@@ -110,7 +110,7 @@ class LocationFinderAI:
                 provider_name = "OpenRouter"
 
             if not api_key:
-                print(f"{LF_PRINT_PREFIX} {provider_name} API ключ не установлен")
+                #print(f"{LF_PRINT_PREFIX} {provider_name} API ключ не установлен")
                 return None
             
             headers = {
@@ -132,7 +132,7 @@ class LocationFinderAI:
                 "temperature": 0.1
             }
             
-            print(f"{LF_PRINT_PREFIX} [{provider_name}] Отправка запроса к {model_name} для '{person_name}'...")
+            #print(f"{LF_PRINT_PREFIX} [{provider_name}] Отправка запроса к {model_name} для '{person_name}'...")
             
             response = requests.post(
                 f"{api_url}/chat/completions",
@@ -141,21 +141,21 @@ class LocationFinderAI:
                 timeout=60
             )
             
-            print(f"{LF_PRINT_PREFIX} [{provider_name}] Получен ответ: Статус {response.status_code}")
+            #print(f"{LF_PRINT_PREFIX} [{provider_name}] Получен ответ: Статус {response.status_code}")
             
             # Проверка заголовков лимитов
-            if 'X-Ratelimit-Remaining' in response.headers:
-                print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Remaining: {response.headers['X-Ratelimit-Remaining']}")
-            if 'X-Ratelimit-Limit' in response.headers:
-                print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Limit: {response.headers['X-Ratelimit-Limit']}")
-            if 'X-Ratelimit-Reset' in response.headers:
-                print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Reset: {response.headers['X-Ratelimit-Reset']}")
+            # if 'X-Ratelimit-Remaining' in response.headers:
+            #     print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Remaining: {response.headers['X-Ratelimit-Remaining']}")
+            # if 'X-Ratelimit-Limit' in response.headers:
+            #     print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Limit: {response.headers['X-Ratelimit-Limit']}")
+            # if 'X-Ratelimit-Reset' in response.headers:
+            #     print(f"{LF_PRINT_PREFIX} [OpenRouter] X-Ratelimit-Reset: {response.headers['X-Ratelimit-Reset']}")
             
             if response.status_code == 200:
                 try:
                     data = response.json()
                 except Exception as e_json:
-                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Ошибка парсинга JSON: {e_json}")
+                    #print(f"{LF_PRINT_PREFIX} [OpenRouter] Ошибка парсинга JSON: {e_json}")
                     return None
 
                 if 'choices' in data and len(data['choices']) > 0:
@@ -163,26 +163,26 @@ class LocationFinderAI:
                     raw_content = message.get('content')
                     
                     if raw_content is None:
-                        print(f"{LF_PRINT_PREFIX} [OpenRouter] Поле 'content' отсутствует или равно None в ответе")
+                        #print(f"{LF_PRINT_PREFIX} [OpenRouter] Поле 'content' отсутствует или равно None в ответе")
                         return None
                         
                     content = raw_content.strip()
-                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Ответ от {model_name}: '{content}'")
+                    #print(f"{LF_PRINT_PREFIX} [OpenRouter] Ответ от {model_name}: '{content}'")
                     return self._parse_location_response(content, person_name)
                 else:
-                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Поле 'choices' отсутствует или пусто в ответе: {data}")
+                    #print(f"{LF_PRINT_PREFIX} [OpenRouter] Поле 'choices' отсутствует или пусто в ответе: {data}")
                     return None
             else:
-                print(f"{LF_PRINT_PREFIX} [OpenRouter] HTTP ошибка {response.status_code} от {model_name}")
-                try:
-                    error_details = response.json()
-                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Детали ошибки: {error_details}")
-                except:
-                    print(f"{LF_PRINT_PREFIX} [OpenRouter] Текст ошибки: {response.text[:500]}...")
+                #print(f"{LF_PRINT_PREFIX} [OpenRouter] HTTP ошибка {response.status_code} от {model_name}")
+                # try:
+                #     error_details = response.json()
+                #     print(f"{LF_PRINT_PREFIX} [OpenRouter] Детали ошибки: {error_details}")
+                # except:
+                #     print(f"{LF_PRINT_PREFIX} [OpenRouter] Текст ошибки: {response.text[:500]}...")
                 return None
                 
         except Exception as e:
-            print(f"{LF_PRINT_PREFIX} [OpenRouter] Ошибка при анализе с {model_name}: {e}")
+            #print(f"{LF_PRINT_PREFIX} [OpenRouter] Ошибка при анализе с {model_name}: {e}")
             return None
     
     def _get_location_prompt_template(self, person_name: str, news_summaries_text: str) -> str:
@@ -211,9 +211,9 @@ Location:"""
         geocoding_error_message = None
         
         if not location_text_raw:
-            print(f"{LF_PRINT_PREFIX} Пустой ответ -> 'Unknown'.")
+            pass # print(f"{LF_PRINT_PREFIX} Пустой ответ -> 'Unknown'.")
         elif location_text_raw == "Unknown":
-            print(f"{LF_PRINT_PREFIX} -> 'Unknown'.")
+            pass # print(f"{LF_PRINT_PREFIX} -> 'Unknown'.")
         else:
             parts = location_text_raw.split(',')
             if len(parts) >= 2:
@@ -258,7 +258,7 @@ Location:"""
             if not model:
                 continue
                 
-            print(f"{LF_PRINT_PREFIX} Пробуем модель ({level}): {model}")
+            #print(f"{LF_PRINT_PREFIX} Пробуем модель ({level}): {model}")
             
             # Определяем источник API
             api_source = self._get_api_source(model)
@@ -269,23 +269,23 @@ Location:"""
             elif api_source == "openrouter":
                 result = self._analyze_with_openrouter(person_name, news_summaries_text, model)
             else:
-                print(f"{LF_PRINT_PREFIX} Неизвестный источник API для модели {model}")
+                #print(f"{LF_PRINT_PREFIX} Неизвестный источник API для модели {model}")
                 continue
             
             if result and result.get("location_name") != "Unknown":
-                print(f"{LF_PRINT_PREFIX} Успешный анализ с моделью {model}: {result.get('location_name')}")
+                #print(f"{LF_PRINT_PREFIX} Успешный анализ с моделью {model}: {result.get('location_name')}")
                 return result
             elif result and result.get("location_name") == "Unknown":
-                print(f"{LF_PRINT_PREFIX} Модель {model} ответила 'Unknown', пробуем следующую для уточнения")
+                #print(f"{LF_PRINT_PREFIX} Модель {model} ответила 'Unknown', пробуем следующую для уточнения")
                 last_unknown_result = result
             else:
-                print(f"{LF_PRINT_PREFIX} Модель {model} не дала результата (ошибка или пустой ответ), пробуем следующую")
+                pass # print(f"{LF_PRINT_PREFIX} Модель {model} не дала результата (ошибка или пустой ответ), пробуем следующую")
         
         if last_unknown_result:
-            print(f"{LF_PRINT_PREFIX} Все модели ответили 'Unknown'. Возвращаем окончательный результат 'Unknown'.")
+            #print(f"{LF_PRINT_PREFIX} Все модели ответили 'Unknown'. Возвращаем окончательный результат 'Unknown'.")
             return last_unknown_result
             
-        print(f"{LF_PRINT_PREFIX} Все модели не сработали (ошибки API)")
+        #print(f"{LF_PRINT_PREFIX} Все модели не сработали (ошибки API)")
         return None
 
 # Глобальный экземпляр LocationFinderAI
@@ -356,7 +356,7 @@ def _initialize_gemini():
 
 def _fetch_news(person_name: str, num_articles: int = 100, days_ago: int = NEWS_FETCH_DAYS_AGO):
     if not NEWS_API_KEY:
-        print(f"{LF_PRINT_PREFIX} ОШИБКА: NEWS_API_KEY не установлен для '{person_name}'.")
+        #print(f"{LF_PRINT_PREFIX} ОШИБКА: NEWS_API_KEY не установлен для '{person_name}'.")
         return []
     actual_page_size = min(num_articles, 100)
     from_date_str = (datetime.date.today() - datetime.timedelta(days=days_ago)).strftime('%Y-%m-%d')
@@ -365,32 +365,32 @@ def _fetch_news(person_name: str, num_articles: int = 100, days_ago: int = NEWS_
         'pageSize': actual_page_size, 'apiKey': NEWS_API_KEY, 'from': from_date_str
     }
     headers = {'User-Agent': 'LocationFinderApp/1.0 (epub_translator project; paulbunkie@gmail.com)'}
-    print(f"{LF_PRINT_PREFIX} Запрос новостей для '{person_name}' с NewsAPI (с {from_date_str}). Params: qInTitle={params.get('qInTitle')}, pageSize={params.get('pageSize')}")
+    #print(f"{LF_PRINT_PREFIX} Запрос новостей для '{person_name}' с NewsAPI (с {from_date_str}). Params: qInTitle={params.get('qInTitle')}, pageSize={params.get('pageSize')}")
     try:
         response = requests.get(NEWS_API_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-        print(f"{LF_PRINT_PREFIX} NewsAPI для '{person_name}' ответил статусом: {response.status_code}")
+        #print(f"{LF_PRINT_PREFIX} NewsAPI для '{person_name}' ответил статусом: {response.status_code}")
         response.raise_for_status()
         data = response.json()
         articles_data = data.get('articles', [])
-        print(f"{LF_PRINT_PREFIX} Получено {len(articles_data)} статей для '{person_name}' (запрошено {actual_page_size} за посл. {days_ago} дня).")
-        if articles_data: print(f"{LF_PRINT_PREFIX} Пример заголовка: {articles_data[0].get('title')}")
+        #print(f"{LF_PRINT_PREFIX} Получено {len(articles_data)} статей для '{person_name}' (запрошено {actual_page_size} за посл. {days_ago} дня).")
+        # if articles_data: print(f"{LF_PRINT_PREFIX} Пример заголовка: {articles_data[0].get('title')}")
         filtered_articles = []
         for art in articles_data:
             title = art.get("title")
             if title:
                 description = art.get("description")
                 filtered_articles.append({"title": title, "description": description})
-        print(f"{LF_PRINT_PREFIX} Отфильтровано (по наличию title) {len(filtered_articles)} статей для '{person_name}'.")
+        #print(f"{LF_PRINT_PREFIX} Отфильтровано (по наличию title) {len(filtered_articles)} статей для '{person_name}'.")
         return filtered_articles
     except requests.exceptions.Timeout: 
-        print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут NewsAPI для '{person_name}'.")
+        pass # print(f"{LF_PRINT_PREFIX} ОШИБКА: Таймаут NewsAPI для '{person_name}'.")
     except requests.exceptions.HTTPError as e: 
-        print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP NewsAPI для '{person_name}': {e.response.status_code} {e.response.text[:100]}")
+        # print(f"{LF_PRINT_PREFIX} ОШИБКА HTTP NewsAPI для '{person_name}': {e.response.status_code} {e.response.text[:100]}")
         if e.response.status_code == 429:
-            print(f"{LF_PRINT_PREFIX} Rate limit для NewsAPI - используем любой старый кэш если есть.")
+            pass # print(f"{LF_PRINT_PREFIX} Rate limit для NewsAPI - используем любой старый кэш если есть.")
     except Exception as e: 
-        print(f"{LF_PRINT_PREFIX} ОШИБКА в _fetch_news для '{person_name}': {e}")
-        traceback.print_exc()
+        pass # print(f"{LF_PRINT_PREFIX} ОШИБКА в _fetch_news для '{person_name}': {e}")
+        # traceback.print_exc()
     return []
 
 def _geocode_location(location_name: str):
@@ -398,7 +398,7 @@ def _geocode_location(location_name: str):
     headers = {'User-Agent': 'LocationFinderApp/1.0 (epub_translator project; paulbunkie@gmail.com)'}
     params = {'q': location_name, 'format': 'json', 'limit': 1}
     nominatim_url = "https://nominatim.openstreetmap.org/search"
-    print(f"{LF_PRINT_PREFIX} Геокодинг для '{location_name}'...")
+    #print(f"{LF_PRINT_PREFIX} Геокодинг для '{location_name}'...")
     try:
         time.sleep(1.1)
         response = requests.get(nominatim_url, params=params, headers=headers, timeout=10)
@@ -407,9 +407,9 @@ def _geocode_location(location_name: str):
         if data and isinstance(data, list) and data[0]:
             place = data[0]
             lat, lon = float(place.get('lat')), float(place.get('lon'))
-            print(f"{LF_PRINT_PREFIX} Геокодинг '{location_name}': lat={lat}, lon={lon}")
+            #print(f"{LF_PRINT_PREFIX} Геокодинг '{location_name}': lat={lat}, lon={lon}")
             return lat, lon
-    except Exception as e: print(f"{LF_PRINT_PREFIX} ОШИБКА геокодинга '{location_name}': {e}")
+    except Exception as e: pass # print(f"{LF_PRINT_PREFIX} ОШИБКА геокодинга '{location_name}': {e}")
     return None, None
 
 
@@ -428,16 +428,16 @@ def _get_location_from_ai(person_name: str, news_summaries_text: str):
             return {"location_name": "Error", "lat": None, "lon": None, "error": "AI analysis failed"}
             
     except Exception as e:
-        print(f"{LF_PRINT_PREFIX} Ошибка при анализе локации: {e}")
+        #print(f"{LF_PRINT_PREFIX} Ошибка при анализе локации: {e}")
         return {"location_name": "Error", "lat": None, "lon": None, "error": f"AI analysis error: {e}"}
 
 
 def find_persons_locations(person_names: list, test_mode: bool = False, force_fresh: bool = False):
     results = {}
-    print(f"\n{LF_PRINT_PREFIX} Запуск find_persons_locations для: {person_names}. Тестовый режим: {test_mode}, Принудительное обновление: {force_fresh}")
+    #print(f"\n{LF_PRINT_PREFIX} Запуск find_persons_locations для: {person_names}. Тестовый режим: {test_mode}, Принудительное обновление: {force_fresh}")
 
     if not person_names:
-        print(f"{LF_PRINT_PREFIX} Список person_names пуст.")
+        #print(f"{LF_PRINT_PREFIX} Список person_names пуст.")
         return {"error": "No person names provided"}
 
     if not test_mode:
@@ -445,7 +445,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
         try:
             _get_location_finder_ai()
         except Exception as e:
-            print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать AI. Прерывание: {e}")
+            #print(f"{LF_PRINT_PREFIX} ОШИБКА: Не удалось инициализировать AI. Прерывание: {e}")
             for name_original in person_names:
                  results[name_original if isinstance(name_original, str) else str(name_original)] = {
                      "location_name": "Error", "lat": None, "lon": None,
@@ -466,14 +466,15 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
 
         person_name_cleaned = original_person_name.strip()
         person_name_key = person_name_cleaned.lower()
-        print(f"\n{LF_PRINT_PREFIX} Обработка: '{person_name_cleaned}' (ключ: '{person_name_key}')")
+        #print(f"\n{LF_PRINT_PREFIX} Обработка: '{person_name_cleaned}' (ключ: '{person_name_key}')")
 
         if test_mode:
-            print(f"{LF_PRINT_PREFIX} Тестовый режим для '{person_name_cleaned}'. Заглушка: Стамбул.")
+            #print(f"{LF_PRINT_PREFIX} Тестовый режим для '{person_name_cleaned}'. Заглушка: Стамбул.")
             results[person_name_cleaned] = {
                 "location_name": "Turkey, Istanbul (Test)", "lat": 41.0082, "lon": 28.9784, "error": None,
                 "last_updated": int(current_time_unix)
             }
+            print(f"{LF_PRINT_PREFIX} {person_name_cleaned}: обновлён (тестовый режим) — Turkey, Istanbul")
             time.sleep(0.1); continue
 
         # Определяем TTL в зависимости от режима
@@ -486,12 +487,12 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
         if cached_entry and not force_fresh:
             cache_age = current_time_unix - cached_entry["last_updated"]
             
-            # Добавляем отладочную информацию
-            print(f"{LF_PRINT_PREFIX} Детали кэша для '{person_name_key}':")
-            print(f"{LF_PRINT_PREFIX}   - location_name: '{cached_entry.get('location_name')}'")
-            print(f"{LF_PRINT_PREFIX}   - lat: {cached_entry.get('lat')}")
-            print(f"{LF_PRINT_PREFIX}   - lon: {cached_entry.get('lon')}")
-            print(f"{LF_PRINT_PREFIX}   - error: '{cached_entry.get('error')}'")
+            # # Добавляем отладочную информацию
+            # print(f"{LF_PRINT_PREFIX} Детали кэша для '{person_name_key}':")
+            # print(f"{LF_PRINT_PREFIX}   - location_name: '{cached_entry.get('location_name')}'")
+            # print(f"{LF_PRINT_PREFIX}   - lat: {cached_entry.get('lat')}")
+            # print(f"{LF_PRINT_PREFIX}   - lon: {cached_entry.get('lon')}")
+            # print(f"{LF_PRINT_PREFIX}   - error: '{cached_entry.get('error')}'")
             
             is_good_cache_entry = (
                 cached_entry.get("lat") is not None and
@@ -503,7 +504,7 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
 
             if is_good_cache_entry:
                 if cache_age < cache_ttl:
-                    print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' актуален (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Используем его.")
+                    #print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' актуален (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Используем его.")
                     results[person_name_cleaned] = {
                         "location_name": cached_entry["location_name"], "lat": cached_entry["lat"],
                         "lon": cached_entry["lon"], "error": cached_entry["error"],
@@ -511,24 +512,25 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                     }
                     use_fresh_data = False
                 else:
-                    print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' устарел (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Попытаемся обновить.")
+                    #print(f"{LF_PRINT_PREFIX} 'Хороший' кэш для '{person_name_key}' устарел (возраст: {int(cache_age)} сек, TTL: {cache_ttl} сек). Попытаемся обновить.")
                     had_good_stale_cache = True
                     use_fresh_data = True  # Запрашиваем свежие данные для устаревшего кэша
             else:
-                print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' 'плохой' (Unknown/ошибка/нет координат). Запрашиваем свежие данные.")
+                #print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' 'плохой' (Unknown/ошибка/нет координат). Запрашиваем свежие данные.")
                 use_fresh_data = True  # Запрашиваем свежие данные для плохого кэша
         elif force_fresh:
-            print(f"{LF_PRINT_PREFIX} Принудительное обновление для '{person_name_key}'. Игнорируем кэш.")
+            #print(f"{LF_PRINT_PREFIX} Принудительное обновление для '{person_name_key}'. Игнорируем кэш.")
             use_fresh_data = True  # Принудительное обновление
         else:
-            print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' не найден в БД. Запрашиваем свежие данные.")
+            #print(f"{LF_PRINT_PREFIX} Кэш для '{person_name_key}' не найден в БД. Запрашиваем свежие данные.")
             use_fresh_data = True  # Запрашиваем свежие данные если кэша нет
 
         if not use_fresh_data:
-            print(f"{LF_PRINT_PREFIX} Пропускаем получение свежих данных для '{person_name_cleaned}' (use_fresh_data=False)")
+            loc = cached_entry.get("location_name", "Unknown") if cached_entry else "Unknown"
+            print(f"{LF_PRINT_PREFIX} {person_name_cleaned}: из кэша — {loc}")
             continue
 
-        print(f"{LF_PRINT_PREFIX} Получение свежих данных для '{person_name_cleaned}' (use_fresh_data=True)...")
+        #print(f"{LF_PRINT_PREFIX} Получение свежих данных для '{person_name_cleaned}' (use_fresh_data=True)...")
         articles = _fetch_news(person_name_cleaned, num_articles=100, days_ago=NEWS_FETCH_DAYS_AGO)
 
         person_api_data_fresh = {}
@@ -549,11 +551,11 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
             else:
                 news_text = "\n\n".join(news_summaries)
                 news_summaries_text_for_cache = news_text[:500] + ("..." if len(news_text)>500 else "")
-                summary_preview_len = 1000
-                text_preview = news_text[:summary_preview_len]
-                remaining_chars = len(news_text) - summary_preview_len if len(news_text) > summary_preview_len else 0
-                print(f"{chr(10)}{LF_PRINT_PREFIX} ---- ТЕКСТ ДЛЯ GEMINI ({person_name_cleaned}) (из {len(news_summaries)} статей, превью) ----{chr(10)}{text_preview}...{chr(10)}(Далее еще {remaining_chars} симв.){chr(10)}---- КОНЕЦ ТЕКСТА ----{chr(10)}")
-                print(f"{LF_PRINT_PREFIX} Сформировано саммари ({len(news_summaries)} статей). Длина: {len(news_text)}.")
+                # summary_preview_len = 1000
+                # text_preview = news_text[:summary_preview_len]
+                # remaining_chars = len(news_text) - summary_preview_len if len(news_text) > summary_preview_len else 0
+                # print(f"{chr(10)}{LF_PRINT_PREFIX} ---- ТЕКСТ ДЛЯ GEMINI ({person_name_cleaned}) (из {len(news_summaries)} статей, превью) ----{chr(10)}{text_preview}...{chr(10)}(Далее еще {remaining_chars} симв.){chr(10)}---- КОНЕЦ ТЕКСТА ----{chr(10)}")
+                # print(f"{LF_PRINT_PREFIX} Сформировано саммари ({len(news_summaries)} статей). Длина: {len(news_text)}.")
                 MAX_CHARS_FOR_GEMINI = 750000
                 if len(news_text) > MAX_CHARS_FOR_GEMINI:
                     news_text = news_text[:MAX_CHARS_FOR_GEMINI] + "\n...(truncated)"
@@ -573,12 +575,12 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
 
         final_data_for_person = {}
         if is_fresh_data_good:
-            print(f"{LF_PRINT_PREFIX} Получены 'хорошие' свежие данные для '{person_name_cleaned}'.")
+            #print(f"{LF_PRINT_PREFIX} Получены 'хорошие' свежие данные для '{person_name_cleaned}'.")
             final_data_for_person = person_api_data_fresh
             save_cached_location(person_name_key, final_data_for_person, source_summary=news_summaries_text_for_cache)
         elif had_good_stale_cache and cached_entry and not force_fresh:
             # Используем старый кэш только если НЕ принудительное обновление
-            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие' или отсутствуют. Продлеваем старый 'хороший' кэш для '{person_name_cleaned}'.")
+            #print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие' или отсутствуют. Продлеваем старый 'хороший' кэш для '{person_name_cleaned}'.")
             final_data_for_person = {
                 "location_name": cached_entry["location_name"],
                 "lat": cached_entry["lat"], "lon": cached_entry["lon"],
@@ -587,11 +589,11 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
             }
             save_cached_location(person_name_key, final_data_for_person, source_summary=f"Stale cache extended (AI failed). Original summary: {news_summaries_text_for_cache}")
         else:
-            print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет или принудительное обновление.")
+            #print(f"{LF_PRINT_PREFIX} Свежие данные 'плохие', старого хорошего кэша нет или принудительное обновление.")
             if cached_entry and cached_entry.get("location_name") not in ("Error", None, "Unknown"):
                 # При проблемах с API используем ЛЮБОЙ старый кэш, даже очень устаревший
                 cache_age_h = (current_time_unix - cached_entry["last_updated"]) / 3600
-                print(f"{LF_PRINT_PREFIX} API недоступен - используем старый кэш для '{person_name_cleaned}' (возраст: {cache_age_h:.1f}ч).")
+                #print(f"{LF_PRINT_PREFIX} API недоступен - используем старый кэш для '{person_name_cleaned}' (возраст: {cache_age_h:.1f}ч).")
                 final_data_for_person = {
                     "location_name": cached_entry["location_name"],
                     "lat": cached_entry["lat"], "lon": cached_entry["lon"],
@@ -600,14 +602,23 @@ def find_persons_locations(person_names: list, test_mode: bool = False, force_fr
                 }
             else:
                 # НЕ сохраняем ошибки в кэш, просто пропускаем этого персонажа
-                print(f"{LF_PRINT_PREFIX} Пропускаем '{person_name_cleaned}' - API недоступен и нет подходящего кэша.")
+                #print(f"{LF_PRINT_PREFIX} Пропускаем '{person_name_cleaned}' - API недоступен и нет подходящего кэша.")
+                print(f"{LF_PRINT_PREFIX} {person_name_cleaned}: не удалось обновить (нет данных)")
                 continue
 
         results[person_name_cleaned] = final_data_for_person
+        
+        # Итоговая строка — одна на персонажа
+        loc = final_data_for_person.get('location_name', 'Unknown')
+        lat = final_data_for_person.get('lat')
+        if loc and loc not in ('Unknown', 'Error') and lat:
+            print(f"{LF_PRINT_PREFIX} {person_name_cleaned}: обновлён — {loc}")
+        else:
+            print(f"{LF_PRINT_PREFIX} {person_name_cleaned}: не удалось обновить")
 
         if len(person_names) > 1 and original_person_name != person_names[-1]: time.sleep(1)
 
-    print(f"{LF_PRINT_PREFIX} Завершение. Результаты: {json.dumps(results, ensure_ascii=False, indent=2)}")
+    # print(f"{LF_PRINT_PREFIX} Завершение. Результаты: {json.dumps(results, ensure_ascii=False, indent=2)}")
     return results
 
 PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE = [
@@ -616,12 +627,12 @@ PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE = [
 ]
 
 def update_locations_for_predefined_persons():
-    print(f"\n{LF_PRINT_PREFIX} === ЗАПУСК ФОНОВОГО ОБНОВЛЕНИЯ ЛОКАЦИЙ ===")
-    print(f"{LF_PRINT_PREFIX} Персоны: {PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE}")
+    #print(f"\n{LF_PRINT_PREFIX} === ЗАПУСК ФОНОВОГО ОБНОВЛЕНИЯ ЛОКАЦИЙ ===")
+    #print(f"{LF_PRINT_PREFIX} Персоны: {PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE}")
     try:
         # Фоновое обновление всегда принудительное
         find_persons_locations(PREDEFINED_PERSONS_FOR_BACKGROUND_UPDATE, test_mode=False, force_fresh=True)
-        print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ УСПЕШНО ЗАВЕРШЕНО ===")
+        #print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ УСПЕШНО ЗАВЕРШЕНО ===")
     except Exception as e:
         print(f"{LF_PRINT_PREFIX} === ФОНОВОЕ ОБНОВЛЕНИЕ ЛОКАЦИЙ ОШИБКА: {e} ===")
         traceback.print_exc()
@@ -631,7 +642,7 @@ def find_persons_locations_for_user(person_names: list, test_mode: bool = False)
     Функция для пользовательских запросов - в основном использует кэш.
     Запрашивает свежие данные только если в БД нет данных за последние сутки.
     """
-    print(f"{LF_PRINT_PREFIX} Пользовательский запрос для: {person_names}")
+    #print(f"{LF_PRINT_PREFIX} Пользовательский запрос для: {person_names}")
     return find_persons_locations(person_names, test_mode=test_mode, force_fresh=False)
 
 if __name__ == '__main__':

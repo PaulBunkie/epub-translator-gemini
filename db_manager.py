@@ -482,7 +482,7 @@ CACHE_PRINT_PREFIX = "[DB Cache]" # Или используйте ваш DB_PRIN
 
 def get_cached_location(person_name_key: str):
     """Получает кэшированные данные о локации для персоны."""
-    print(f"{CACHE_PRINT_PREFIX} Запрос кэша для '{person_name_key}'")
+    # print(f"{CACHE_PRINT_PREFIX} Запрос кэша для '{person_name_key}'")
     conn = None # Объявляем conn здесь для использования в finally
     try:
         # Используйте вашу функцию get_db_connection(), если она есть, или создайте соединение
@@ -497,8 +497,8 @@ def get_cached_location(person_name_key: str):
         row = cursor.fetchone()
         
         if row:
-            print(f"{CACHE_PRINT_PREFIX} Найден кэш для '{person_name_key}': last_updated={row['last_updated']}")
-            print(f"{CACHE_PRINT_PREFIX} Детали из БД: location_name='{row['location_name']}', lat={row['latitude']}, lon={row['longitude']}, error='{row['error_message']}'")
+            # print(f"{CACHE_PRINT_PREFIX} Найден кэш для '{person_name_key}': last_updated={row['last_updated']}")
+            # print(f"{CACHE_PRINT_PREFIX} Детали из БД: location_name='{row['location_name']}', lat={row['latitude']}, lon={row['longitude']}, error='{row['error_message']}'")
             return {
                 "location_name": row["location_name"],
                 "lat": row["latitude"],
@@ -507,11 +507,11 @@ def get_cached_location(person_name_key: str):
                 "last_updated": row["last_updated"],
                 "source_news_summary": row["source_news_summary"]
             }
-        print(f"{CACHE_PRINT_PREFIX} Кэш для '{person_name_key}' не найден.")
+        # print(f"{CACHE_PRINT_PREFIX} Кэш для '{person_name_key}' не найден.")
         return None
     except sqlite3.Error as e:
-        print(f"{CACHE_PRINT_PREFIX} ОШИБКА SQLite при получении кэша для '{person_name_key}': {e}")
-        traceback.print_exc()
+        # print(f"{CACHE_PRINT_PREFIX} ОШИБКА SQLite при получении кэша для '{person_name_key}': {e}")
+        # traceback.print_exc()
         return None
     finally:
         if conn:
@@ -519,7 +519,7 @@ def get_cached_location(person_name_key: str):
 
 def save_cached_location(person_name_key: str, location_data: dict, source_summary: str = None):
     """Сохраняет или обновляет данные о локации в кэше."""
-    print(f"{CACHE_PRINT_PREFIX} Сохранение/обновление кэша для '{person_name_key}'")
+    # print(f"{CACHE_PRINT_PREFIX} Сохранение/обновление кэша для '{person_name_key}'")
     
     loc_name = location_data.get("location_name")
     lat = location_data.get("lat")
@@ -538,11 +538,11 @@ def save_cached_location(person_name_key: str, location_data: dict, source_summa
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (person_name_key, loc_name, lat, lon, error_msg, current_timestamp, summary_to_save))
         conn.commit()
-        print(f"{CACHE_PRINT_PREFIX} Кэш для '{person_name_key}' успешно сохранен/обновлен. Timestamp: {current_timestamp}")
+        # print(f"{CACHE_PRINT_PREFIX} Кэш для '{person_name_key}' успешно сохранен/обновлен. Timestamp: {current_timestamp}")
         return True
     except sqlite3.Error as e:
-        print(f"{CACHE_PRINT_PREFIX} ОШИБКА SQLite при сохранении кэша для '{person_name_key}': {e}")
-        traceback.print_exc()
+        # print(f"{CACHE_PRINT_PREFIX} ОШИБКА SQLite при сохранении кэша для '{person_name_key}': {e}")
+        # traceback.print_exc()
         return False
     finally:
         if conn:
@@ -598,10 +598,10 @@ def clear_location_cache():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM location_cache")
         conn.commit()
-        print(f"{CACHE_PRINT_PREFIX} Кэш локаций полностью очищен.")
+        # print(f"{CACHE_PRINT_PREFIX} Кэш локаций полностью очищен.")
         return True
     except sqlite3.Error as e:
-        print(f"{CACHE_PRINT_PREFIX} ОШИБКА при очистке кэша локаций: {e}")
+        # print(f"{CACHE_PRINT_PREFIX} ОШИБКА при очистке кэша локаций: {e}")
         return False
     finally:
         if conn:
