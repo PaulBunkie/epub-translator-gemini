@@ -890,70 +890,70 @@ APP_PRINT_PREFIX = "[AppLF]"
 
 @app.route('/trump', methods=['GET'])
 def find_locations_form_page():
-    print(f"{APP_PRINT_PREFIX} Запрос страницы /trump (GET)")
+    # print(f"{APP_PRINT_PREFIX} Запрос страницы /trump (GET)")
     return render_template('find_locations_form.html')
 
 @app.route('/api/locations', methods=['POST'])
 def api_find_persons_locations():
-    print(f"\n{APP_PRINT_PREFIX} Поступил запрос на /api/locations (POST)")
+    # print(f"\n{APP_PRINT_PREFIX} Поступил запрос на /api/locations (POST)")
 
     if not request.is_json:
-        print(f"{APP_PRINT_PREFIX}  Ошибка: Запрос не является JSON.")
+        # print(f"{APP_PRINT_PREFIX}  Ошибка: Запрос не является JSON.")
         return jsonify({"error": "Request must be JSON"}), 400
 
     try:
         data = request.get_json()
-        print(f"{APP_PRINT_PREFIX}  Получено JSON тело: {json.dumps(data, ensure_ascii=False)}") # Можно и вывести тело для отладки
+        # print(f"{APP_PRINT_PREFIX}  Получено JSON тело: {json.dumps(data, ensure_ascii=False)}") # Можно и вывести тело для отладки
     except Exception as e_json:
-        print(f"{APP_PRINT_PREFIX}  Ошибка парсинга JSON: {e_json}")
-        if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc()
+        # print(f"{APP_PRINT_PREFIX}  Ошибка парсинга JSON: {e_json}")
+        # if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc()
         return jsonify({"error": f"Invalid JSON payload: {e_json}"}), 400
 
     person_names_raw = data.get('persons')
     test_mode_flag = data.get('test_mode', False) # Получаем флаг тестового режима
 
-    print(f"{APP_PRINT_PREFIX}  Получен флаг test_mode: {test_mode_flag}")
+    # print(f"{APP_PRINT_PREFIX}  Получен флаг test_mode: {test_mode_flag}")
 
     if not person_names_raw or not isinstance(person_names_raw, list):
         # ... (обработка ошибки списка person_names)
-        print(f"{APP_PRINT_PREFIX}  Ошибка: Отсутствует или неверный список 'persons' в JSON. Получено: {person_names_raw}")
+        # print(f"{APP_PRINT_PREFIX}  Ошибка: Отсутствует или неверный список 'persons' в JSON. Получено: {person_names_raw}")
         return jsonify({"error": "Missing or invalid 'persons' list in JSON body"}), 400
 
     valid_names = []
     # ... (валидация имен) ...
     for i, name_raw in enumerate(person_names_raw):
         if not isinstance(name_raw, str) or not name_raw.strip():
-            print(f"{APP_PRINT_PREFIX}  Ошибка: Обнаружено невалидное имя '{name_raw}' на позиции {i}.")
+            # print(f"{APP_PRINT_PREFIX}  Ошибка: Обнаружено невалидное имя '{name_raw}' на позиции {i}.")
             return jsonify({"error": f"Invalid name found in 'persons' list: '{name_raw}'. All names must be non-empty strings."}), 400
         valid_names.append(name_raw.strip())
     if not valid_names:
-         print(f"{APP_PRINT_PREFIX}  Ошибка: Список 'persons' не содержит валидных имен после очистки.")
+         # print(f"{APP_PRINT_PREFIX}  Ошибка: Список 'persons' не содержит валидных имен после очистки.")
          return jsonify({"error": "The 'persons' list contains no valid (non-empty, non-whitespace) names."}),400
 
 
-    print(f"{APP_PRINT_PREFIX}  Валидные имена для поиска: {valid_names}")
+    # print(f"{APP_PRINT_PREFIX}  Валидные имена для поиска: {valid_names}")
 
     try:
-        print(f"{APP_PRINT_PREFIX}  Вызов location_finder.find_persons_locations_for_user с {valid_names}, test_mode={test_mode_flag}...")
+        # print(f"{APP_PRINT_PREFIX}  Вызов location_finder.find_persons_locations_for_user с {valid_names}, test_mode={test_mode_flag}...")
         # Используем функцию для пользовательских запросов (кэш-приоритет)
         locations_map_with_coords = location_finder.find_persons_locations_for_user(valid_names, test_mode=test_mode_flag)
 
-        print(f"{APP_PRINT_PREFIX}  Результат от location_finder: {json.dumps(locations_map_with_coords, ensure_ascii=False, indent=2)}")
-        print(f"{APP_PRINT_PREFIX}  Отправка JSON ответа клиенту.")
+        # print(f"{APP_PRINT_PREFIX}  Результат от location_finder: {json.dumps(locations_map_with_coords, ensure_ascii=False, indent=2)}")
+        # print(f"{APP_PRINT_PREFIX}  Отправка JSON ответа клиенту.")
         return jsonify(locations_map_with_coords)
 
     except Exception as e:
         # ... (обработка общей ошибки) ...
-        print(f"{APP_PRINT_PREFIX}  КРИТИЧЕСКАЯ ОШИБКА в /api/locations: {e}")
-        if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc()
+        # print(f"{APP_PRINT_PREFIX}  КРИТИЧЕСКАЯ ОШИБКА в /api/locations: {e}")
+        # if 'traceback' in globals() or 'traceback' in locals(): traceback.print_exc()
         error_response = {name: f"Server error processing request for this person ({type(e).__name__})" for name in valid_names}
-        print(f"{APP_PRINT_PREFIX}  Отправка JSON с общей ошибкой сервера: {json.dumps(error_response, ensure_ascii=False)}")
+        # print(f"{APP_PRINT_PREFIX}  Отправка JSON с общей ошибкой сервера: {json.dumps(error_response, ensure_ascii=False)}")
         return jsonify(error_response), 500
 
 @app.route('/api/locations/clear-cache', methods=['POST'])
 def api_clear_location_cache():
     """Очищает кэш локаций."""
-    print(f"{APP_PRINT_PREFIX} Запрос на очистку кэша локаций")
+    # print(f"{APP_PRINT_PREFIX} Запрос на очистку кэша локаций")
     try:
         from db_manager import clear_location_cache
         if clear_location_cache():
@@ -961,7 +961,7 @@ def api_clear_location_cache():
         else:
             return jsonify({"status": "error", "message": "Ошибка при очистке кэша"}), 500
     except Exception as e:
-        print(f"{APP_PRINT_PREFIX} Ошибка при очистке кэша: {e}")
+        # print(f"{APP_PRINT_PREFIX} Ошибка при очистке кэша: {e}")
         return jsonify({"status": "error", "message": f"Ошибка сервера: {e}"}), 500
 
 # --- КОНЕЦ НОВЫХ МАРШРУТОВ ---
