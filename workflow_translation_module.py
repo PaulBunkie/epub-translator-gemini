@@ -297,6 +297,24 @@ class WorkflowTranslator:
             print(f"[WorkflowTranslator] ОШИБКА при конфигурации Google API: {e}")
             self.google_api_key = None
 
+    def _get_model_level_key(self, operation_type: str, model_name: str) -> str | None:
+        """
+        Возвращает ключ уровня (primary, fallback_level1, ...) для заданной модели и операции.
+        """
+        try:
+            import workflow_model_config
+            models = workflow_model_config.get_all_models_for_operation(operation_type)
+            if not models:
+                return None
+            
+            for key, value in models.items():
+                if value == model_name:
+                    return key
+            return None
+        except Exception as e:
+            print(f"[WorkflowTranslator] Ошибка в _get_model_level_key: {e}")
+            return None
+
     def _get_fallback_model(self, operation_type: str, current_model: str) -> str | None:
         """
         Возвращает следующую модель в цепочке fallback для указанной операции.
@@ -1108,7 +1126,7 @@ class WorkflowTranslator:
         """
         Ф1 - Перевод сегмента: определяет лимит для модели, разбивает на чанки, переводит каждый.
         """
-        print(f"[WorkflowTranslator] Перевод сегмента с моделью {model_name} (admin: {admin})")
+        print(f"[WorkflowTranslator] Сегмент: {operation_type}, модель {model_name} (admin: {admin}), текст {len(text_to_process)} символов")
         
         # --- ПРОВЕРКА ADMIN И VERTEX ---
         if model_name and model_name.startswith('vertex/'):
@@ -1206,6 +1224,7 @@ class WorkflowTranslator:
         max_retries = 2
         last_used_model = model_name
         for attempt in range(max_retries + 1):
+            print(f"[WorkflowTranslator] Чанк {operation_type}: попытка {attempt+1}/{max_retries+1}, модель {model_name}, длина {len(chunk)} символов")
             result, actual_model = self._call_model_api(model_name, messages, operation_type=operation_type, chunk_text=chunk, section_id=section_id, book_id=book_id, admin=admin)
             last_used_model = actual_model
             
@@ -1281,8 +1300,6 @@ class WorkflowTranslator:
         Ф3 - Fallback контроллер: итерируется по всем доступным уровням моделей.
         Пытается выполнить операцию с primary, а затем со всеми fallback_level(i) по порядку.
         """
-        print(f"[WorkflowTranslator] Вызов операции '{operation_type}' для текста длиной {len(text_to_translate)} символов")
-
         # Если модель не передана, используем primary из конфига
         if not model_name:
             try:
@@ -1296,6 +1313,7 @@ class WorkflowTranslator:
                 return (None, None) if return_model else None
 
         current_model = model_name
+        fallback_attempt = 1
         
         while current_model:
             # --- УМНЫЙ ПРОПУСК ЗАБЛОКИРОВАННЫХ ПРОВАЙДЕРОВ ---
@@ -1325,7 +1343,9 @@ class WorkflowTranslator:
                 continue
             # --- КОНЕЦ УМНОГО ПРОПУСКА ---
 
-            print(f"[WorkflowTranslator] Попытка с моделью: {current_model}")
+            level_key = self._get_model_level_key(operation_type, current_model) or "?"
+            print(f"[WorkflowTranslator] Операция '{operation_type}' (попытка #{fallback_attempt}, уровень {level_key}): {current_model}, текст {len(text_to_translate)} символов")
+            fallback_attempt += 1
             result, actual_model = self._translate_segment(
                 text_to_translate,
                 target_language,
