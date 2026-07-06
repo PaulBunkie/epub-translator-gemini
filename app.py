@@ -3125,8 +3125,8 @@ def api_test_firebase_push():
         match = favorites[0]
         
         # Формируем реалистичные данные для push
-        # match_id — используем sofascore_event_id или fixture_id из БД
-        match_id = str(match.get('sofascore_event_id') or match.get('fixture_id', 'test_0000001'))
+        # match_id — СТРОГО sofascore_event_id
+        match_id = str(match.get('sofascore_event_id') or 'test_0000001')
         
         # Коэффициенты — реальные из БД
         k0 = str(match.get('k0') or '1.30')

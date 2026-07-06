@@ -905,7 +905,7 @@ class FootballManager:
                         try:
                             event_type = "goal" if is_goal else "heartbeat"
                             firebase_notifier.send_match_update(
-                                match_id=row['fixture_id'],
+                                match_id=str(sofascore_eid) if sofascore_eid else row['fixture_id'],
                                 score_home=str(h_val),
                                 score_away=str(a_val),
                                 status="live",
@@ -915,7 +915,7 @@ class FootballManager:
                                 k60="",
                                 event_type=event_type
                             )
-                            print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute}{' ⚽ GOAL!' if is_goal else ''}")
+                            print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | sofascore_eid={sofascore_eid} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute}{' ⚽ GOAL!' if is_goal else ''}")
                         except Exception as _fb_err:
                             print(f"[FAVOURITE_TRACKING] ❌ Push FAILED | fixture={row['fixture_id']} | error={_fb_err}")
                     
@@ -1099,7 +1099,8 @@ class FootballManager:
                                 minute=minute_str,
                                 k0=k0,
                                 k1=k1,
-                                k60=k60
+                                k60=k60,
+                                event_type="favorite_trouble"
                             )
                         except Exception as fb_err:
                             print(f"[Football] Ошибка отправки Firebase push для {fixture_id}: {fb_err}")
@@ -1184,7 +1185,8 @@ class FootballManager:
                             minute=str(minute_elapsed),
                             k0=k0,
                             k1=k1,
-                            k60=k60
+                            k60=k60,
+                            event_type="favorite_trouble"
                         )
                     except Exception as fb_err:
                         print(f"[Football] Ошибка отправки Firebase push для {fixture_id}: {fb_err}")
@@ -3367,7 +3369,7 @@ class FootballManager:
                                 if FIREBASE_PUSH_AVAILABLE:
                                     try:
                                         firebase_notifier.send_match_update(
-                                            match_id=fixture_id,
+                                            match_id=str(match.get('sofascore_event_id') or fixture_id),
                                             score_home="0",
                                             score_away="0",
                                             status="postponed",
