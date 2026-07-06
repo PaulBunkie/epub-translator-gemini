@@ -20,14 +20,14 @@ MODEL_CONFIG = {
         'primary': 'literouter/gemini-3-flash-preview-thinking', 
         'fallback_level1': 'vertex/gemini-3-flash-preview', 
         'fallback_level2': 'literouter/gpt-5.4-mini',
-        'fallback_level3': 'nvidia/nemotron-3-ultra-550b-a55b:free',
-        'fallback_level4': 'poolside/laguna-m.1:free',  
-        'fallback_level5': 'poolside/laguna-xs-2.1:free'         
+        'fallback_level3': 'literouter/deepseek-v4-flash:free',
+        'fallback_level4': 'nvidia/nemotron-3-ultra-550b-a55b:free',  
+        'fallback_level5': 'nvidia/nemotron-3-super-120b-a12b:free'         
     },
     'reduce': {
         'primary': 'literouter/deepseek-v4-pro-thinking:full-context', #'openrouter/owl-alpha',  
         'fallback_level1': 'literouter/gemini-3-flash-preview-thinking',
-        'fallback_level2': 'nvidia/nemotron-3-super-120b-a12b:free'
+        'fallback_level2': 'nvidia/nemotron-3-ultra-550b-a55b:free'
     },
     'translate_toc': {
         'primary': 'models/gemini-3-flash-preview', 
