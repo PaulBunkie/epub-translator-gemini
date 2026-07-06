@@ -138,6 +138,10 @@ class FirebaseNotifier:
             message = messaging.Message(
                 data=data,
                 topic=self.topic,
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    ttl=60,
+                ),
             )
             
             response = messaging.send(message)
