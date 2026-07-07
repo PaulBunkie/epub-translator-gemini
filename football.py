@@ -5830,17 +5830,38 @@ X2 ИГНОРИРУЕМ
         Returns:
             Прогноз ('1', '1X', 'X', 'X2', '2') или None если не найден
         """
-        # Ищем один из вариантов в ответе (регистронезависимо)
-        # Используем word boundary чтобы не захватывать часть других слов
-        valid_predictions = ['1X', 'X2', '1', 'X', '2']
+        # Ищем прогноз в последней строке ответа (модель должна написать финальный ответ в конце)
+        # Это защита от случайного извлечения цифр из середины текста анализа
+        import re as _re_parse
         
-        # Сначала ищем двухсимвольные варианты (1X, X2), потом односимвольные
+        # Разбиваем ответ на строки, берём последние 3 строки
+        lines = ai_response.strip().split('\n')
+        last_lines = '\n'.join(lines[-3:]) if len(lines) > 3 else ai_response.strip()
+        
+        # Пытаемся найти прогноз изолированно: строка, содержащая ТОЛЬКО прогноз (1, X, 2, 1X, X2)
+        for line in lines[-3:]:
+            stripped = line.strip()
+            if stripped.upper() in ('1', 'X', '2', '1X', 'X2'):
+                print(f"[Football AI Parse] Найден изолированный прогноз в строке: '{stripped}'")
+                return stripped.upper()
+        
+        # Резервный вариант: ищем в последних строках через word boundary
+        valid_predictions = ['1X', 'X2', '1', 'X', '2']
         for pred in valid_predictions:
-            # Используем регулярное выражение для поиска точного совпадения
-            pattern = r'\b' + re.escape(pred) + r'\b'
-            if re.search(pattern, ai_response, re.IGNORECASE):
+            pattern = r'\b' + _re_parse.escape(pred) + r'\b'
+            if _re_parse.search(pattern, last_lines, _re_parse.IGNORECASE):
+                print(f"[Football AI Parse] Найден прогноз '{pred}' в последних 3 строках")
                 return pred.upper()
         
+        # Если ответ короткий (<= 10 символов) — ищем во всём тексте
+        if len(ai_response.strip()) <= 10:
+            for pred in valid_predictions:
+                pattern = r'\b' + _re_parse.escape(pred) + r'\b'
+                if _re_parse.search(pattern, ai_response.strip(), _re_parse.IGNORECASE):
+                    print(f"[Football AI Parse] Короткий ответ, найден прогноз '{pred}'")
+                    return pred.upper()
+        
+        print(f"[Football AI Parse] Не удалось извлечь прогноз из ответа длиной {len(ai_response)} символов")
         return None
 
     def _parse_ai_recommendation(self, ai_response: str) -> bool:
