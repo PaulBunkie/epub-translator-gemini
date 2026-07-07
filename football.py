@@ -2378,10 +2378,27 @@ class FootballManager:
             Словарь со статистикой: {'added': int, 'updated': int, 'deleted': int, ...}
         """
         # Используем переданный список лиг или список по умолчанию
-        leagues_to_process = leagues if leagues is not None else self.leagues
-        
+        leagues_to_process = leagues if leagues is not None else list(self.leagues)
+
+        # Добавляем активные лиги из БД, которые пользователь включил через UI
+        # (например, отборочный этап ЛЧ — soccer_uefa_champs_league_qualification)
+        try:
+            conn = get_football_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT league_key FROM football_leagues WHERE is_active = 1")
+            db_active_leagues = {row['league_key'] for row in cursor.fetchall()}
+            conn.close()
+            # Объединяем: статический список + лиги из БД, включённые пользователем
+            leagues_to_process = list(set(leagues_to_process) | db_active_leagues)
+            extra_count = len(db_active_leagues - set(self.leagues))
+            if extra_count > 0:
+                print(f"[Football] Добавлено {extra_count} активных лиг из БД (включены через UI)")
+        except Exception as e:
+            print(f"[Football] Ошибка при чтении активных лиг из БД: {e}")
+            # Продолжаем со статическим списком
+
         print(f"[Football] Начинаем синхронизацию матчей из {len(leagues_to_process)} лиг")
-        
+
         stats = {
             'added': 0,
             'updated': 0,
