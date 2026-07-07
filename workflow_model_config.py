@@ -5,57 +5,62 @@ DEFAULT_MODEL = "openrouter/free"
 
 MODEL_CONFIG = {
     'summarize': {
-        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
-        'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free', 
-        'fallback_level2': 'literouter/gpt-5.4-mini',
+        'primary': 'literouter/claude-haiku-4.5-cheap:free', 
+        'fallback_level1': 'nvidia/nemotron-3-nano-30b-a3b:free', 
+        'fallback_level2': 'nvidia/nemotron-3-super-120b-a12b:free',
+        'fallback_level3': 'literouter/gpt-5.4-mini'
 
     },
     'analyze': {
         'primary': 'literouter/gemini-3-flash-preview-thinking',  
         'fallback_level1': 'vertex/gemini-3-flash-preview', 
-        'fallback_level2': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
-        'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
+        'fallback_level2': 'literouter/claude-haiku-4.5-cheap:free',
+        'fallback_level3': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
+        'fallback_level4': 'nvidia/nemotron-3-super-120b-a12b:free'
     },
     'translate': {
-        'primary': 'literouter/gemini-3-flash-preview-thinking', 
+        'primary': 'literouter/gemini-3-flash-preview', 
         'fallback_level1': 'vertex/gemini-3-flash-preview', 
         'fallback_level2': 'literouter/gpt-5.4-mini',
-        'fallback_level3': 'minimax-m2.7:free',
+        'fallback_level3': 'literouter/minimax-m2.7:free',
         'fallback_level4': 'literouter/deepseek-v3.2:free',  
-        'fallback_level5': 'nvidia/nemotron-3-ultra-550b-a55b:free'         
+        'fallback_level5': 'literouter/claude-haiku-4.5-cheap:free',
+        'fallback_level6': 'nvidia/nemotron-3-ultra-550b-a55b:free'         
     },
     'reduce': {
-        'primary': 'literouter/deepseek-v4-pro-thinking:full-context', #'openrouter/owl-alpha',  
-        'fallback_level1': 'literouter/gemini-3-flash-preview-thinking',
-        'fallback_level2': 'nvidia/nemotron-3-ultra-550b-a55b:free'
+        'primary': 'literouter/deepseek-v4-pro-thinking:full-context', #'openrouter/owl-alpha', 
+        'fallback_level1': 'vertex/gemini-3-flash-preview', 
+        'fallback_level2': 'literouter/claude-haiku-4.5-cheap:free', 
+        'fallback_level3': 'literouter/gemini-3-flash-preview-thinking',
+        'fallback_level4': 'nvidia/nemotron-3-ultra-550b-a55b:free'
     },
     'translate_toc': {
-        'primary': 'models/gemini-3-flash-preview', 
+        'primary': 'literouter/gemini-3-flash-preview',
         'fallback_level1': 'vertex/gemini-3-flash-preview', 
-        'fallback_level2': 'literouter/gemini-3-flash-preview-thinking', 
-        'fallback_level3': 'nvidia/nemotron-3-super-120b-a12b:free'
+        'fallback_level2': 'literouter/claude-haiku-4.5-cheap:free',  
+        'fallback_level3': 'nvidia/nemotron-3-ultra-550b-a55b:free'
     },
     'video_analyze': {
-        'primary': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
+        'primary': 'literouter/claude-haiku-4.5-cheap:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
         'fallback_level3': 'nvidia/nemotron-3-nano-30b-a3b:free',
         'fallback_level4': 'openrouter/free'
     },
     'video_chat': {
-        'primary': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
+        'primary': 'literouter/claude-haiku-4.5-cheap:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
         'fallback_level3': 'nvidia/nemotron-3-nano-30b-a3b:free',
         'fallback_level4': 'openrouter/free'
     },
     'title_translate': {
-        'primary': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
+        'primary': 'literouter/claude-haiku-4.5-cheap:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
     },
     'football_predict': {
-        'primary': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
+        'primary': 'literouter/claude-haiku-4.5-cheap:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
         'fallback_level3': 'nvidia/nemotron-3-nano-30b-a3b:free',
@@ -63,7 +68,7 @@ MODEL_CONFIG = {
         'fallback_level5': 'vertex/gemini-3-pro-preview'
     },
     'bet_risk_analysis': {
-        'primary': 'nvidia/nemotron-3-ultra-550b-a55b:free', 
+        'primary': 'literouter/claude-haiku-4.5-cheap:free', 
         'fallback_level1': 'nvidia/nemotron-3-super-120b-a12b:free',
         'fallback_level2': 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
         'fallback_level3': 'nvidia/nemotron-3-nano-30b-a3b:free',
@@ -79,11 +84,12 @@ MODEL_CONFIG = {
         'primary': 'literouter/gemini-3-flash-preview-thinking', 
         'fallback_level1': 'models/gemini-3-flash-preview',
         'fallback_level2': 'vertex/gemini-3-flash-preview', 
-        'fallback_level3': 'nvidia/nemotron-3-ultra-550b-a55b:free'
+        'fallback_level3': 'literouter/claude-haiku-4.5-cheap:free',
+        'fallback_level4': 'nvidia/nemotron-3-ultra-550b-a55b:free'
     },
     'person_locations': {
-        'primary': 'nvidia/nemotron-3-nano-30b-a3b:free', 
-        'fallback_level1': 'literouter/claude-haiku-4.5:free',
+        'primary': 'literouter/claude-haiku-4.5:free',
+        'fallback_level1': 'nvidia/nemotron-3-nano-30b-a3b:free', 
         'fallback_level2': 'nvidia/nemotron-3-ultra-550b-a55b:free'
     }
 }
