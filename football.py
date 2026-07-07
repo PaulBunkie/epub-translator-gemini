@@ -6369,16 +6369,9 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
             conn.close()
 
 
-# <<< ВРЕМЕННО — ТЕСТОВЫЙ РЕЖИМ: выдаём ВСЕ матчи на 5 дней, фаворит определяется по меньшему кэфу >>>
-# TODO ВЕРНУТЬ:
-#   - Вернуть fav != 'NONE' в SQL
-#   - Вернуть диапазон 10 дней (range(10))
-#   - Удалить блок «если fav==NONE — вычисляем фаворита по кэфам»
-#   - Удалить все комментарии с пометкой «<<< ВРЕМЕННО»
 def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     """
-    ВРЕМЕННО (ТЕСТ): Получает ВСЕ матчи на ближайшие 5 дней.
-    Фаворит вычисляется по меньшему коэффициенту K0 (initial_odds).
+    Получает матчи с фаворитом на ближайшие 10 дней.
     Названия команд берутся из team_registry.db (по sofascore_team_id).
 
     Returns:
@@ -6388,9 +6381,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     conn = None
     registry_conn = None
     try:
-        # <<< ВРЕМЕННО: 5 дней вместо 10 >>>
         today = datetime.now(timezone.utc)
-        future_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(5)]
+        future_dates = [(today + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(10)]
         
         # Создаем плейсхолдеры для SQL запроса (?, ?, ?, ...)
         placeholders = ','.join('?' for _ in future_dates)
@@ -6398,7 +6390,6 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
-        # <<< ВРЕМЕННО: убран fav != 'NONE' — берём ВСЕ матчи на 5 дней >>>
         cursor.execute(f"""
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
@@ -6407,14 +6398,15 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                    home_team_sofascore_id, away_team_sofascore_id,
                    sofascore_event_id
             FROM matches
-            WHERE match_date IN ({placeholders})
+            WHERE fav != 'NONE'
+              AND match_date IN ({placeholders})
             ORDER BY match_date ASC, match_time ASC
         """, tuple(future_dates))
 
         all_rows = cursor.fetchall()
         if not all_rows:
             # Fallback: если вообще нет матчей, берём один ближайший по дате
-            print("[Football Favorites] Нет матчей на ближайшие 5 дней. Ищем ближайший матч...")
+            print("[Football Favorites] Нет матчей на ближайшие 10 дней. Ищем ближайший матч...")
             cursor.execute("""
                 SELECT home_team, away_team, fav, fav_team_id,
                        match_date, match_time,
@@ -6422,7 +6414,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                        home_team_sofascore_id, away_team_sofascore_id,
                        sofascore_event_id
                 FROM matches
-                WHERE match_date >= ?
+                WHERE fav != 'NONE'
+                  AND match_date >= ?
                 ORDER BY match_date ASC, match_time ASC
                 LIMIT 1
             """, (today,))
@@ -6453,37 +6446,10 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             home_name = team_name_map.get(home_id, row['home_team']) if home_id else row['home_team']
             away_name = team_name_map.get(away_id, row['away_team']) if away_id else row['away_team']
 
-            # <<< ВРЕМЕННО: если фаворит не определён (fav==NONE), тупо по меньшему кэфу K0 >>>
-            if row['fav'] != 'NONE' and row['fav_team_id'] is not None:
-                # Нормальный режим: фаворит уже определён в БД
-                if row['fav_team_id'] == 1:
-                    favorite = home_name
-                else:
-                    favorite = away_name
-                k0 = row['initial_odds']
-                k1 = row['last_odds']
+            if row['fav_team_id'] == 1:
+                favorite = home_name
             else:
-                # ВРЕМЕННО: нет фаворита — вычисляем по live_odds_1/2
-                # Используем коэффициенты 1X2 из БД для не-фаворитов
-                odd1 = row['live_odds_1']  # home win
-                odd2 = row['live_odds_2']  # away win
-                if odd1 and odd2:
-                    if odd1 <= odd2:
-                        favorite = home_name
-                        k0 = float(odd1) if odd1 else None
-                    else:
-                        favorite = away_name
-                        k0 = float(odd2) if odd2 else None
-                elif odd1:
-                    favorite = home_name
-                    k0 = float(odd1) if odd1 else None
-                elif odd2:
-                    favorite = away_name
-                    k0 = float(odd2) if odd2 else None
-                else:
-                    favorite = home_name  # fallback
-                    k0 = None
-                k1 = k0  # <<< ВРЕМЕННО: для не-фаворитов k1 = k0
+                favorite = away_name
 
             result.append({
                 'home_team': home_name,
@@ -6494,12 +6460,11 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'date': row['match_date'],
                 'time_utc': row['match_time'],
                 'favorite': favorite,
-                'k0': k0,
-                'k1': k1,
+                'k0': row['initial_odds'],
+                'k1': row['last_odds'],
                 'k60': row['live_odds'],
             })
 
-        # <<< ВРЕМЕННО — ТЕСТ: возвращаем все матчи, не только с фаворитом >>>
         return result
 
     except sqlite3.Error as e:
