@@ -2868,7 +2868,9 @@ def api_team_logo(sofascore_team_id):
     from config import TEAM_REGISTRY_DB_FILE
     registry_path = str(TEAM_REGISTRY_DB_FILE)
     if not os.path.isfile(registry_path):
-        return make_response('', 204)
+        resp = make_response('', 204)
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
     conn = _sqlite3.connect(registry_path)
     conn.row_factory = _sqlite3.Row
     row = conn.execute(
@@ -2877,8 +2879,12 @@ def api_team_logo(sofascore_team_id):
     ).fetchone()
     conn.close()
     if not row or not row['logo_data']:
-        return make_response('', 204)
-    return Response(row['logo_data'], mimetype='image/png')
+        resp = make_response('', 204)
+        resp.headers['Cache-Control'] = 'public, max-age=3600'
+        return resp
+    resp = Response(row['logo_data'], mimetype='image/png')
+    resp.headers['Cache-Control'] = 'public, max-age=604800, immutable'
+    return resp
 
 
 
