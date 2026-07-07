@@ -591,7 +591,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     status.style.cssText = `font-size:0.8em;font-weight:bold;margin-right:10px;color:${sText==='completed'?'green':(sText==='error'?'red':'orange')}`;
                     rightPart.appendChild(status);
 
-                    if (admin && (sText === 'completed' || sText === 'error' || sText === 'completed_empty')) {
+                    if (admin && (sText === 'completed' || sText === 'error' || sText === 'completed_empty' || sText === 'censored')) {
                         const btn = document.createElement('button');
                         btn.textContent = 'Повторить';
                         btn.className = 'retranslate-btn';
