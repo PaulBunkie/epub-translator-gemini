@@ -863,20 +863,20 @@ class FootballManager:
                         continue
                     data = resp.json()
                     events = data.get('event') or []
-                    if not events:
-                        continue
-                    evt = events[0]
-                    h = evt.get('intHomeScore')
-                    a = evt.get('intAwayScore')
-                    # Некоторые значения могут быть строками; пробуем привести к int
-                    try:
-                        h_val = int(h) if h is not None and str(h).isdigit() else None
-                        a_val = int(a) if a is not None and str(a).isdigit() else None
-                    except Exception:
-                        h_val = None
-                        a_val = None
+                    h_val = None
+                    a_val = None
+                    if events:
+                        evt = events[0]
+                        h = evt.get('intHomeScore')
+                        a = evt.get('intAwayScore')
+                        try:
+                            h_val = int(h) if h is not None and str(h).isdigit() else None
+                            a_val = int(a) if a is not None and str(a).isdigit() else None
+                        except Exception:
+                            h_val = None
+                            a_val = None
+                    # TheSportsDB не дал счёт — fallback на SofaScore
                     if h_val is None or a_val is None:
-                        # TheSportsDB не дал счёт — fallback на SofaScore
                         sofascore_eid = row['sofascore_event_id']
                         if sofascore_eid:
                             try:
@@ -895,8 +895,8 @@ class FootballManager:
                                         a_val = int(sa)
                                     except (ValueError, TypeError):
                                         pass
-                        if h_val is None or a_val is None:
-                            continue
+                    if h_val is None or a_val is None:
+                        continue
                     # Обновляем счет в БД (используем поля final_* как хранилище текущего счёта)
                     cursor.execute("""
                         UPDATE matches
