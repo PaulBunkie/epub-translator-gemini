@@ -895,6 +895,33 @@ class FootballManager:
                                         a_val = int(sa)
                                     except (ValueError, TypeError):
                                         pass
+                                
+                                # Проверяем статус — если матч завершён, закроем его здесь же
+                                ev_status = ev.get('status', {})
+                                status_type = ev_status.get('type', '') if isinstance(ev_status, dict) else ''
+                                if status_type == 'finished' and h_val is not None and a_val is not None:
+                                    fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
+                                    fav_won = None
+                                    if fav_team_id is not None and fav_team_id >= 0:
+                                        if h_val > a_val:
+                                            fav_won = 1 if fav_team_id == 1 else 0
+                                        elif a_val > h_val:
+                                            fav_won = 1 if fav_team_id == 0 else 0
+                                        else:
+                                            fav_won = 0
+                                    cursor.execute("""
+                                        UPDATE matches
+                                        SET status = 'finished',
+                                            final_score_home = ?,
+                                            final_score_away = ?,
+                                            fav_won = ?,
+                                            updated_at = CURRENT_TIMESTAMP
+                                        WHERE id = ?
+                                    """, (h_val, a_val, fav_won, row['id']))
+                                    conn.commit()
+                                    updated += 1
+                                    print(f"[Football Scores] Матч {fixture_id} закрыт через SofaScore: {h_val}-{a_val} (fav_won={fav_won})")
+                                    continue  # уже закрыли, переходим к следующему матчу
                     if h_val is None or a_val is None:
                         continue
                     # Обновляем счет в БД (используем поля final_* как хранилище текущего счёта)
