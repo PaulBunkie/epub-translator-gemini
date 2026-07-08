@@ -1651,6 +1651,71 @@ class FootballManager:
         
         return normalized
 
+    def _fetch_live_events(self) -> Optional[List[Dict]]:
+        """
+        Получает список всех live-событий из SofaScore (один запрос).
+        Даёт: event_id, homeTeam, awayTeam, homeScore, awayScore, status, startTimestamp.
+        
+        Returns:
+            Список live-событий или None в случае ошибки
+        """
+        import random
+        url = f"{SOFASCORE_API_URL}/sport/football/events/live"
+        headers = SOFASCORE_DEFAULT_HEADERS.copy()
+        headers["User-Agent"] = random.choice(SOFASCORE_USER_AGENTS)
+        try:
+            response = requests.get(url, headers=headers, timeout=15.0)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('events', [])
+            else:
+                print(f"[Football Live] HTTP {response.status_code} при запросе live событий")
+                return None
+        except Exception as e:
+            print(f"[Football Live] Ошибка запроса live событий: {e}")
+            return None
+
+    def _match_live_event_by_name(self, live_event: Dict, home_team: str, away_team: str) -> bool:
+        """
+        Проверяет, соответствует ли live-событие нашим названиям команд.
+        Использует ту же логику нормализации что и _search_sofascore_event_by_team.
+        """
+        h_obj = live_event.get('homeTeam', {})
+        a_obj = live_event.get('awayTeam', {})
+        h_name = h_obj.get('name', '')
+        a_name = a_obj.get('name', '')
+
+        h_norm = self._normalize_team_name(h_name)
+        a_norm = self._normalize_team_name(a_name)
+        th_norm = self._normalize_team_name(home_team)
+        ta_norm = self._normalize_team_name(away_team)
+
+        # Точное совпадение
+        if h_norm == th_norm and a_norm == ta_norm:
+            return True
+        # Обратный порядок
+        if h_norm == ta_norm and a_norm == th_norm:
+            return True
+        # Частичное (минимум 3 символа)
+        h_ok = (len(th_norm) >= 3 and len(h_norm) >= 3 and (th_norm in h_norm or h_norm in th_norm))
+        a_ok = (len(ta_norm) >= 3 and len(a_norm) >= 3 and (ta_norm in a_norm or a_norm in ta_norm))
+        if h_ok and a_ok:
+            return True
+        h_ok_rev = (len(th_norm) >= 3 and len(a_norm) >= 3 and (th_norm in a_norm or a_norm in th_norm))
+        a_ok_rev = (len(ta_norm) >= 3 and len(h_norm) >= 3 and (ta_norm in h_norm or h_norm in ta_norm))
+        if h_ok_rev and a_ok_rev:
+            return True
+        # Сравнение по оригинальным именам (нижний регистр)
+        hl = h_name.lower().strip()
+        al = a_name.lower().strip()
+        thl = home_team.lower().strip()
+        tal = away_team.lower().strip()
+        if (thl in hl or hl in thl) and (tal in al or al in tal):
+            return True
+        if (thl in al or al in thl) and (tal in hl or hl in tal):
+            return True
+        return False
+
     def _fetch_sofascore_events(self, date: str, max_retries: int = 5) -> Optional[List[Dict]]:
         """
         Получает список запланированных событий из SofaScore для указанной даты.
@@ -2879,6 +2944,7 @@ class FootballManager:
     def _close_stale_matches(self, older_than_hours: int = 20) -> int:
         """
         Принудительно закрывает матчи, которые должны были начаться давно, но до сих пор не имеют статуса finished.
+        ПЕРЕД закрытием пытается получить счёт из SofaScore (если есть sofascore_event_id).
 
         Args:
             older_than_hours: Количество часов, прошедших с предполагаемого начала матча
@@ -2895,7 +2961,7 @@ class FootballManager:
             conn = get_football_db_connection()
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, fixture_id, match_date, match_time
+                SELECT id, fixture_id, sofascore_event_id, fav_team_id, match_date, match_time, status
                 FROM matches
                 WHERE status != 'finished'
                   AND match_date IS NOT NULL
@@ -2914,15 +2980,67 @@ class FootballManager:
                     continue
 
                 if match_datetime <= cutoff:
-                    cursor.execute(
-                        """
-                        UPDATE matches
-                        SET status = 'finished',
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                        """,
-                        (row['id'],)
-                    )
+                    sofascore_eid = row['sofascore_event_id']
+                    # Пытаемся получить счёт из SofaScore перед закрытием
+                    score_home = None
+                    score_away = None
+                    fav_won = None
+
+                    if sofascore_eid:
+                        try:
+                            event_data = self._fetch_sofascore_event(sofascore_eid)
+                            if event_data and 'event' in event_data:
+                                ev = event_data['event']
+                                hs = ev.get('homeScore', {})
+                                aws = ev.get('awayScore', {})
+                                sh_raw = hs.get('normaltime') or hs.get('current') or hs.get('display')
+                                sa_raw = aws.get('normaltime') or aws.get('current') or aws.get('display')
+                                if sh_raw is not None and sa_raw is not None:
+                                    try:
+                                        score_home = int(sh_raw)
+                                        score_away = int(sa_raw)
+                                    except (ValueError, TypeError):
+                                        pass
+                                
+                                if score_home is not None and score_away is not None:
+                                    fav_team_id = row['fav_team_id']
+                                    if score_home > score_away:
+                                        fav_won = 1 if fav_team_id == 1 else 0
+                                    elif score_away > score_home:
+                                        fav_won = 1 if fav_team_id == 0 else 0
+                                    else:
+                                        fav_won = 0
+                        except Exception as e:
+                            print(f"[Football] Ошибка получения счета для {row['fixture_id']} при закрытии: {e}")
+
+                    if score_home is not None and score_away is not None and fav_won is not None:
+                        # Есть счёт — закрываем с полными данными
+                        cursor.execute(
+                            """
+                            UPDATE matches
+                            SET status = 'finished',
+                                final_score_home = ?,
+                                final_score_away = ?,
+                                fav_won = ?,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                            """,
+                            (score_home, score_away, fav_won, row['id'])
+                        )
+                        print(f"[Football] Принудительно закрыт матч {row['fixture_id']} со счётом {score_home}-{score_away}")
+                    else:
+                        # Нет счета — просто закрываем
+                        cursor.execute(
+                            """
+                            UPDATE matches
+                            SET status = 'finished',
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                            """,
+                            (row['id'],)
+                        )
+                        print(f"[Football] Принудительно закрыт матч {row['fixture_id']} (счёт не получен)")
+                    
                     closed += 1
 
             if closed:
@@ -3281,6 +3399,68 @@ class FootballManager:
             #     import traceback
             #     print(traceback.format_exc())
 
+            # ===== ЧАСТЬ 1.8: Поиск ID через /events/live для матчей без sofascore_event_id =====
+            # Это покрывает случай, когда scheduled-events не сработал (мёртвый эндпоинт)
+            cursor.execute("""
+                SELECT id, fixture_id, home_team, away_team, sofascore_event_id, match_date, match_time, status
+                FROM matches
+                WHERE sofascore_event_id IS NULL
+                  AND status IN ('scheduled', 'in_progress')
+                ORDER BY match_date, match_time
+            """)
+            matches_without_id = cursor.fetchall()
+            if matches_without_id:
+                print(f"[Football Live] Запрашиваем /events/live для {len(matches_without_id)} матчей без sofascore_event_id")
+                live_events = self._fetch_live_events()
+                if live_events:
+                    print(f"[Football Live] Получено {len(live_events)} live-событий")
+                    for mw in matches_without_id:
+                        for le in live_events:
+                            if self._match_live_event_by_name(le, mw['home_team'], mw['away_team']):
+                                eid = le.get('id')
+                                home_obj = le.get('homeTeam', {})
+                                away_obj = le.get('awayTeam', {})
+                                home_id = home_obj.get('id')
+                                away_id = away_obj.get('id')
+                                slug = le.get('slug', '')
+                                start_ts = le.get('startTimestamp')
+                                
+                                # Сохраняем ID
+                                cursor.execute("""
+                                    UPDATE matches
+                                    SET sofascore_event_id = ?,
+                                        home_team_sofascore_id = ?,
+                                        away_team_sofascore_id = ?,
+                                        sofascore_join = ?,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                """, (
+                                    eid, home_id, away_id,
+                                    json.dumps({'slug': slug, 'startTimestamp': start_ts, 'homeTeamId': home_id, 'awayTeamId': away_id}, ensure_ascii=False),
+                                    mw['id']
+                                ))
+                                
+                                # Заодно обновляем live-счёт
+                                hs = le.get('homeScore', {})
+                                aws = le.get('awayScore', {})
+                                sh = hs.get('current') or hs.get('normaltime') or hs.get('display')
+                                sa = aws.get('current') or aws.get('normaltime') or aws.get('display')
+                                if sh is not None and sa is not None:
+                                    try:
+                                        sh_int = int(sh)
+                                        sa_int = int(sa)
+                                        cursor.execute("""
+                                            UPDATE matches SET final_score_home = ?, final_score_away = ? WHERE id = ?
+                                        """, (sh_int, sa_int, mw['id']))
+                                    except (ValueError, TypeError):
+                                        pass
+                                
+                                conn.commit()
+                                print(f"[Football Live] Found & updated event_id={eid} for {mw['home_team']} vs {mw['away_team']} (score={sh}-{sa})")
+                                break  # выходим из цикла по live_events
+                else:
+                    print(f"[Football Live] Не удалось получить live события")
+
             # ===== ЧАСТЬ 2: Сбор финального результата (для всех матчей in_progress, независимо от bet) =====
             # Исключаем большие поля: bet_ai_reason, stats_60min
             # Но включаем fav_team_id, так как он нужен для _collect_final_result
@@ -3314,39 +3494,43 @@ class FootballManager:
                     time_diff = now - match_datetime
                     minutes_diff = time_diff.total_seconds() / 60
 
-                    # Проверяем статус матча из SofaScore API (предпочтительный способ)
-                    # Вызываем только если прошло минимум 100 минут (90 минут игры + ~15 минут перерыва)
-                    # Матч должен быть близок к завершению или уже завершен
-                    should_check_final = False
-                    
-                    if sofascore_event_id and minutes_diff >= 100:
+                    # Проверяем статус матча из SofaScore API
+                    # ЕСЛИ есть sofascore_event_id — проверяем без жёсткой привязки к минутам
+                    if sofascore_event_id and minutes_diff >= 90:
+                        # Матч идёт минимум 90 минут — мог уже завершиться
                         event_status = self._fetch_sofascore_event_status(sofascore_event_id)
                         
                         if event_status == 'finished':
-                            should_check_final = True
-                        elif event_status:
-                            # Если матч не завершен по статусу, но прошло много времени - используем запасной вариант
-                            if minutes_diff >= 200:
-                                should_check_final = True
-                        else:
-                            # Если не удалось получить статус из API, используем проверку по времени
-                            if minutes_diff >= 200:
-                                should_check_final = True
-                    elif not sofascore_event_id:
-                        # Если нет sofascore_event_id, используем только проверку по времени
-                        if minutes_diff >= 200:
-                            should_check_final = True
-                    elif minutes_diff < 100:
-                        # Матч еще слишком рано (меньше 100 минут) - не проверяем статус из API
-                        pass
-
-                    if should_check_final:
-                        try:
+                            # Матч завершён — собираем финальный результат
+                            try:
+                                self._collect_final_result(match)
+                            except Exception as e:
+                                print(f"[Football ERROR] Ошибка сбора финального результата для {fixture_id}: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        elif event_status in ('postponed', 'canceled', 'cancelled'):
+                            # Матч отложен/отменён — помечаем
+                            print(f"[Football] Матч {fixture_id} отложен/отменён (SofaScore: {event_status}), закрываем")
+                            try:
+                                cursor.execute(
+                                    "UPDATE matches SET status = 'postponed', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                    (match['id'],)
+                                )
+                                conn.commit()
+                            except Exception:
+                                pass
+                        elif event_status is None and minutes_diff >= 200:
+                            # API не ответил, а матч висит >200 минут — принудительно закрываем
+                            print(f"[Football] Матч {fixture_id} висит {minutes_diff:.0f} мин без ответа API, принудительно закрываем")
                             self._collect_final_result(match)
-                        except Exception as e:
-                            print(f"[Football ERROR] Ошибка сбора финального результата для {fixture_id}: {e}")
-                            import traceback
-                            print(traceback.format_exc())
+                        # Иначе матч ещё идёт (status=live/notstarted) — пропускаем, проверим в следующем цикле
+                    elif sofascore_event_id and minutes_diff < 90:
+                        # Матч идёт меньше 90 минут — рано проверять
+                        pass
+                    elif not sofascore_event_id and minutes_diff >= 200:
+                        # Нет sofascore_event_id и матч висит >200 минут — принудительно закрываем
+                        print(f"[Football] Матч {fixture_id} без sofascore_event_id висит {minutes_diff:.0f} мин, принудительно закрываем")
+                        self._collect_final_result(match)
 
                 except Exception as e:
                     print(f"[Football ERROR] Ошибка проверки финального результата для {fixture_id}: {e}")
@@ -5318,41 +5502,29 @@ X2 ИГНОРИРУЕМ
                 # Приоритет: normaltime (обычное время) > current > display
                 score_away = away_score_obj.get('normaltime') or away_score_obj.get('current') or away_score_obj.get('display')
 
-            # if score_home is None or score_away is None:
-            #     print(f"[Football] Не удалось извлечь счет из данных SofaScore для event_id {sofascore_event_id}")
-            #     print(f"[Football] Доступные поля в event: {list(event.keys()) if event else 'N/A'}")
-            #     print(f"[Football] Доступные поля в корне: {list(event_data.keys())}")
-            #     # Попробуем вывести всю структуру для отладки
-            #     import json
-            #     print(f"[Football] Полная структура данных (первые 2000 символов): {json.dumps(event_data, indent=2, ensure_ascii=False)[:2000]}")
-            #     return
-
-            # Преобразуем счет в целые числа
+            # Преобразуем счет в целые числа (защита от None и нечисловых значений)
             try:
                 score_home = int(score_home) if score_home is not None else None
                 score_away = int(score_away) if score_away is not None else None
             except (ValueError, TypeError):
-                print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
-                return
+                print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}, закрываем матч без счета")
+                score_home = None
+                score_away = None
 
             # Определяем, выиграл ли фаворит
-            # fav_team_id: 1 = home, 0 = away
             fav_team_id = match['fav_team_id']
             fav_won = None
 
             if score_home is not None and score_away is not None:
                 if score_home > score_away:
-                    # Домашняя команда выиграла
                     fav_won = 1 if fav_team_id == 1 else 0
                 elif score_away > score_home:
-                    # Гостевая команда выиграла
                     fav_won = 1 if fav_team_id == 0 else 0
                 else:
-                    # Ничья
                     fav_won = 0
             else:
-                print(f"[Football] Невозможно определить результат (счет содержит None): {score_home}-{score_away}")
-                return
+                # Счёт не получен, но матч всё равно нужно закрыть
+                print(f"[Football] Счет не получен для fixture {fixture_id}, закрываем матч без счета")
 
             # Сохраняем
             conn = get_football_db_connection()
