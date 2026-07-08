@@ -1824,66 +1824,44 @@ class FootballManager:
             if h_norm == th_norm and a_norm == ta_norm:
                 return True
 
-            # 2. Обратный порядок
-            if h_norm == ta_norm and a_norm == th_norm:
-                return True
+            # 2. Обратный порядок ЗАПРЕЩЁН
 
-            # 3. Частичное совпадение (нормализованное)
+            # 3. Частичное совпадение (нормализованное) — только прямой порядок
             h_ok = (th_norm == h_norm) or (len(th_norm) >= 3 and len(h_norm) >= 3 and (th_norm in h_norm or h_norm in th_norm))
             a_ok = (ta_norm == a_norm) or (len(ta_norm) >= 3 and len(a_norm) >= 3 and (ta_norm in a_norm or a_norm in ta_norm))
             if h_ok and a_ok:
                 return True
 
-            # 4. Обратное частичное
-            h_ok_rev = (th_norm == a_norm) or (len(th_norm) >= 3 and len(a_norm) >= 3 and (th_norm in a_norm or a_norm in th_norm))
-            a_ok_rev = (ta_norm == h_norm) or (len(ta_norm) >= 3 and len(h_norm) >= 3 and (ta_norm in h_norm or h_norm in ta_norm))
-            if h_ok_rev and a_ok_rev:
-                return True
+            # 4. Обратное частичное ЗАПРЕЩЕНО
 
-            # 5. Оригинальные названия (нижний регистр) — для случаев Cape/Cabo, Иран/Iran и т.п.
+            # 5. Оригинальные названия — только прямой порядок
             h_low = h_name_raw.lower().strip()
             a_low = a_name_raw.lower().strip()
             th_low = target_home.lower().strip()
             ta_low = target_away.lower().strip()
 
-            # Частичное совпадение оригиналов
             if (th_low in h_low or h_low in th_low) and (ta_low in a_low or a_low in ta_low):
                 return True
-            if (th_low in a_low or a_low in th_low) and (ta_low in h_low or h_low in ta_low):
-                return True
 
-            # 6. Первые 3+ символа совпадают (абревиатуры и вариации написания)
-            if len(th_low) >= 3 and len(h_low) >= 3:
+            # 6. Первые 3+ символа — только прямой порядок
+            if len(th_low) >= 3 and len(h_low) >= 3 and len(ta_low) >= 3 and len(a_low) >= 3:
                 if th_low[:3] == h_low[:3] and ta_low[:3] == a_low[:3]:
                     return True
-            if len(ta_low) >= 3 and len(a_low) >= 3:
-                if ta_low[:3] == a_low[:3] and th_low[:3] == h_low[:3]:
-                    return True
 
-            # 7. Обе целевые команды присутствуют в матче (любой порядок, любая часть названия)
-            # Например: "Cape Verde" vs "Cabo Verde", "Ivory Coast" vs "Côte d'Ivoire"
+            # 7. Прямое присутствие — только home↔home, away↔away
             h_contains_th = th_low in h_low or h_low in th_low or (len(th_low) >= 3 and len(h_low) >= 3 and th_low[:3] == h_low[:3])
-            a_contains_th = th_low in a_low or a_low in th_low or (len(th_low) >= 3 and len(a_low) >= 3 and th_low[:3] == a_low[:3])
-            h_contains_ta = ta_low in h_low or h_low in ta_low or (len(ta_low) >= 3 and len(h_low) >= 3 and ta_low[:3] == h_low[:3])
             a_contains_ta = ta_low in a_low or a_low in ta_low or (len(ta_low) >= 3 and len(a_low) >= 3 and ta_low[:3] == a_low[:3])
+            if h_contains_th and a_contains_ta:
+                return True
 
-            # Цель: обе команды присутствуют, одна как home, другая как away
-            th_found = h_contains_th or a_contains_th
-            ta_found = h_contains_ta or a_contains_ta
-            if th_found and ta_found:
-                # Убедимся что это не один и тот же матч с одной командой 2 раза
-                if (h_contains_th and a_contains_ta) or (h_contains_ta and a_contains_th):
-                    return True
-
-            # 8. Совпадение по словам длиной >= 3 (для Cape/Cabo Verde и т.п.)
+            # 8. Совпадение по словам — только прямой порядок
             def _words_match(s1, s2):
                 w1 = set(s1.lower().split())
                 w2 = set(s2.lower().split())
                 common = w1 & w2
                 return any(len(w) >= 3 for w in common)
 
-            if (_words_match(h_name_raw, target_home) and _words_match(a_name_raw, target_away)) or \
-               (_words_match(h_name_raw, target_away) and _words_match(a_name_raw, target_home)):
+            if _words_match(h_name_raw, target_home) and _words_match(a_name_raw, target_away):
                 return True
 
             return False
@@ -2001,46 +1979,20 @@ class FootballManager:
                     home_sf_normalized_set = {self._normalize_team_name(v) for v in home_team_variants if v}
                     away_sf_normalized_set = {self._normalize_team_name(v) for v in away_team_variants if v}
                     
-                    # Проверяем совпадение названий команд (оба варианта: прямой и обратный)
-                    # Проверяем точное совпадение И частичное (если одно название содержит другое)
+                    # ТОЛЬКО прямой порядок (без реверса — ловили ответные матчи)
                     teams_match = False
                     for home_sf_norm in home_sf_normalized_set:
                         for away_sf_norm in away_sf_normalized_set:
-                            # Точное совпадение (прямое или обратное)
-                            exact_match = (
-                                (home_normalized == home_sf_norm and away_normalized == away_sf_norm) or
-                                (home_normalized == away_sf_norm and away_normalized == home_sf_norm)
-                            )
-                            
-                            # Частичное совпадение: одно название является частью другого
-                            # Используем минимальную длину 3 символа, чтобы избежать случайных совпадений
-                            home_partial_match = (
-                                (len(home_normalized) >= 3 and len(home_sf_norm) >= 3) and
-                                (home_normalized in home_sf_norm or home_sf_norm in home_normalized)
-                            )
-                            away_partial_match = (
-                                (len(away_normalized) >= 3 and len(away_sf_norm) >= 3) and
-                                (away_normalized in away_sf_norm or away_sf_norm in away_normalized)
-                            )
-                            
-                            # Обратное частичное совпадение
-                            home_away_partial_match = (
-                                (len(home_normalized) >= 3 and len(away_sf_norm) >= 3) and
-                                (home_normalized in away_sf_norm or away_sf_norm in home_normalized)
-                            )
-                            away_home_partial_match = (
-                                (len(away_normalized) >= 3 and len(home_sf_norm) >= 3) and
-                                (away_normalized in home_sf_norm or home_sf_norm in away_normalized)
-                            )
-                            
-                            # Совпадение, если обе команды совпадают (точно или частично) в одном порядке
-                            if exact_match or (home_partial_match and away_partial_match):
+                            if home_normalized == home_sf_norm and away_normalized == away_sf_norm:
                                 teams_match = True
                                 break
-                            
-                            # Или обратный порядок
-                            if (home_normalized == away_sf_norm and away_normalized == home_sf_norm) or \
-                               (home_away_partial_match and away_home_partial_match):
+                            home_partial = (
+                                len(home_normalized) >= 3 and len(home_sf_norm) >= 3 and
+                                (home_normalized in home_sf_norm or home_sf_norm in home_normalized))
+                            away_partial = (
+                                len(away_normalized) >= 3 and len(away_sf_norm) >= 3 and
+                                (away_normalized in away_sf_norm or away_sf_norm in away_normalized))
+                            if home_partial and away_partial:
                                 teams_match = True
                                 break
                             
