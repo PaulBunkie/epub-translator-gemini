@@ -842,9 +842,9 @@ class FootballManager:
             """)
             rows = cursor.fetchall()
             if not rows:
-                print(f"[Football] Нет матчей со статусом 'in_progress'", flush=True)
                 return 0
-            print(f"[Football] Найдено {len(rows)} матчей in_progress", flush=True)
+            # TheSportsDB практически никогда не находит данные (неправильные slugs),
+            # актуальный счёт уже получен из SofaScore. Не засоряем логи.
             for row in rows:
                 fixture_id = row['fixture_id']
                 home = (row['home_team'] or '').strip()
@@ -6383,16 +6383,10 @@ def thesportsdb_update_scores_task():
     try:
         manager = get_manager()
         n = manager.update_inprogress_scores_from_thesportsdb()
-        if n:
-            print(f"[Football] Обновлены текущие счета (TheSportsDB): {n}", flush=True)
-        else:
-            print(f"[Football] Нет матчей in_progress для обновления счетов", flush=True)
-    except Exception as e:
-        # TheSportsDB бесполезен практически всегда (неправильные slugs, нет данных),
-        # поэтому просто логируем факт, не паникуя на return 0
-        # В реальности актуальный счёт и push уже работают через SofaScore (check_matches_60min_task)
-        print(f"[Football] TheSportsDB: {n} обновлено", flush=True)
-        # Не пишем "Нет матчей" — это вводит в заблуждение
+        # TheSportsDB практически всегда возвращает 0 (неправильные slugs),
+        # поэтому просто логируем факт без паники.
+        # Актуальный счёт и push уже работают через SofaScore (check_matches_60min_task).
+        print(f"[Football] TheSportsDB обновлено: {n}", flush=True)
     except Exception as e:
         print(f"[Football] Ошибка при обновлении счетов из TheSportsDB: {e}", flush=True)
         import traceback
