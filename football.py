@@ -6388,6 +6388,12 @@ def thesportsdb_update_scores_task():
         else:
             print(f"[Football] Нет матчей in_progress для обновления счетов", flush=True)
     except Exception as e:
+        # TheSportsDB бесполезен практически всегда (неправильные slugs, нет данных),
+        # поэтому просто логируем факт, не паникуя на return 0
+        # В реальности актуальный счёт и push уже работают через SofaScore (check_matches_60min_task)
+        print(f"[Football] TheSportsDB: {n} обновлено", flush=True)
+        # Не пишем "Нет матчей" — это вводит в заблуждение
+    except Exception as e:
         print(f"[Football] Ошибка при обновлении счетов из TheSportsDB: {e}", flush=True)
         import traceback
         traceback.print_exc()
