@@ -62,7 +62,7 @@ ODDS_API_URL = "https://api.the-odds-api.com/v4"
 # Порог для переключения на следующий ключ (осталось запросов)
 ODDS_API_SWITCH_THRESHOLD = 10
 # Порог коэффициента для определения фаворита (матчи с кэфом <= этому значению считаются "с фаворитом")
-FAVORITE_THRESHOLD = 1.80
+FAVORITE_THRESHOLD = 2.00
 SOFASCORE_API_URL = "https://api.sofascore1.com/api/v1"
 
 # Список User-Agent'ов для SofaScore (случайный выбор, чтобы уменьшить шанс бана)
