@@ -862,6 +862,7 @@ class FootballManager:
                     except Exception:
                         ss_data = None
                     if ss_data and 'event' in ss_data:
+                        print(f"[Football Scores DEBUG] fixture={fixture_id} eid={sofascore_eid} data OK, status.type={ss_data['event'].get('status',{}).get('type','?')}")
                         ev = ss_data['event']
                         hs = ev.get('homeScore', {})
                         aws = ev.get('awayScore', {})
