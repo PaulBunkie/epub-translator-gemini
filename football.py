@@ -61,6 +61,8 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 ODDS_API_URL = "https://api.the-odds-api.com/v4"
 # Порог для переключения на следующий ключ (осталось запросов)
 ODDS_API_SWITCH_THRESHOLD = 10
+# Порог коэффициента для определения фаворита (матчи с кэфом <= этому значению считаются "с фаворитом")
+FAVORITE_THRESHOLD = 1.80
 SOFASCORE_API_URL = "https://api.sofascore1.com/api/v1"
 
 # Список User-Agent'ов для SofaScore (случайный выбор, чтобы уменьшить шанс бана)
@@ -2470,8 +2472,8 @@ class FootballManager:
                         stats['skipped_past'] += 1
                         continue
                     
-                    # Определяем, есть ли фаворит с кэфом <= 1.30
-                    has_favorite = fav_info is not None and fav_info['odds'] <= 1.50
+                    # Определяем, есть ли фаворит с кэфом <= FAVORITE_THRESHOLD
+                    has_favorite = fav_info is not None and fav_info['odds'] <= FAVORITE_THRESHOLD
                     
                     if has_favorite:
                         # Матч с фаворитом - заполняем все поля
