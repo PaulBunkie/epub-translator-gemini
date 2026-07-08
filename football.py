@@ -852,172 +852,154 @@ class FootballManager:
                 date_str = row['match_date']
                 if not home or not away or not date_str:
                     continue
-                # Формируем slug вида "Home_vs_Away" для TheSportsDB
-                def to_slug(s: str) -> str:
-                    return s.replace(' ', '_')
-                slug = f"{to_slug(home)}_vs_{to_slug(away)}"
-                url = f"https://www.thesportsdb.com/api/v1/json/{self.thesportsdb_api_key}/searchevents.php?e={slug}&d={date_str}"
-                try:
-                    resp = requests.get(url, timeout=10)
-                    if resp.status_code != 200:
-                        continue
-                    data = resp.json()
-                    events = data.get('event') or []
-                    h_val = None
-                    a_val = None
-                    if events:
-                        evt = events[0]
-                        h = evt.get('intHomeScore')
-                        a = evt.get('intAwayScore')
-                        try:
-                            h_val = int(h) if h is not None and str(h).isdigit() else None
-                            a_val = int(a) if a is not None and str(a).isdigit() else None
-                        except Exception:
-                            h_val = None
-                            a_val = None
-                    # TheSportsDB не дал счёт — fallback на SofaScore
-                    if h_val is None or a_val is None:
-                        sofascore_eid = row['sofascore_event_id']
-                        if sofascore_eid:
+                h_val = None
+                a_val = None
+                sofascore_eid = row['sofascore_event_id']
+                # TheSportsDB практически никогда не находит данные — сразу идём в SofaScore
+                if sofascore_eid:
+                    try:
+                        ss_data = self._fetch_sofascore_event(sofascore_eid)
+                    except Exception:
+                        ss_data = None
+                    if ss_data and 'event' in ss_data:
+                        ev = ss_data['event']
+                        hs = ev.get('homeScore', {})
+                        aws = ev.get('awayScore', {})
+                        # Используем явную проверку is not None, т.к. счёт 0 — валидное значение
+                        sh = None
+                        sa = None
+                        for key in ('current', 'normaltime', 'display'):
+                            val_h = hs.get(key) if isinstance(hs, dict) else None
+                            val_a = aws.get(key) if isinstance(aws, dict) else None
+                            if val_h is not None and val_a is not None:
+                                sh = val_h
+                                sa = val_a
+                                break
+                        if sh is not None and sa is not None:
                             try:
-                                ss_data = self._fetch_sofascore_event(sofascore_eid)
-                            except Exception:
-                                ss_data = None
-                            if ss_data and 'event' in ss_data:
-                                ev = ss_data['event']
-                                hs = ev.get('homeScore', {})
-                                aws = ev.get('awayScore', {})
-                                sh = hs.get('current') or hs.get('normaltime') or hs.get('display')
-                                sa = aws.get('current') or aws.get('normaltime') or aws.get('display')
-                                if sh is not None and sa is not None:
-                                    try:
-                                        h_val = int(sh)
-                                        a_val = int(sa)
-                                    except (ValueError, TypeError):
-                                        pass
-                                
-                                # Проверяем статус — если матч завершён, закроем его здесь же
-                                ev_status = ev.get('status', {})
-                                status_type = ev_status.get('type', '') if isinstance(ev_status, dict) else ''
-                                if status_type == 'finished' and h_val is not None and a_val is not None:
-                                    fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
-                                    fav_won = None
-                                    if fav_team_id is not None and fav_team_id >= 0:
-                                        if h_val > a_val:
-                                            fav_won = 1 if fav_team_id == 1 else 0
-                                        elif a_val > h_val:
-                                            fav_won = 1 if fav_team_id == 0 else 0
-                                        else:
-                                            fav_won = 0
-                                    cursor.execute("""
-                                        UPDATE matches
-                                        SET status = 'finished',
-                                            final_score_home = ?,
-                                            final_score_away = ?,
-                                            fav_won = ?,
-                                            updated_at = CURRENT_TIMESTAMP
-                                        WHERE id = ?
-                                    """, (h_val, a_val, fav_won, row['id']))
-                                    conn.commit()
-                                    updated += 1
-                                    print(f"[Football Scores] Матч {fixture_id} закрыт через SofaScore: {h_val}-{a_val} (fav_won={fav_won})")
-                                    continue  # уже закрыли, переходим к следующему матчу
-                    if h_val is None or a_val is None:
-                        continue
-                    # Обновляем счет в БД (используем поля final_* как хранилище текущего счёта)
-                    cursor.execute("""
-                        UPDATE matches
-                        SET final_score_home = ?, final_score_away = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (h_val, a_val, row['id']))
-                    conn.commit()
-                    updated += 1
-                    
-                    # ===== ДЕТЕКТ ГОЛА: сравниваем текущий счёт с предыдущим =====
-                    prev_score = self.last_scores.get(row['fixture_id'])
-                    is_goal = False
-                    total_goals = h_val + a_val
-                    prev_total = (prev_score[0] + prev_score[1]) if prev_score else -1
-                    if prev_score is not None and total_goals > prev_total:
-                        is_goal = True
-                        print(f"[FAVOURITE_TRACKING] ⚽ GOAL DETECTED | fixture={row['fixture_id']} | score={h_val}-{a_val} | prev={prev_score[0]}-{prev_score[1]}")
-                    # Сохраняем новый счёт для следующего сравнения
-                    self.last_scores[row['fixture_id']] = (h_val, a_val)
-                    # ===== КОНЕЦ ДЕТЕКТА ГОЛА =====
-                    
-                    # ===== ПОЛУЧАЕМ live минуту из SofaScore (только для фаворитов) =====
-                    live_minute = None
-                    fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
-                    sofascore_eid = row['sofascore_event_id'] if 'sofascore_event_id' in row.keys() else None
-                    if fav_team_id is not None and fav_team_id != -1 and sofascore_eid:
-                        live_minute = self._get_live_match_minute(sofascore_eid)
-                        if live_minute is not None:
-                            print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore live minute | fixture={row['fixture_id']} | minute={live_minute} | event_id={sofascore_eid}")
-                        else:
-                            print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore minute unavailable | fixture={row['fixture_id']} | event_id={sofascore_eid}")
-                    # ===== КОНЕЦ ПОЛУЧЕНИЯ МИНУТЫ =====
-                    
-                    if FIREBASE_PUSH_AVAILABLE:
-                        try:
-                            event_type = "goal" if is_goal else "heartbeat"
-                            firebase_notifier.send_match_update(
-                                match_id=str(sofascore_eid),
-                                score_home=str(h_val),
-                                score_away=str(a_val),
-                                status="live",
-                                minute=str(live_minute) if live_minute is not None else "",
-                                k0="",
-                                k1="",
-                                k60="",
-                                event_type=event_type
-                            )
-                            print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | sofascore_eid={sofascore_eid} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute}{' ⚽ GOAL!' if is_goal else ''}")
-                        except Exception as _fb_err:
-                            print(f"[FAVOURITE_TRACKING] ❌ Push FAILED | fixture={row['fixture_id']} | error={_fb_err}")
-                    
-                    # Проверяем и отправляем уведомление, когда фаворит начинает проигрывать
-                    fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
-                    fav_team_name = row['fav'] if 'fav' in row.keys() else None
-                    self._check_and_notify_favorite_losing(
-                        row['fixture_id'],
-                        row['home_team'],
-                        row['away_team'],
-                        fav_team_id,
-                        fav_team_name,
-                        h_val,
-                        a_val
-                    )
-                    # Дополнительно: уведомление, когда фаворит вничью на 30-й минуте (шансы высокие, ставки выросли)
-                    if h_val == a_val and fav_team_id is not None and fav_team_name:
-                        try:
-                            match_date = row['match_date']
-                            match_time = row['match_time']
-                            if match_date and match_time:
-                                # Время в БД хранится в UTC (см. _save_match). Сравниваем в UTC.
-                                match_start_naive = datetime.strptime(f"{match_date} {match_time}", "%Y-%m-%d %H:%M")
-                                match_start = match_start_naive.replace(tzinfo=timezone.utc)
-                                now_utc = datetime.now(timezone.utc)
-                                elapsed_minutes = (now_utc - match_start).total_seconds() / 60.0
-                                notify_minute = 30
-                                window = 5  # окно 25–35 минута
-                                if notify_minute - window <= elapsed_minutes <= notify_minute + window:
-                                    self._check_and_notify_favorite_draw_at_minute(
-                                        row['fixture_id'],
-                                        row['home_team'],
-                                        row['away_team'],
-                                        fav_team_id,
-                                        fav_team_name,
-                                        h_val,
-                                        a_val,
-                                        int(round(elapsed_minutes)),
-                                        row['initial_odds'],
-                                        row['last_odds'],
-                                    )
-                        except (ValueError, TypeError) as e:
-                            print(f"[Football Scores] Не удалось вычислить минуту для уведомления о ничьей {fixture_id}: {e}")
-                except Exception as ex:
-                    print(f"[Football Scores] Ошибка обновления для {fixture_id} ({home} vs {away}): {ex}")
+                                h_val = int(sh)
+                                a_val = int(sa)
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        # Проверяем статус — если матч завершён, закроем его здесь же
+                        ev_status = ev.get('status', {})
+                        status_type = ev_status.get('type', '') if isinstance(ev_status, dict) else ''
+                        if status_type == 'finished' and h_val is not None and a_val is not None:
+                            fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
+                            fav_won = None
+                            if fav_team_id is not None and fav_team_id >= 0:
+                                if h_val > a_val:
+                                    fav_won = 1 if fav_team_id == 1 else 0
+                                elif a_val > h_val:
+                                    fav_won = 1 if fav_team_id == 0 else 0
+                                else:
+                                    fav_won = 0
+                            cursor.execute("""
+                                UPDATE matches
+                                SET status = 'finished',
+                                    final_score_home = ?,
+                                    final_score_away = ?,
+                                    fav_won = ?,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            """, (h_val, a_val, fav_won, row['id']))
+                            conn.commit()
+                            updated += 1
+                            print(f"[Football Scores] Матч {fixture_id} закрыт через SofaScore: {h_val}-{a_val} (fav_won={fav_won})")
+                            continue  # уже закрыли, переходим к следующему матчу
+                if h_val is None or a_val is None:
                     continue
+                # Обновляем счет в БД (используем поля final_* как хранилище текущего счёта)
+                cursor.execute("""
+                    UPDATE matches
+                    SET final_score_home = ?, final_score_away = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (h_val, a_val, row['id']))
+                conn.commit()
+                updated += 1
+                
+                # ===== ДЕТЕКТ ГОЛА: сравниваем текущий счёт с предыдущим =====
+                prev_score = self.last_scores.get(row['fixture_id'])
+                is_goal = False
+                total_goals = h_val + a_val
+                prev_total = (prev_score[0] + prev_score[1]) if prev_score else -1
+                if prev_score is not None and total_goals > prev_total:
+                    is_goal = True
+                    print(f"[FAVOURITE_TRACKING] ⚽ GOAL DETECTED | fixture={row['fixture_id']} | score={h_val}-{a_val} | prev={prev_score[0]}-{prev_score[1]}")
+                # Сохраняем новый счёт для следующего сравнения
+                self.last_scores[row['fixture_id']] = (h_val, a_val)
+                # ===== КОНЕЦ ДЕТЕКТА ГОЛА =====
+                
+                # ===== ПОЛУЧАЕМ live минуту из SofaScore (только для фаворитов) =====
+                live_minute = None
+                fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
+                sofascore_eid = row['sofascore_event_id'] if 'sofascore_event_id' in row.keys() else None
+                if fav_team_id is not None and fav_team_id != -1 and sofascore_eid:
+                    live_minute = self._get_live_match_minute(sofascore_eid)
+                    if live_minute is not None:
+                        print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore live minute | fixture={row['fixture_id']} | minute={live_minute} | event_id={sofascore_eid}")
+                    else:
+                        print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore minute unavailable | fixture={row['fixture_id']} | event_id={sofascore_eid}")
+                # ===== КОНЕЦ ПОЛУЧЕНИЯ МИНУТЫ =====
+                
+                if FIREBASE_PUSH_AVAILABLE:
+                    try:
+                        event_type = "goal" if is_goal else "heartbeat"
+                        firebase_notifier.send_match_update(
+                            match_id=str(sofascore_eid),
+                            score_home=str(h_val),
+                            score_away=str(a_val),
+                            status="live",
+                            minute=str(live_minute) if live_minute is not None else "",
+                            k0="",
+                            k1="",
+                            k60="",
+                            event_type=event_type
+                        )
+                        print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | sofascore_eid={sofascore_eid} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute}{' ⚽ GOAL!' if is_goal else ''}")
+                    except Exception as _fb_err:
+                        print(f"[FAVOURITE_TRACKING] ❌ Push FAILED | fixture={row['fixture_id']} | error={_fb_err}")
+                
+                # Проверяем и отправляем уведомление, когда фаворит начинает проигрывать
+                fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
+                fav_team_name = row['fav'] if 'fav' in row.keys() else None
+                self._check_and_notify_favorite_losing(
+                    row['fixture_id'],
+                    row['home_team'],
+                    row['away_team'],
+                    fav_team_id,
+                    fav_team_name,
+                    h_val,
+                    a_val
+                )
+                # Дополнительно: уведомление, когда фаворит вничью на 30-й минуте (шансы высокие, ставки выросли)
+                if h_val == a_val and fav_team_id is not None and fav_team_name:
+                    try:
+                        match_date = row['match_date']
+                        match_time = row['match_time']
+                        if match_date and match_time:
+                            match_start_naive = datetime.strptime(f"{match_date} {match_time}", "%Y-%m-%d %H:%M")
+                            match_start = match_start_naive.replace(tzinfo=timezone.utc)
+                            now_utc = datetime.now(timezone.utc)
+                            elapsed_minutes = (now_utc - match_start).total_seconds() / 60.0
+                            notify_minute = 30
+                            window = 5  # окно 25–35 минута
+                            if notify_minute - window <= elapsed_minutes <= notify_minute + window:
+                                self._check_and_notify_favorite_draw_at_minute(
+                                    row['fixture_id'],
+                                    row['home_team'],
+                                    row['away_team'],
+                                    fav_team_id,
+                                    fav_team_name,
+                                    h_val,
+                                    a_val,
+                                    int(round(elapsed_minutes)),
+                                    row['initial_odds'],
+                                    row['last_odds'],
+                                )
+                    except (ValueError, TypeError) as e:
+                        print(f"[Football Scores] Не удалось вычислить минуту для уведомления о ничьей {fixture_id}: {e}")
         except Exception as e:
             print(f"[Football Scores ERROR] {e}")
             import traceback
@@ -4236,16 +4218,46 @@ class FootballManager:
                 if response.status_code == 200:
                     data = response.json()
                     
-                    # Извлекаем статус из различных возможных полей
-                    # Обычно статус находится в event.status или event.statusText
+                    # Извлекаем статус. SofaScore отдаёт статус как:
+                    # event.status = {"type": "finished", "description": "Ended"} (dict)
+                    # или event.statusText / event.statusDescription (строка)
                     event = data.get('event', {})
                     
-                    # Варианты полей со статусом
-                    status = event.get('status') or event.get('statusText') or event.get('statusDescription')
+                    # Пробуем status.type (наиболее надёжно)
+                    status_obj = event.get('status')
+                    if isinstance(status_obj, dict):
+                        status_type = status_obj.get('type', '')
+                        if status_type:
+                            status_type_lower = str(status_type).lower()
+                            if 'finished' in status_type_lower or 'ft' in status_type_lower:
+                                return 'finished'
+                            elif 'live' in status_type_lower or 'inprogress' in status_type_lower:
+                                return 'live'
+                            elif 'notstarted' in status_type_lower or 'not started' in status_type_lower:
+                                return 'notstarted'
+                            elif 'postponed' in status_type_lower or 'cancelled' in status_type_lower:
+                                return 'postponed'
+                            else:
+                                return status_type_lower
                     
-                    if status:
-                        # Нормализуем статус
-                        status_lower = str(status).lower()
+                    # Пробуем statusDescription (строка вида "62'", "Ended", etc.)
+                    status = event.get('statusDescription') or event.get('statusText')
+                    if isinstance(status, str) and status:
+                        status_lower = status.lower()
+                        if 'finished' in status_lower or 'ft' in status_lower or 'ended' in status_lower:
+                            return 'finished'
+                        elif 'live' in status_lower or 'inprogress' in status_lower:
+                            return 'live'
+                        elif 'notstarted' in status_lower or 'not started' in status_lower:
+                            return 'notstarted'
+                        elif 'postponed' in status_lower or 'cancelled' in status_lower:
+                            return 'postponed'
+                        else:
+                            return status_lower
+                    
+                    # Если статус — строка (старый формат API)
+                    if isinstance(status_obj, str):
+                        status_lower = status_obj.lower()
                         if 'finished' in status_lower or 'ft' in status_lower:
                             return 'finished'
                         elif 'live' in status_lower or 'inprogress' in status_lower:
@@ -4257,11 +4269,14 @@ class FootballManager:
                         else:
                             return status_lower
                     
-                    # Если статус не найден, проверяем другие поля
                     # Иногда статус может быть в корне объекта
-                    status = data.get('status') or data.get('statusText')
-                    if status:
-                        return str(status).lower()
+                    root_status = data.get('status') or data.get('statusText')
+                    if isinstance(root_status, dict):
+                        root_type = root_status.get('type', '')
+                        if root_type:
+                            return str(root_type).lower()
+                    if isinstance(root_status, str) and root_status:
+                        return root_status.lower()
                     
                     return None
                     
