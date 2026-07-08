@@ -1700,29 +1700,20 @@ class FootballManager:
         th_norm = self._normalize_team_name(home_team)
         ta_norm = self._normalize_team_name(away_team)
 
-        # Точное совпадение
+        # Точное совпадение (только прямой порядок, без реверса — ловили ответные матчи)
         if h_norm == th_norm and a_norm == ta_norm:
             return True
-        # Обратный порядок
-        if h_norm == ta_norm and a_norm == th_norm:
-            return True
-        # Частичное (минимум 3 символа)
+        # Частичное (минимум 3 символа) — только прямой порядок
         h_ok = (len(th_norm) >= 3 and len(h_norm) >= 3 and (th_norm in h_norm or h_norm in th_norm))
         a_ok = (len(ta_norm) >= 3 and len(a_norm) >= 3 and (ta_norm in a_norm or a_norm in ta_norm))
         if h_ok and a_ok:
             return True
-        h_ok_rev = (len(th_norm) >= 3 and len(a_norm) >= 3 and (th_norm in a_norm or a_norm in th_norm))
-        a_ok_rev = (len(ta_norm) >= 3 and len(h_norm) >= 3 and (ta_norm in h_norm or h_norm in ta_norm))
-        if h_ok_rev and a_ok_rev:
-            return True
-        # Сравнение по оригинальным именам (нижний регистр)
+        # Сравнение по оригинальным именам — только прямой порядок
         hl = h_name.lower().strip()
         al = a_name.lower().strip()
         thl = home_team.lower().strip()
         tal = away_team.lower().strip()
         if (thl in hl or hl in thl) and (tal in al or al in tal):
-            return True
-        if (thl in al or al in thl) and (tal in hl or hl in tal):
             return True
         return False
 
