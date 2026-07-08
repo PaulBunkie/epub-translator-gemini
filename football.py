@@ -6315,27 +6315,30 @@ def check_matches_60min_task():
     """Задача для планировщика - детектор 60-й минуты и обновление статусов (без финального счета)."""
     global _last_60min_run
     _last_60min_run = datetime.now(timezone.utc)
-    print(f"[Scheduler] 🏃 check_matches_60min_task в {_last_60min_run.isoformat()}")
+    print(f"[Scheduler] 🏃 check_matches_60min_task в {_last_60min_run.isoformat()}", flush=True)
     try:
         manager = get_manager()
         manager.check_matches_60min_and_status()
+        print(f"[Scheduler] ✅ check_matches_60min_task завершена", flush=True)
     except Exception as e:
-        print(f"[Football] Ошибка в задаче детектора 60-й минуты: {e}")
+        print(f"[Football] Ошибка в задаче детектора 60-й минуты: {e}", flush=True)
         import traceback
-        print(traceback.format_exc())
+        traceback.print_exc()
 
 def thesportsdb_update_scores_task():
     """Задача для планировщика - обновление текущих счетов через TheSportsDB для матчей in_progress."""
-    print(f"[Scheduler] 🏃 thesportsdb_update_scores_task в {datetime.now(timezone.utc).isoformat()}")
+    print(f"[Scheduler] 🏃 thesportsdb_update_scores_task в {datetime.now(timezone.utc).isoformat()}", flush=True)
     try:
         manager = get_manager()
         n = manager.update_inprogress_scores_from_thesportsdb()
         if n:
-            print(f"[Football] Обновлены текущие счета (TheSportsDB): {n}")
+            print(f"[Football] Обновлены текущие счета (TheSportsDB): {n}", flush=True)
+        else:
+            print(f"[Football] Нет матчей in_progress для обновления счетов", flush=True)
     except Exception as e:
-        print(f"[Football] Ошибка при обновлении счетов из TheSportsDB: {e}")
+        print(f"[Football] Ошибка при обновлении счетов из TheSportsDB: {e}", flush=True)
         import traceback
-        print(traceback.format_exc())
+        traceback.print_exc()
 
 
 def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
