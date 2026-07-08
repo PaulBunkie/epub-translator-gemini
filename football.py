@@ -4446,6 +4446,27 @@ class FootballManager:
                                 'away': int(score_away)
                             }
                             print(f"[Football] Актуальный счет для fixture {fixture_id}: {actual_score['home']}-{actual_score['away']}")
+                            
+                            # ===== ОТПРАВЛЯЕМ FIREBASE PUSH С АКТУАЛЬНЫМ СЧЕТОМ =====
+                            if FIREBASE_PUSH_AVAILABLE:
+                                try:
+                                    # Получаем минуту матча
+                                    live_minute = self._get_live_match_minute(sofascore_event_id)
+                                    firebase_notifier.send_match_update(
+                                        match_id=str(sofascore_event_id),
+                                        score_home=str(actual_score['home']),
+                                        score_away=str(actual_score['away']),
+                                        status="live",
+                                        minute=str(live_minute) if live_minute is not None else "",
+                                        k0=str(match['initial_odds'] or ''),
+                                        k1=str(match['last_odds'] or ''),
+                                        k60="",
+                                        event_type="heartbeat"
+                                    )
+                                    print(f"[FAVOURITE_TRACKING] 📲 Push sent from 60min task | fixture={fixture_id} | score={actual_score['home']}-{actual_score['away']} | minute={live_minute}")
+                                except Exception as _fb_err:
+                                    print(f"[FAVOURITE_TRACKING] ❌ Push FAILED from 60min task | fixture={fixture_id} | error={_fb_err}")
+                            # ===== КОНЕЦ PUSH =====
                         except (ValueError, TypeError):
                             print(f"[Football] Ошибка преобразования счета в числа: home={score_home}, away={score_away}")
 
