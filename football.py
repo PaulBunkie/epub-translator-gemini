@@ -218,6 +218,8 @@ def get_football_db_connection():
     """Создает соединение с БД футбольных матчей."""
     conn = sqlite3.connect(FOOTBALL_DATABASE_FILE, check_same_thread=False, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -820,29 +822,44 @@ class FootballManager:
 
     def update_inprogress_scores_from_thesportsdb(self) -> int:
         """
-        Обновляет текущий счет для матчей в статусе 'in_progress' через API TheSportsDB.
-        Возвращает количество обновленных записей.
+        Обновляет счёт для матчей in_progress и закрывает scheduled матчи, которые уже сыграны.
+        Запускается каждые 2 минуты.
         """
         updated = 0
         conn = None
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
-            # Диагностика: показываем все статусы матчей
             cursor.execute("SELECT status, COUNT(*) as cnt FROM matches WHERE match_date >= date('now', '-1 days') GROUP BY status")
             status_counts = cursor.fetchall()
             print(f"[Football DB] Статусы матчей за последние сутки: {[(r['status'], r['cnt']) for r in status_counts]}", flush=True)
             
+            # Закрываем scheduled матчи, которые должны были начаться >2 часов назад
+            cutoff_scheduled = datetime.now(timezone.utc) - timedelta(hours=2)
             cursor.execute("""
                 SELECT id, fixture_id, home_team, away_team, match_date, match_time,
                        final_score_home, final_score_away, fav_team_id, fav, initial_odds, last_odds,
                        sofascore_event_id, status
                 FROM matches
-                WHERE status = 'in_progress'
+                WHERE status IN ('scheduled', 'in_progress')
             """)
             rows = cursor.fetchall()
             if not rows:
                 return 0
+            now_utc = datetime.now(timezone.utc)
+            for row in rows:
+                try:
+                    md = datetime.strptime(f"{row['match_date']} {row['match_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                except:
+                    continue
+                # Если матч scheduled и прошло >2 часов — переводим в in_progress для обработки (или сразу закрываем)
+                if row['status'] == 'scheduled' and now_utc - md > timedelta(hours=2):
+                    cursor.execute("UPDATE matches SET status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?", (row['id'],))
+                    conn.commit()
+                    print(f"[Football] Scheduled->in_progress: {row['fixture_id']} ({row['match_date']} {row['match_time']})")
+                # Если матч ещё не начался или прошло <90 минут — пропускаем
+                if row['status'] == 'scheduled' and now_utc - md < timedelta(minutes=90):
+                    continue
             # TheSportsDB практически никогда не находит данные (неправильные slugs),
             # актуальный счёт уже получен из SofaScore. Не засоряем логи.
             for row in rows:
