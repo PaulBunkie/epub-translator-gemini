@@ -24,8 +24,7 @@ MODEL_CONFIG = {
         'fallback_level2': 'literouter/gpt-5.4-mini',
         'fallback_level3': 'literouter/minimax-m2.7:free',
         'fallback_level4': 'literouter/deepseek-v3.2:free',  
-        'fallback_level5': 'literouter/claude-haiku-4.5-cheap:free',
-        'fallback_level6': 'nvidia/nemotron-3-ultra-550b-a55b:free'         
+        'fallback_level5': 'nvidia/nemotron-3-ultra-550b-a55b:free'        
     },
     'reduce': {
         'primary': 'literouter/deepseek-v4-pro-thinking:full-context', #'openrouter/owl-alpha', 
