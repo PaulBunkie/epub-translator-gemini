@@ -2233,182 +2233,49 @@ class FootballManager:
 
     def update_sofascore_ids(self) -> Dict[str, int]:
         """
-        Обновляет sofascore_event_id для матчей, у которых он отсутствует.
-        Запрашивает события из SofaScore для дат матчей без sofascore_event_id.
-        
-        Returns:
-            Словарь со статистикой: {'updated': int, 'failed': int}
+        Обновляет sofascore_event_id для матчей без него.
+        Использует ТОЛЬКО search/events (scheduled-events мёртв — 404).
         """
-        stats = {
-            'updated': 0,
-            'failed': 0,
-            'dates_processed': 0
-        }
-        
+        stats = {'updated': 0, 'failed': 0, 'dates_processed': 0}
         conn = None
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
-            
-            # Получаем все матчи без sofascore_event_id, сгруппированные по дате
-            cursor.execute("""
-                SELECT DISTINCT match_date 
-                FROM matches 
-                WHERE sofascore_event_id IS NULL 
-                AND status IN ('scheduled', 'in_progress')
-                ORDER BY match_date
-            """)
-            
-            dates_to_process = [row[0] for row in cursor.fetchall()]
-            
-            if not dates_to_process:
-                print("[Football SofaScore] Нет матчей без sofascore_event_id для обновления")
+            cursor.execute("SELECT DISTINCT match_date FROM matches WHERE sofascore_event_id IS NULL AND status IN ('scheduled','in_progress') ORDER BY match_date")
+            dates = [row[0] for row in cursor.fetchall()]
+            if not dates:
+                print("[Football SofaScore] Нет матчей без sofascore_event_id")
                 return stats
-            
-            print(f"[Football SofaScore] Найдено {len(dates_to_process)} дат для обработки")
-            
-            # Обрабатываем каждую дату
-            for date_str in dates_to_process:
-                try:
-                    # Получаем события из SofaScore для этой даты
-                    events = self._fetch_sofascore_events(date_str)
-                    if not events:
-                        print(f"[Football SofaScore] Scheduled-events unavailable for {date_str}, trying search by team names")
-                        cursor.execute("SELECT id, fixture_id, home_team, away_team, match_date, match_time, sofascore_event_id, status FROM matches WHERE match_date = ? AND sofascore_event_id IS NULL AND status IN ('scheduled', 'in_progress')", (date_str,))
-                        fallback_matches = cursor.fetchall()
-                        if fallback_matches:
-                            print(f"[Football SofaScore] Searching {len(fallback_matches)} matches on {date_str} via search/events")
-                            for fm in fallback_matches:
-                                fm_dict = dict(fm)
-                                search_result = self._search_sofascore_event_by_team(fm_dict['home_team'], fm_dict['away_team'])
-                                if search_result:
-                                    event_id = search_result['event_id']
-                                    home_id = search_result.get('homeTeamId')
-                                    away_id = search_result.get('awayTeamId')
-                                    sofascore_join_data = {'slug': search_result.get('slug', ''), 'startTimestamp': search_result.get('startTimestamp'), 'homeTeamId': home_id, 'awayTeamId': away_id}
-                                    sofascore_join_json = json.dumps(sofascore_join_data, ensure_ascii=False)
-                                    cursor.execute("UPDATE matches SET sofascore_event_id = ?, sofascore_join = ?, home_team_sofascore_id = ?, away_team_sofascore_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (event_id, sofascore_join_json, home_id, away_id, fm_dict['id']))
-                                    stats['updated'] += 1
-                                    print(f"[Football SofaScore Search] Found event_id={event_id} for {fm_dict['home_team']} vs {fm_dict['away_team']} (home={home_id}, away={away_id})")
-                                else:
-                                    stats['failed'] += 1
-                                time.sleep(0.5)
-                            conn.commit()
-                        continue
-                    
-                    stats['dates_processed'] += 1
-                    
-                    # Получаем все матчи на эту дату без sofascore_event_id
-                    # Исключаем большие поля: bet_ai_reason, stats_60min
-                    cursor.execute("""
-                        SELECT id, fixture_id, home_team, away_team, match_date, match_time, sofascore_event_id, status
-                        FROM matches 
-                        WHERE match_date = ? 
-                        AND sofascore_event_id IS NULL
-                        AND status IN ('scheduled', 'in_progress')
-                                        """, (date_str,))
-
-                    matches = cursor.fetchall()
-                    print(f"[Football SofaScore] Обрабатываем {len(matches)} матчей на дату {date_str}")
-
-                    # Первый проход: сопоставляем по двум командам
-                    unmatched_matches = []
-                    for match_row in matches:
-                        match_dict = dict(match_row)
-                        event_id = self._match_sofascore_event(match_dict, events)
-
-                        if event_id:
-                            # Обновляем sofascore_event_id в БД
-                            cursor.execute("""
-                                UPDATE matches
-                                SET sofascore_event_id = ?, updated_at = CURRENT_TIMESTAMP
-                                WHERE id = ?
-                            """, (event_id, match_dict['id']))
-
-                            stats['updated'] += 1
-                            print(f"[Football SofaScore] Обновлен sofascore_event_id={event_id} для матча {match_dict['home_team']} vs {match_dict['away_team']}")
-                        else:
-                            # Сохраняем для второго прохода
-                            unmatched_matches.append(match_dict)
-
-                    conn.commit()
-
-                    # Второй проход: сопоставляем по одной команде + времени
-                    if unmatched_matches:
-                        print(f"[Football SofaScore] Второй проход: ищем {len(unmatched_matches)} ненайденных матчей по команде+времени")
-                        for match_dict in unmatched_matches:
-                            event_data = self._match_sofascore_event_by_team_and_time(match_dict, events)
-
-                            if event_data:
-                                event_id = event_data['event_id']
-                                # Формируем JSON для сохранения в sofascore_join
-                                # Получаем homeTeam и awayTeam из event_data (ответ от _match_sofascore_event_by_team_and_time)
-                                home_team_obj = {}
-                                away_team_obj = {}
-                                for ev in sofascore_events:
-                                    if ev.get('id') == event_id:
-                                        home_team_obj = ev.get('homeTeam', {})
-                                        away_team_obj = ev.get('awayTeam', {})
-                                        break
-                                
-                                sofascore_join_data = {
-                                    'slug': event_data.get('slug', ''),
-                                    'startTimestamp': event_data.get('startTimestamp'),
-                                    'homeTeamId': home_team_obj.get('id'),
-                                    'awayTeamId': away_team_obj.get('id'),
-                                }
-                                
-                                # Также сразу обновляем home_team_sofascore_id / away_team_sofascore_id в таблице
-                                home_id = home_team_obj.get('id')
-                                away_id = away_team_obj.get('id')
-                                cursor.execute("""
-                                    UPDATE matches
-                                    SET home_team_sofascore_id = ?,
-                                        away_team_sofascore_id = ?,
-                                        updated_at = CURRENT_TIMESTAMP
-                                    WHERE id = ?
-                                """, (home_id, away_id, match_dict['id']))
-                                sofascore_join_json = json.dumps(sofascore_join_data, ensure_ascii=False)
-                                
-                                # Обновляем sofascore_event_id и sofascore_join в БД
-                                cursor.execute("""
-                                    UPDATE matches
-                                    SET sofascore_event_id = ?, sofascore_join = ?, updated_at = CURRENT_TIMESTAMP
-                                    WHERE id = ?
-                                """, (event_id, sofascore_join_json, match_dict['id']))
-
-                                stats['updated'] += 1
-                                stats['failed'] -= 1  # Уменьшаем счетчик failed, так как теперь нашли
-                                print(f"[Football SofaScore] Обновлен sofascore_event_id={event_id} для матча {match_dict['home_team']} vs {match_dict['away_team']} (второй проход)")
-                            else:
-                                stats['failed'] += 1
-                                print(f"[Football SofaScore] Не найдено совпадение для {match_dict['home_team']} vs {match_dict['away_team']} ({match_dict['match_date']} {match_dict['match_time']})")
-
-                    conn.commit()
-                    
-                    # Задержка между запросами к SofaScore (минимум 2-3 секунды для избежания блокировки)
-                    # SofaScore может заблокировать IP при >5 запросов/сек или при слишком частых запросах
-                    # Используем 2.5 секунды для безопасности
-                    time.sleep(2.5)
-                    
-                except Exception as e:
-                    print(f"[Football SofaScore ERROR] Ошибка обработки даты {date_str}: {e}")
-                    stats['failed'] += 1
+            print(f"[Football SofaScore] Поиск по {len(dates)} датам через search/events (scheduled-events мёртв)")
+            for date_str in dates:
+                stats['dates_processed'] += 1
+                cursor.execute("SELECT id,home_team,away_team,match_date,match_time FROM matches WHERE match_date=? AND sofascore_event_id IS NULL AND status IN ('scheduled','in_progress')", (date_str,))
+                rows = cursor.fetchall()
+                if not rows:
                     continue
-            
-            print(f"[Football SofaScore] Обновление завершено: обновлено={stats['updated']}, не найдено={stats['failed']}, дат обработано={stats['dates_processed']}")
-            
+                for row in rows:
+                    d = dict(row)
+                    sr = self._search_sofascore_event_by_team(d['home_team'], d['away_team'])
+                    if sr:
+                        eid = sr['event_id']
+                        hid = sr.get('homeTeamId')
+                        aid = sr.get('awayTeamId')
+                        sj = json.dumps({'slug':sr.get('slug',''),'startTimestamp':sr.get('startTimestamp'),'homeTeamId':hid,'awayTeamId':aid}, ensure_ascii=False)
+                        cursor.execute("UPDATE matches SET sofascore_event_id=?, sofascore_join=?, home_team_sofascore_id=?, away_team_sofascore_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (eid, sj, hid, aid, d['id']))
+                        stats['updated'] += 1
+                        print(f"[Football SofaScore Search] Found event_id={eid} for {d['home_team']} vs {d['away_team']}")
+                    else:
+                        stats['failed'] += 1
+                    time.sleep(0.6)
+                conn.commit()
+            print(f"[Football SofaScore] Итого: updated={stats['updated']}, failed={stats['failed']}, dates={stats['dates_processed']}")
         except Exception as e:
-            print(f"[Football SofaScore ERROR] Критическая ошибка при обновлении sofascore_event_id: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"[Football SofaScore ERROR] {e}")
+            import traceback; traceback.print_exc()
         finally:
             if conn:
-                try:
-                    conn.close()
-                except:
-                    pass
-        
+                try: conn.close()
+                except: pass
         return stats
 
     def sync_matches(self, leagues: Optional[List[str]] = None) -> Dict[str, int]:
