@@ -6281,8 +6281,12 @@ def sync_leagues_task() -> Dict[str, Any]:
 
 # === Функции для APScheduler ===
 
+# Timestamp последнего запуска check_matches_60min_task для health-check
+_last_60min_run = None
+
 def collect_tomorrow_matches_task():
     """Задача для планировщика - сбор матчей на завтра."""
+    print(f"[Scheduler] 🏃 collect_tomorrow_matches_task в {datetime.now(timezone.utc).isoformat()}")
     try:
         manager = get_manager()
         count = manager.collect_tomorrow_matches()
@@ -6297,6 +6301,7 @@ def collect_tomorrow_matches_task():
 
 def check_matches_and_collect_task():
     """Задача для планировщика - проверка матчей и сбор статистики."""
+    print(f"[Scheduler] 🏃 check_matches_and_collect_task в {datetime.now(timezone.utc).isoformat()}")
     try:
         manager = get_manager()
         manager.check_matches_and_collect()
@@ -6308,6 +6313,9 @@ def check_matches_and_collect_task():
 
 def check_matches_60min_task():
     """Задача для планировщика - детектор 60-й минуты и обновление статусов (без финального счета)."""
+    global _last_60min_run
+    _last_60min_run = datetime.now(timezone.utc)
+    print(f"[Scheduler] 🏃 check_matches_60min_task в {_last_60min_run.isoformat()}")
     try:
         manager = get_manager()
         manager.check_matches_60min_and_status()
@@ -6318,6 +6326,7 @@ def check_matches_60min_task():
 
 def thesportsdb_update_scores_task():
     """Задача для планировщика - обновление текущих счетов через TheSportsDB для матчей in_progress."""
+    print(f"[Scheduler] 🏃 thesportsdb_update_scores_task в {datetime.now(timezone.utc).isoformat()}")
     try:
         manager = get_manager()
         n = manager.update_inprogress_scores_from_thesportsdb()

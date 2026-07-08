@@ -3833,6 +3833,65 @@ def api_sync_team_ids():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/football/health', methods=['GET'])
+def api_football_health():
+    """Health-check для футбольного планировщика."""
+    from football import _last_60min_run
+    from datetime import timezone as _tz
+    now = datetime.datetime.now(_tz.utc)
+    alive = _last_60min_run is not None and (now - _last_60min_run).total_seconds() < 300
+    return jsonify({
+        'scheduler_alive': alive,
+        'last_60min_run': _last_60min_run.isoformat() if _last_60min_run else None,
+        'checked_at': now.isoformat()
+    })
+
+
+@app.route('/api/football/restart-jobs', methods=['POST'])
+def api_football_restart_jobs():
+    """Перезапуск ТОЛЬКО футбольных джоб шедулера."""
+    import datetime as _dt
+    from datetime import timedelta as _td
+    job_ids = [
+        'collect_football_matches_job',
+        'check_football_matches_60min_job',
+        'check_football_matches_final_job',
+        'thesportsdb_scores_job',
+        'sync_football_leagues_job',
+    ]
+    for jid in job_ids:
+        try:
+            scheduler.remove_job(jid)
+        except Exception:
+            pass
+    
+    scheduler.add_job(
+        football.collect_tomorrow_matches_task, trigger='interval', days=1,
+        id='collect_football_matches_job', replace_existing=True, misfire_grace_time=1440
+    )
+    scheduler.add_job(
+        football.check_matches_60min_task, trigger='interval', minutes=3,
+        id='check_football_matches_60min_job', replace_existing=True,
+        misfire_grace_time=180, next_run_time=_dt.datetime.now() + _td(minutes=3)
+    )
+    scheduler.add_job(
+        football.check_matches_and_collect_task, trigger='interval', minutes=5,
+        id='check_football_matches_final_job', replace_existing=True, misfire_grace_time=300
+    )
+    scheduler.add_job(
+        football.thesportsdb_update_scores_task, trigger='interval', minutes=2,
+        id='thesportsdb_scores_job', replace_existing=True, misfire_grace_time=120
+    )
+    scheduler.add_job(
+        football.sync_leagues_task, trigger='interval', days=1,
+        id='sync_football_leagues_job', replace_existing=True,
+        misfire_grace_time=3600, next_run_time=_dt.datetime.now() + _td(seconds=30)
+    )
+    
+    print("[Scheduler] 🔄 Футбольные джобы перезапущены через API restart-jobs")
+    return jsonify({'success': True, 'restarted_jobs': job_ids})
+
+
 # --- Запуск приложения ---
 if __name__ == '__main__':
     # Проверяем среду запуска
