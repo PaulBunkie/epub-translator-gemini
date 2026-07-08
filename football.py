@@ -876,7 +876,27 @@ class FootballManager:
                         h_val = None
                         a_val = None
                     if h_val is None or a_val is None:
-                        continue
+                        # TheSportsDB не дал счёт — fallback на SofaScore
+                        sofascore_eid = row['sofascore_event_id']
+                        if sofascore_eid:
+                            try:
+                                ss_data = self._fetch_sofascore_event(sofascore_eid)
+                            except Exception:
+                                ss_data = None
+                            if ss_data and 'event' in ss_data:
+                                ev = ss_data['event']
+                                hs = ev.get('homeScore', {})
+                                aws = ev.get('awayScore', {})
+                                sh = hs.get('current') or hs.get('normaltime') or hs.get('display')
+                                sa = aws.get('current') or aws.get('normaltime') or aws.get('display')
+                                if sh is not None and sa is not None:
+                                    try:
+                                        h_val = int(sh)
+                                        a_val = int(sa)
+                                    except (ValueError, TypeError):
+                                        pass
+                        if h_val is None or a_val is None:
+                            continue
                     # Обновляем счет в БД (используем поля final_* как хранилище текущего счёта)
                     cursor.execute("""
                         UPDATE matches
