@@ -6390,10 +6390,11 @@ def get_all_matches(filter_fav: bool = True) -> List[Dict[str, Any]]:
             conn.close()
 
 
+# <<< ВРЕМЕННО ДЛЯ ТЕСТА ВИДЖЕТА: убран fav != 'NONE', фаворит вычисляется по коэффициентам >>>
 def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
     """
-    Получает матчи с фаворитом на ближайшие 10 дней.
-    Названия команд берутся из team_registry.db (по sofascore_team_id).
+    ВРЕМЕННО: Получает ВСЕ матчи на ближайшие 10 дней.
+    Фаворит вычисляется по меньшему коэффициенту из live_odds_1/live_odds_2 если не задан в БД.
 
     Returns:
         Список матчей с полями:
@@ -6411,6 +6412,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
         conn = get_football_db_connection()
         cursor = conn.cursor()
 
+        # ВРЕМЕННО: убран fav != 'NONE' для теста виджета
         cursor.execute(f"""
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
@@ -6419,8 +6421,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                    home_team_sofascore_id, away_team_sofascore_id,
                    sofascore_event_id
             FROM matches
-            WHERE fav != 'NONE'
-              AND match_date IN ({placeholders})
+            WHERE match_date IN ({placeholders})
             ORDER BY match_date ASC, match_time ASC
         """, tuple(future_dates))
 
@@ -6435,8 +6436,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                        home_team_sofascore_id, away_team_sofascore_id,
                        sofascore_event_id
                 FROM matches
-                WHERE fav != 'NONE'
-                  AND match_date >= ?
+                WHERE match_date >= ?
                 ORDER BY match_date ASC, match_time ASC
                 LIMIT 1
             """, (today,))
@@ -6467,10 +6467,35 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             home_name = team_name_map.get(home_id, row['home_team']) if home_id else row['home_team']
             away_name = team_name_map.get(away_id, row['away_team']) if away_id else row['away_team']
 
-            if row['fav_team_id'] == 1:
-                favorite = home_name
+            # ВРЕМЕННО: фаворит вычисляется по коэффициентам если не задан
+            if row['fav'] != 'NONE' and row['fav_team_id'] is not None:
+                if row['fav_team_id'] == 1:
+                    favorite = home_name
+                else:
+                    favorite = away_name
+                k0 = row['initial_odds']
+                k1 = row['last_odds']
             else:
-                favorite = away_name
+                # Вычисляем по live_odds_1/2
+                odd1 = row['live_odds_1']
+                odd2 = row['live_odds_2']
+                if odd1 and odd2:
+                    if odd1 <= odd2:
+                        favorite = home_name
+                        k0 = float(odd1) if odd1 else None
+                    else:
+                        favorite = away_name
+                        k0 = float(odd2) if odd2 else None
+                elif odd1:
+                    favorite = home_name
+                    k0 = float(odd1) if odd1 else None
+                elif odd2:
+                    favorite = away_name
+                    k0 = float(odd2) if odd2 else None
+                else:
+                    favorite = home_name
+                    k0 = None
+                k1 = k0
 
             result.append({
                 'home_team': home_name,
@@ -6481,8 +6506,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'date': row['match_date'],
                 'time_utc': row['match_time'],
                 'favorite': favorite,
-                'k0': row['initial_odds'],
-                'k1': row['last_odds'],
+                'k0': k0,
+                'k1': k1,
                 'k60': row['live_odds'],
             })
 
@@ -6502,7 +6527,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 registry_conn.close()
             except:
                 pass
-# <<< КОНЕЦ ВРЕМЕННОГО ТЕСТОВОГО РЕЖИМА >>>
+# <<< КОНЕЦ ВРЕМЕННОГО ТЕСТА ВИДЖЕТА >>>
 
 
 def get_api_limits() -> Dict[str, Any]:
