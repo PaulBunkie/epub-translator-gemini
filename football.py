@@ -828,16 +828,23 @@ class FootballManager:
         try:
             conn = get_football_db_connection()
             cursor = conn.cursor()
+            # Диагностика: показываем все статусы матчей
+            cursor.execute("SELECT status, COUNT(*) as cnt FROM matches WHERE match_date >= date('now', '-1 days') GROUP BY status")
+            status_counts = cursor.fetchall()
+            print(f"[Football DB] Статусы матчей за последние сутки: {[(r['status'], r['cnt']) for r in status_counts]}", flush=True)
+            
             cursor.execute("""
                 SELECT id, fixture_id, home_team, away_team, match_date, match_time,
                        final_score_home, final_score_away, fav_team_id, fav, initial_odds, last_odds,
-                       sofascore_event_id
+                       sofascore_event_id, status
                 FROM matches
                 WHERE status = 'in_progress'
             """)
             rows = cursor.fetchall()
             if not rows:
+                print(f"[Football] Нет матчей со статусом 'in_progress'", flush=True)
                 return 0
+            print(f"[Football] Найдено {len(rows)} матчей in_progress", flush=True)
             for row in rows:
                 fixture_id = row['fixture_id']
                 home = (row['home_team'] or '').strip()
