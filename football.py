@@ -3348,6 +3348,30 @@ class FootballManager:
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
+            # ===== ШАГ 0: Смена статуса scheduled -> in_progress для ВСЕХ матчей =====
+            # Это должно происходить ДО фильтрации по fav и bet,
+            # иначе матчи без фаворита или с уже обработанным bet никогда не перейдут в in_progress
+            cursor.execute("""
+                SELECT id, fixture_id, match_date, match_time, status
+                FROM matches
+                WHERE status = 'scheduled'
+                ORDER BY match_date, match_time
+            """)
+            all_scheduled = cursor.fetchall()
+            for sm in all_scheduled:
+                try:
+                    sm_dt = datetime.strptime(f"{sm['match_date']} {sm['match_time']}", "%Y-%m-%d %H:%M")
+                    sm_dt = sm_dt.replace(tzinfo=timezone.utc)
+                    if datetime.now(timezone.utc) >= sm_dt:
+                        cursor.execute(
+                            "UPDATE matches SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (sm['id'],)
+                        )
+                except Exception:
+                    pass
+            if all_scheduled:
+                conn.commit()
+
             # Матчи с фаворитом, еще не обработанные (bet IS NULL)
             # Исключаем большие поля: bet_ai_reason, stats_60min
             # Но включаем поля, которые нужны для _collect_60min_stats, _calculate_bet, _get_bet_ai_decision, _get_ai_prediction
