@@ -6592,7 +6592,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                    home_team_sofascore_id, away_team_sofascore_id,
                    sofascore_event_id, status
             FROM matches
-            WHERE match_date IN ({placeholders}) OR status = 'in_progress'
+            WHERE (match_date IN ({placeholders}) OR status = 'in_progress')
+              AND sofascore_event_id IS NOT NULL
             ORDER BY match_date ASC, match_time ASC
         """, tuple(future_dates))
 
@@ -6608,6 +6609,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                        sofascore_event_id
                 FROM matches
                 WHERE match_date >= ?
+                  AND sofascore_event_id IS NOT NULL
                 ORDER BY match_date ASC, match_time ASC
                 LIMIT 1
             """, (today,))
