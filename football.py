@@ -836,17 +836,22 @@ class FootballManager:
             
             # Закрываем scheduled матчи, которые должны были начаться >2 часов назад
             cutoff_scheduled = datetime.now(timezone.utc) - timedelta(hours=2)
+            now_utc = datetime.now(timezone.utc)
+            # Фильтруем матчи, чтобы не дергать SofaScore для distant future матчей:
+            # - in_progress
+            # - scheduled, которые уже начались (now >= start) или начнутся в ближайшие 30 минут
             cursor.execute("""
                 SELECT id, fixture_id, home_team, away_team, match_date, match_time,
                        final_score_home, final_score_away, fav_team_id, fav, initial_odds, last_odds,
                        sofascore_event_id, status
                 FROM matches
-                WHERE status IN ('scheduled', 'in_progress')
-            """)
+                WHERE status = 'in_progress'
+                   OR (status = 'scheduled' AND datetime(match_date || ' ' || match_time) <= datetime(?, '+30 minutes'))
+                ORDER BY match_date ASC, match_time ASC
+            """, (now_utc.strftime("%Y-%m-%d %H:%M"),))
             rows = cursor.fetchall()
             if not rows:
                 return 0
-            now_utc = datetime.now(timezone.utc)
             for row in rows:
                 try:
                     md = datetime.strptime(f"{row['match_date']} {row['match_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
@@ -857,7 +862,7 @@ class FootballManager:
                     cursor.execute("UPDATE matches SET status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?", (row['id'],))
                     conn.commit()
                     print(f"[Football] Scheduled->in_progress: {row['fixture_id']} ({row['match_date']} {row['match_time']})")
-                # Если матч ещё не начался или прошло <90 минут — пропускаем
+                # Если матч ещё не начался и прошло <90 минут — пропускаем
                 if row['status'] == 'scheduled' and now_utc - md < timedelta(minutes=90):
                     continue
             # TheSportsDB практически никогда не находит данные (неправильные slugs),
