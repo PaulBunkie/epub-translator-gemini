@@ -6548,15 +6548,16 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
         cursor = conn.cursor()
 
         # ВРЕМЕННО: убран fav != 'NONE' для теста виджета
+        # Также включаем live матчи (in_progress) независимо от даты
         cursor.execute(f"""
             SELECT home_team, away_team, fav, fav_team_id,
                    match_date, match_time,
                    initial_odds, last_odds, live_odds,
                    live_odds_1, live_odds_x, live_odds_2,
                    home_team_sofascore_id, away_team_sofascore_id,
-                   sofascore_event_id
+                   sofascore_event_id, status
             FROM matches
-            WHERE match_date IN ({placeholders})
+            WHERE match_date IN ({placeholders}) OR status = 'in_progress'
             ORDER BY match_date ASC, match_time ASC
         """, tuple(future_dates))
 
