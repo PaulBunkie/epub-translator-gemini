@@ -4251,9 +4251,9 @@ class FootballManager:
             if cpst:
                 now_utc = datetime.now(timezone.utc).timestamp()
                 elapsed = int((now_utc - cpst) / 60)
-                # Определяем тайм: если описание содержит 2-ю половину — добавляем 45
-                is_second_half = ('2nd' in desc if desc else False) or (elapsed > 50)
-                if is_second_half and elapsed < 50:
+                # Определяем тайм только по описанию статуса, не по elapsed
+                is_second_half = bool(re.search(r'2nd|второй', desc or '', re.IGNORECASE))
+                if is_second_half:
                     elapsed += 45
                 return max(0, elapsed)
             
