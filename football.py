@@ -1821,37 +1821,30 @@ class FootballManager:
         print(f"[Football SofaScore ERROR] Не удалось получить данные за {max_retries} попыток")
         return None
 
-    def _search_sofascore_event_by_team(self, home_team: str, away_team: str) -> Optional[Dict]:
+    def _search_sofascore_event_by_team(self, home_team: str, away_team: str, match_date: Optional[str] = None, match_time: Optional[str] = None) -> Optional[Dict]:
         """
-        Поиск события в SofaScore по названию домашней команды через /search/events.
+        Поиск события в SofaScore по названию команд через /search/events.
         Возвращает dict с event_id, homeTeamId, awayTeamId или None.
-        Использует как нормализованные имена, так и оригинальные названия для сравнения.
+        Дополнительно проверяет startTimestamp, если переданы match_date/match_time.
         """
         import random
+        from datetime import timezone
 
         def _match_teams(h_name_raw, a_name_raw, target_home, target_away):
-            """Проверяет совпадение обеих команд различными способами"""
-            # Нормализованные варианты
+            """Проверяет совпадение обеих команд (только прямой порядок)."""
             h_norm = self._normalize_team_name(h_name_raw)
             a_norm = self._normalize_team_name(a_name_raw)
             th_norm = self._normalize_team_name(target_home)
             ta_norm = self._normalize_team_name(target_away)
 
-            # 1. Точное совпадение нормализованных
             if h_norm == th_norm and a_norm == ta_norm:
                 return True
 
-            # 2. Обратный порядок ЗАПРЕЩЁН
-
-            # 3. Частичное совпадение (нормализованное) — только прямой порядок
             h_ok = (th_norm == h_norm) or (len(th_norm) >= 3 and len(h_norm) >= 3 and (th_norm in h_norm or h_norm in th_norm))
             a_ok = (ta_norm == a_norm) or (len(ta_norm) >= 3 and len(a_norm) >= 3 and (ta_norm in a_norm or a_norm in ta_norm))
             if h_ok and a_ok:
                 return True
 
-            # 4. Обратное частичное ЗАПРЕЩЕНО
-
-            # 5. Оригинальные названия — только прямой порядок
             h_low = h_name_raw.lower().strip()
             a_low = a_name_raw.lower().strip()
             th_low = target_home.lower().strip()
@@ -1860,18 +1853,15 @@ class FootballManager:
             if (th_low in h_low or h_low in th_low) and (ta_low in a_low or a_low in ta_low):
                 return True
 
-            # 6. Первые 3+ символа — только прямой порядок
             if len(th_low) >= 3 and len(h_low) >= 3 and len(ta_low) >= 3 and len(a_low) >= 3:
                 if th_low[:3] == h_low[:3] and ta_low[:3] == a_low[:3]:
                     return True
 
-            # 7. Прямое присутствие — только home↔home, away↔away
             h_contains_th = th_low in h_low or h_low in th_low or (len(th_low) >= 3 and len(h_low) >= 3 and th_low[:3] == h_low[:3])
             a_contains_ta = ta_low in a_low or a_low in ta_low or (len(ta_low) >= 3 and len(a_low) >= 3 and ta_low[:3] == a_low[:3])
             if h_contains_th and a_contains_ta:
                 return True
 
-            # 8. Совпадение по словам — только прямой порядок
             def _words_match(s1, s2):
                 w1 = set(s1.lower().split())
                 w2 = set(s2.lower().split())
@@ -1882,6 +1872,16 @@ class FootballManager:
                 return True
 
             return False
+
+        def _parse_match_dt():
+            if not match_date or not match_time:
+                return None
+            try:
+                return datetime.strptime(f"{match_date} {match_time}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+
+        expected_dt = _parse_match_dt()
 
         def _search(query_team):
             url = f"{SOFASCORE_API_URL}/search/events?q={requests.utils.quote(query_team)}&page=0"
@@ -1899,22 +1899,29 @@ class FootballManager:
                 h_name = h.get("name", "")
                 a_name = a.get("name", "")
                 if _match_teams(h_name, a_name, home_team, away_team):
+                    ts = e.get("startTimestamp")
+                    if ts and expected_dt:
+                        try:
+                            evt_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                            delta_hours = abs((evt_dt - expected_dt).total_seconds()) / 3600.0
+                            if delta_hours > 8:
+                                continue
+                        except Exception:
+                            pass
                     return {
                         "event_id": e.get("id"),
                         "homeTeamId": h.get("id"),
                         "awayTeamId": a.get("id"),
                         "slug": e.get("slug", ""),
-                        "startTimestamp": e.get("startTimestamp"),
+                        "startTimestamp": ts,
                     }
             return None
 
         try:
-            # 1. Поиск по home_team
             result = _search(home_team)
             if result:
                 return result
 
-            # 2. Поиск по away_team
             time.sleep(0.5)
             result = _search(away_team)
             if result:
@@ -2272,7 +2279,7 @@ class FootballManager:
                     continue
                 for row in rows:
                     d = dict(row)
-                    sr = self._search_sofascore_event_by_team(d['home_team'], d['away_team'])
+                    sr = self._search_sofascore_event_by_team(d['home_team'], d['away_team'], d.get('match_date'), d.get('match_time'))
                     if sr:
                         eid = sr['event_id']
                         hid = sr.get('homeTeamId')
