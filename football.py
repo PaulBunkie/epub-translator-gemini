@@ -5420,6 +5420,36 @@ X2 ИГНОРИРУЕМ
             """, (score_home, score_away, fav_won, match['id']))
 
             conn.commit()
+            
+            # Отправляем Firebase push об окончании матча
+            if FIREBASE_PUSH_AVAILABLE:
+                try:
+                    # Получаем дополнительные данные из БД для пуша
+                    conn_push = get_football_db_connection()
+                    cursor_push = conn_push.cursor()
+                    cursor_push.execute("""
+                        SELECT initial_odds, last_odds, live_odds, home_team, away_team, fav
+                        FROM matches WHERE id = ?
+                    """, (match['id'],))
+                    push_row = cursor_push.fetchone()
+                    conn_push.close()
+                    
+                    if push_row:
+                        firebase_notifier.send_match_update(
+                            match_id=str(sofascore_event_id),
+                            score_home=str(score_home),
+                            score_away=str(score_away),
+                            status="finished",
+                            minute="90",
+                            k0=str(push_row['initial_odds']) if push_row['initial_odds'] else "",
+                            k1=str(push_row['last_odds']) if push_row['last_odds'] else "",
+                            k60=str(push_row['live_odds']) if push_row['live_odds'] else "",
+                            event_type="match_finished"
+                        )
+                        print(f"[Football] PUSH ОТПРАВЛЕН: матч {fixture_id} завершен {score_home}-{score_away}")
+                except Exception as e:
+                    print(f"[Football] Ошибка отправки push: {e}")
+            
             conn.close()
 
             print(f"[Football] Финальный результат сохранен для fixture {fixture_id}: {score_home}-{score_away}, фаворит выиграл: {fav_won == 1}")
