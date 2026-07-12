@@ -1359,9 +1359,34 @@ class WorkflowTranslator:
             )
             
             # --- ПРЕРЫВАНИЕ ПРИ SAFETY (F3 уровень) ---
-            # Бессмысленно пробовать другие модели — все равно заблокируют.
+            # Пробуем censored-модель перед тем как сдаться
             if result == SAFETY_FILTER_ERROR:
-                print(f"[WorkflowTranslator] SAFETY: Контент заблокирован. НЕ перебираем другие модели.")
+                print(f"[WorkflowTranslator] SAFETY: Контент заблокирован моделью {current_model}. Пробуем censored-модель...")
+                import workflow_model_config
+                censored_model = workflow_model_config.get_model_for_operation(operation_type, 'censored')
+                if censored_model and censored_model != current_model:
+                    print(f"[WorkflowTranslator] Попытка censored-модели: {censored_model}")
+                    censored_result = self._translate_segment(
+                        text_to_translate, target_language, censored_model,
+                        operation_type, prompt_ext, dict_data,
+                        section_id, book_id, admin=admin
+                    )
+                    if isinstance(censored_result, tuple):
+                        result2, actual_model2 = censored_result
+                    else:
+                        result2, actual_model2 = censored_result, censored_model
+                    if result2 and result2 != SAFETY_FILTER_ERROR:
+                        print(f"[WorkflowTranslator] Censored-модель {actual_model2} успешно перевела контент!")
+                        if not section_id and book_id:
+                            self._save_model_to_db(book_id, section_id, operation_type, actual_model2)
+                        if return_model:
+                            return result2, actual_model2
+                        return result2
+                    else:
+                        print(f"[WorkflowTranslator] Censored-модель тоже не справилась.")
+                else:
+                    print(f"[WorkflowTranslator] Censored-модель не настроена или совпадает с текущей.")
+                print(f"[WorkflowTranslator] SAFETY: Контент остаётся заблокированным. Возвращаем SAFETY_FILTER_ERROR.")
                 if return_model:
                     return SAFETY_FILTER_ERROR, actual_model
                 return SAFETY_FILTER_ERROR
