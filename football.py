@@ -843,7 +843,7 @@ class FootballManager:
             cursor.execute("""
                 SELECT id, fixture_id, home_team, away_team, match_date, match_time,
                        final_score_home, final_score_away, fav_team_id, fav, initial_odds, last_odds,
-                       sofascore_event_id, status
+                       live_odds, sofascore_event_id, status
                 FROM matches
                 WHERE status = 'in_progress'
                    OR (status = 'scheduled' AND datetime(match_date || ' ' || match_time) <= datetime(?, '+30 minutes'))
@@ -930,6 +930,26 @@ class FootballManager:
                             conn.commit()
                             updated += 1
                             print(f"[Football Scores] Матч {fixture_id} закрыт через SofaScore: {h_val}-{a_val} (fav_won={fav_won})")
+                            # Отправляем push об окончании матча
+                            if FIREBASE_PUSH_AVAILABLE:
+                                try:
+                                    k0_done = str(row['initial_odds']) if row['initial_odds'] else ""
+                                    k1_done = str(row['last_odds']) if row['last_odds'] else ""
+                                    k60_done = str(row['live_odds']) if row['live_odds'] else ""
+                                    firebase_notifier.send_match_update(
+                                        match_id=str(sofascore_eid),
+                                        score_home=str(h_val),
+                                        score_away=str(a_val),
+                                        status="finished",
+                                        minute="90",
+                                        k0=k0_done,
+                                        k1=k1_done,
+                                        k60=k60_done,
+                                        event_type="match_finished"
+                                    )
+                                    print(f"[FAVOURITE_TRACKING] 📲 Push MATCH_FINISHED sent | fixture={row['fixture_id']} | score={h_val}-{a_val} | k0={k0_done} | k1={k1_done} | k60={k60_done}")
+                                except Exception as _fb_done_err:
+                                    print(f"[FAVOURITE_TRACKING] ❌ Push MATCH_FINISHED FAILED | fixture={row['fixture_id']} | error={_fb_done_err}")
                             continue  # уже закрыли, переходим к следующему матчу
                 if h_val is None or a_val is None:
                     continue
@@ -954,33 +974,50 @@ class FootballManager:
                 self.last_scores[row['fixture_id']] = (h_val, a_val)
                 # ===== КОНЕЦ ДЕТЕКТА ГОЛА =====
                 
-                # ===== ПОЛУЧАЕМ live минуту из SofaScore (только для фаворитов) =====
+                # ===== ПОЛУЧАЕМ live минуту и сохраняем в БД =====
                 live_minute = None
                 fav_team_id = row['fav_team_id'] if 'fav_team_id' in row.keys() else None
                 sofascore_eid = row['sofascore_event_id'] if 'sofascore_event_id' in row.keys() else None
-                if fav_team_id is not None and fav_team_id != -1 and sofascore_eid:
+                if sofascore_eid:
                     live_minute = self._get_live_match_minute(sofascore_eid)
                     if live_minute is not None:
                         print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore live minute | fixture={row['fixture_id']} | minute={live_minute} | event_id={sofascore_eid}")
                     else:
-                        print(f"[FAVOURITE_TRACKING] ⏱️ SofaScore minute unavailable | fixture={row['fixture_id']} | event_id={sofascore_eid}")
+                        # Fallback: вычисляем по времени начала матча
+                        try:
+                            match_start = datetime.strptime(f"{row['match_date']} {row['match_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                            live_minute = int((datetime.now(timezone.utc) - match_start).total_seconds() / 60)
+                            live_minute = max(0, min(90, live_minute))
+                            print(f"[FAVOURITE_TRACKING] ⏱️ Fallback minute calculated | fixture={row['fixture_id']} | minute={live_minute}")
+                        except Exception:
+                            pass
+                # Сохраняем минуту в БД
+                if live_minute is not None:
+                    try:
+                        cursor.execute("UPDATE matches SET live_minute = ? WHERE id = ?", (live_minute, row['id']))
+                        conn.commit()
+                    except Exception:
+                        pass
                 # ===== КОНЕЦ ПОЛУЧЕНИЯ МИНУТЫ =====
                 
                 if FIREBASE_PUSH_AVAILABLE:
                     try:
                         event_type = "goal" if is_goal else "heartbeat"
+                        k0 = str(row['initial_odds']) if row['initial_odds'] else ""
+                        k1 = str(row['last_odds']) if row['last_odds'] else ""
+                        k60 = str(row['live_odds']) if row['live_odds'] else ""
                         firebase_notifier.send_match_update(
                             match_id=str(sofascore_eid),
                             score_home=str(h_val),
                             score_away=str(a_val),
                             status="live",
                             minute=str(live_minute) if live_minute is not None else "",
-                            k0="",
-                            k1="",
-                            k60="",
+                            k0=k0,
+                            k1=k1,
+                            k60=k60,
                             event_type=event_type
                         )
-                        print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | sofascore_eid={sofascore_eid} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute}{' ⚽ GOAL!' if is_goal else ''}")
+                        print(f"[FAVOURITE_TRACKING] 📲 Push sent | fixture={row['fixture_id']} | sofascore_eid={sofascore_eid} | event_type={event_type} | score={h_val}-{a_val} | minute={live_minute} | k0={k0} | k1={k1} | k60={k60}{' ⚽ GOAL!' if is_goal else ''}")
                     except Exception as _fb_err:
                         print(f"[FAVOURITE_TRACKING] ❌ Push FAILED | fixture={row['fixture_id']} | error={_fb_err}")
                 
@@ -6682,6 +6719,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'k0': k0,
                 'k1': k1,
                 'k60': row['live_odds'],
+                'status': row.get('status', 'scheduled'),
             })
 
         return result

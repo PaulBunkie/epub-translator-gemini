@@ -3142,12 +3142,26 @@ def api_test_firebase_push():
         import random as _random
         score_home = str(_random.randint(0, 5))
         score_away = str(_random.randint(0, 5))
-        minute = str(_random.randint(1, 90))
-        status = 'live'
         
-        # Случайный event_type
-        event_types = ['heartbeat', 'favorite_trouble', 'goal']
-        event_type = _random.choice(event_types)
+        # Случайный статус: scheduled, in_progress, finished
+        status = _random.choice(['scheduled', 'in_progress', 'finished'])
+        
+        # Минута зависит от статуса
+        if status == 'finished':
+            minute = '90'
+        elif status == 'scheduled':
+            minute = '0'
+        else:
+            minute = str(_random.randint(1, 90))
+        
+        # event_type зависит от статуса
+        if status == 'scheduled':
+            event_type = 'pre_match'
+        elif status == 'finished':
+            event_type = 'match_end'
+        else:
+            event_types = ['heartbeat', 'favorite_trouble', 'goal']
+            event_type = _random.choice(event_types)
         
         # Отправляем push с реальными данными матча
         result = firebase_notifier.send_match_update(
