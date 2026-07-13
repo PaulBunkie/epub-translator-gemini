@@ -1815,15 +1815,23 @@ def retrigger_section_translation(book_id: str, section_id: int):
         # 1. Удаляем кэш
         workflow_cache_manager.delete_section_stage_result(book_id, section_id, 'translate')
         
-        # 2. Сбрасываем статус в БД
+        # 2. Сбрасываем статус секции в БД
         workflow_db_manager.update_section_stage_status_workflow(
             book_id, section_id, 'translate', 'pending', model_name=None, error_message=None
         )
         
-        # 3. Обновляем общий статус книги
+        # 3. Пересчитываем статус этапа translate (увидит pending секцию → поставит processing)
+        recalculate_book_stage_status(book_id, 'translate')
+        
+        # 4. Сбрасываем этап epub_creation (epub нужно пересоздать с новым переводом)
+        workflow_db_manager.update_book_stage_status_workflow(
+            book_id, 'epub_creation', 'pending', error_message=None
+        )
+        
+        # 5. Обновляем общий статус книги (теперь будет processing, а не completed)
         update_overall_workflow_book_status(book_id)
         
-        # 4. Ставим книгу в очередь
+        # 6. Ставим книгу в очередь
         app_instance = current_app._get_current_object()
         workflow_queue_manager.add_book_to_queue(book_id, app_instance)
         return True
