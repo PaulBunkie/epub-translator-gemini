@@ -625,8 +625,20 @@ def start_book_workflow(book_id: str, app_instance: Flask, admin: bool = None):
         print(f"[WorkflowProcessor] Текущий статус этапа '{stage_name}' для книги {book_id}: '{current_stage_status}'.")
         
         if current_stage_status in ['completed', 'completed_empty', 'skipped', 'passed']:
-            print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен. Пропускаем.")
-            continue
+            if is_per_section_stage:
+                # Статус этапа книги мог устареть (секции сброшены через «Повторить»).
+                # Пересчитываем статус этапа по реальному состоянию секций.
+                recalculate_book_stage_status(book_id, stage_name)
+                book_info = workflow_db_manager.get_book_workflow(book_id)
+                book_stage_statuses = book_info.get('book_stage_statuses', {})
+                current_stage_status = book_stage_statuses.get(stage_name, {}).get('status', 'pending')
+                print(f"[WorkflowProcessor] Пересчитанный статус этапа '{stage_name}': '{current_stage_status}'.")
+                if current_stage_status in ['completed', 'completed_empty', 'skipped', 'passed']:
+                    print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен. Пропускаем.")
+                    continue
+            else:
+                print(f"[WorkflowProcessor] Этап '{stage_name}' для книги {book_id} уже завершен. Пропускаем.")
+                continue
 
         # Запускаем обработку этапа
         if is_per_section_stage:
