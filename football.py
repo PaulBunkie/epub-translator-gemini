@@ -6719,7 +6719,7 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
                 'k0': k0,
                 'k1': k1,
                 'k60': row['live_odds'],
-                'status': row.get('status', 'scheduled'),
+'status': row['status'] if row['status'] else 'scheduled',
             })
 
         return result
