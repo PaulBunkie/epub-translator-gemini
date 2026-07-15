@@ -3030,7 +3030,7 @@ class FootballManager:
                 fav_info['team'],
                 1 if fav_info['is_home'] else 0,
                 fav_info['odds'],
-                fav_info['odds'],  -- COALESCE: заполняем только если NULL
+                fav_info['odds'],  # COALESCE: заполняем только если NULL
                 sport_key,
                 live_odds_1,
                 live_odds_x,
