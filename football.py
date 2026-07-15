@@ -3009,8 +3009,8 @@ class FootballManager:
             conn = get_football_db_connection()
             cursor = conn.cursor()
 
-            # Обновляем только коэффициент (last_odds), фаворита, sport_key, коэффициенты 1/X/2 и время обновления
-            # initial_odds не трогаем - там хранится первая котировка
+            # Обновляем коэффициент, фаворита, sport_key, коэффициенты 1/X/2 и время обновления
+            # initial_odds заполняем ТОЛЬКО если он был NULL (матч ранее был без фаворита)
             sport_key = match_data.get('sport_key')
             
             # Извлекаем коэффициенты 1, X, 2
@@ -3020,7 +3020,9 @@ class FootballManager:
             
             cursor.execute("""
                 UPDATE matches
-                SET fav = ?, fav_team_id = ?, last_odds = ?, sport_key = ?,
+                SET fav = ?, fav_team_id = ?, last_odds = ?,
+                    initial_odds = COALESCE(initial_odds, ?),
+                    sport_key = ?,
                     live_odds_1 = ?, live_odds_x = ?, live_odds_2 = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE fixture_id = ?
@@ -3028,6 +3030,7 @@ class FootballManager:
                 fav_info['team'],
                 1 if fav_info['is_home'] else 0,
                 fav_info['odds'],
+                fav_info['odds'],  -- COALESCE: заполняем только если NULL
                 sport_key,
                 live_odds_1,
                 live_odds_x,
@@ -6631,6 +6634,8 @@ def get_favorites_today_tomorrow() -> List[Dict[str, Any]]:
             FROM matches
             WHERE (match_date IN ({placeholders}) OR status = 'in_progress')
               AND sofascore_event_id IS NOT NULL
+              AND initial_odds IS NOT NULL
+              AND last_odds IS NOT NULL
             ORDER BY match_date ASC, match_time ASC
         """, tuple(future_dates))
 
