@@ -1364,13 +1364,16 @@ def workflow_index():
             except:
                 pass
 
+            total_telegram_users = len(workflow_db_manager.get_all_unique_telegram_users())
+
             system_status = {
                 "free_gb": round(usage.free / (1024**3), 2),
                 "used_percent": round((usage.used / usage.total) * 100, 1),
                 "db_size_mb": round(db_size / (1024**2), 2),
                 "queue_size": q_size,
                 "active_books": active_book_names,
-                "total_active": len(active_book_names) # processing_books уже включает и очередь, и работу
+                "total_active": len(active_book_names), # processing_books уже включает и очередь, и работу
+                "total_telegram_users": total_telegram_users
             }
             print(f"[AdminStatus] Calculated status: {system_status}")
         except Exception as e:
@@ -1988,6 +1991,42 @@ def workflow_cleanup():
         return jsonify({'status': 'error', 'message': f'Ошибка при очистке: {str(e)}'}), 500
 
 # --- КОНЕЦ ЭНДПОЙНТА ОЧИСТКИ WORKFLOW ---
+
+# --- НОВЫЙ ЭНДПОЙНТ ДЛЯ РАССЫЛКИ СООБЩЕНИЙ ВСЕМ TELEGRAM ПОЛЬЗОВАТЕЛЯМ ---
+@app.route('/workflow/broadcast', methods=['POST'])
+def workflow_broadcast():
+    """Рассылает сообщение всем активным подписчикам Telegram. Только для админа."""
+    is_admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
+    if not is_admin:
+        return jsonify({'status': 'error', 'message': 'Admin mode required'}), 403
+
+    data = request.get_json() or {}
+    message_text = (data.get('message') or '').strip()
+    if not message_text:
+        return jsonify({'status': 'error', 'message': 'Сообщение не может быть пустым'}), 400
+
+    try:
+        users = workflow_db_manager.get_all_unique_telegram_users()
+        if not users:
+            return jsonify({'status': 'success', 'sent': 0, 'total': 0, 'message': 'Нет активных подписчиков'})
+
+        success_count = 0
+        for user_id in users:
+            if telegram_notifier.send_message_to_user(user_id, message_text, parse_mode='HTML'):
+                success_count += 1
+            time.sleep(0.05)
+
+        return jsonify({
+            'status': 'success',
+            'sent': success_count,
+            'total': len(users),
+            'message': f'Отправлено {success_count} из {len(users)}'
+        })
+    except Exception as e:
+        print(f"[WorkflowBroadcast] Ошибка: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# --- КОНЕЦ ЭНДПОЙНТА РАССЫЛКИ ---
 
 # --- НОВЫЙ ЭНДПОЙНТ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОЙ СТРАНИЦЫ ПЕРЕВОДА ---
 def get_news_content():

@@ -234,9 +234,15 @@
              {% endif %}
 
 
-            {% if admin %}
-            <div class="upload-form">
-                <h2>Upload New EPUB for Workflow</h2>
+             {% if admin %}
+             <button id="broadcastBtn" 
+                     style="background: #17a2b8; color: white; border: none; padding: 4px 12px; border-radius: 3px; cursor: pointer; font-size: 0.85em; margin-left: 15px;"
+                     title="Рассылка сообщения всем подписчикам Telegram">
+                 📨 Broadcast{% if system_status and system_status.total_telegram_users %} ({{ system_status.total_telegram_users }}){% endif %}
+             </button>
+             <span id="broadcastResult" style="font-size: 0.75em; margin-left: 8px;"></span>
+             <div class="upload-form">
+                 <h2>Upload New EPUB for Workflow</h2>
                 <form action="{{ url_for('workflow_upload_file') }}" method="post" enctype="multipart/form-data">
                     <input type="file" name="epub_file" accept=".epub" required>
                     <input type="hidden" name="admin" value="true">

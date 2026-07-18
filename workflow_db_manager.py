@@ -1347,6 +1347,20 @@ def get_telegram_user_subscriptions(user_id: str) -> list:
         print(f"[WorkflowDB] Ошибка получения подписок пользователя Telegram {user_id}: {e}")
         return []
 
+def get_all_unique_telegram_users() -> list:
+    """Возвращает список всех уникальных активных user_id из telegram_users."""
+    db = get_workflow_db()
+    try:
+        cursor = db.execute("""
+            SELECT DISTINCT user_id
+            FROM telegram_users
+            WHERE is_active = TRUE
+        """)
+        return [row["user_id"] for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"[WorkflowDB] Ошибка получения всех пользователей Telegram: {e}")
+        return []
+
 def get_workflow_book_status(book_id: str) -> dict:
     """
     Получает полный статус книги.
