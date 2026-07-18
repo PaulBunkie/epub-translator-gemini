@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 """
-Build team_registry.db from:
+Build / update team_registry.db from:
 1. static/team_logos_archive/ (PNG logos + slugs + league folders)
 2. SofaScore search API (real team IDs by name)
+
+NEW BEHAVIOUR:
+- INSERT OR REPLACE (never deletes existing teams)
+- Improved name matching (fuzzy, accent-stripped)
+- Outputs two lists: logos that failed to match, and teams in matches DB
+  that still have no logo entry after the update.
 """
 import sqlite3
 import os
 import json
+import re
 import time
 import urllib.request
+import urllib.parse
 import unicodedata
 
 from config import TEAM_REGISTRY_DB_FILE
@@ -16,6 +24,7 @@ from config import TEAM_REGISTRY_DB_FILE
 ARCHIVE_DIR = 'static/team_logos_archive'
 
 REGISTRY_DB = str(TEAM_REGISTRY_DB_FILE)
+MATCHES_DB = 'football_matches.db'
 API_BASE = 'https://api.sofascore1.com/api/v1'
 
 HEADERS = {
@@ -25,7 +34,9 @@ HEADERS = {
     'Origin': 'https://www.sofascore.com',
 }
 
+# ---------------------------------------------------------------
 # Manual slug → probable SofaScore team name mapping
+# ---------------------------------------------------------------
 SLUG_TO_NAME = {
     'bayern-muenchen': 'Bayern Munich',
     'bvb': 'Borussia Dortmund',
@@ -284,7 +295,41 @@ SLUG_TO_NAME = {
     'pumas-de-la-unam': 'Pumas UNAM',
     'tigres-de-la-uanl': 'Tigres UANL',
     'central-cordoba-santiago-del-estero': 'Central Cordoba SDE',
-    'sarmiento-de-junin': 'Sarmiento Junin',
+    'sarmiento-de-junin': 'Sarmiento de Junin',
+    # ── new failed logos ──
+    'br-ndby': 'Brondby IF',
+    'k-benhavn': 'FC Copenhagen',
+    'nordsj-lland': 'FC Nordsjaelland',
+    's-nderjyske': 'Sonderjyske',
+    'brei-ablik': 'Breidablik',
+    'or-akureyri': 'Thor Akureyri',
+    'racing-union-letzebuerg': 'Racing Union Luxembourg',
+    'botafogo-de-ribeirao-preto': 'Botafogo SP',
+    'fortaleza-esporte-clube': 'Fortaleza',
+    'pac-omonia-29m': 'Omonia 29th May',
+    'ertis-pavlodar': 'Irtysh Pavlodar',
+    'politehnica-utm': 'Politehnica UTM',
+    'kf-bashkimi-1947': 'KF Bashkimi 1947',
+    'havnar-boltfelag': 'HB Torshavn',
+    'vikingur-g-ta': 'Vikingur Gota',
+    'mladost-donja-gorica': 'Mladost DG',
+    'araz-naxc-van': 'Araz Naxcivan',
+    'imisli-pfk': 'Imisli',
+    'jagiellonia-bia-ystok': 'Jagiellonia Bialystok',
+    'epitsentr-kamianets-podilskyi': 'Epitsentr Kamianets-Podilskyi',
+    'tps-jalkapallo': 'TPS',
+    'amrun-spartans': 'Hamrun Spartans',
+    # ── more slug fixes ──
+    'laci': 'KF Laci',
+    'noah': 'FC Noah',
+    'van': 'FC Van',
+    'kapaz': 'Kapaz PFK',
+    'qabala': 'Qabala FK',
+    's-fa': 'Sabail FK',
+    'imt': 'IMT Novi Beograd',
+    'wis-a-krakow': 'Wisla Krakow',
+    'wis-a-p-ock': 'Wisla Plock',
+    'oulu': 'AC Oulu',
 }
 
 FIFA_SLUG_TO_NAME = {
@@ -309,12 +354,25 @@ FIFA_SLUG_TO_NAME = {
 }
 
 
+# =============================================================================
+#  Name normalisation helpers  (same logic as api_sync_team_ids in app.py)
+# =============================================================================
+def _strip_accents(s):
+    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
+def _norm(s):
+    return _strip_accents(s.lower().strip())
+
+
 def slug_to_name(slug, league):
     if 'fifa-world-cup' in league:
         return FIFA_SLUG_TO_NAME.get(slug, slug.replace('-', ' ').title())
     return SLUG_TO_NAME.get(slug, slug.replace('-', ' ').title())
 
 
+# =============================================================================
+#  SofaScore API helpers
+# =============================================================================
 def api_get(path):
     url = f'{API_BASE}{path}'
     req = urllib.request.Request(url)
@@ -331,32 +389,115 @@ def api_get(path):
     return None
 
 
-def search_team_id(name):
-    """Search SofaScore for team by name, return (team_id, api_name) or (None, None)."""
+def _duckduckgo_search_team(name, league=None):
+    """Fallback: search DuckDuckGo HTML for SofaScore team ID.
+    Returns (team_id, display_name) or (None, None)."""
+    # Build search query
+    query_parts = ['football', name]
+    if league:
+        # Extract meaningful league name from folder name
+        league_clean = league.replace('-logos', '').replace('-', ' ')
+        query_parts.append(league_clean)
+    query_parts.append('sofascore')
+    query_str = ' '.join(query_parts)
+    # DuckDuckGo HTML requires POST
+    data = urllib.parse.urlencode({'q': query_str}).encode()
+    url = 'https://html.duckduckgo.com/html/'
+    req = urllib.request.Request(url, data=data, headers={'User-Agent': 'Mozilla/5.0'})
+
+    try:
+        r = urllib.request.urlopen(req, timeout=10)
+        html_text = r.read().decode('utf-8', errors='ignore')
+    except Exception as e:
+        print(f'  DuckDuckGo request failed: {e}')
+        return None, None
+
+    # Find first REAL result (inside class="result__url"), not random JS/related links
+    for m in re.finditer(r'class="result__url"[^>]*>.*?sofascore\.com/football/team/[^/]+/(\d+)', html_text, re.DOTALL):
+        team_id = int(m.group(1))
+        return team_id, name
+    return None, None
+
+
+def search_team_id(name, league=None):
+    """Search SofaScore for team by name.
+    Returns (team_id, api_name) or (None, None).
+    Uses accent-stripped / case-insensitive fuzzy matching on SofaScore API,
+    then falls back to DuckDuckGo search for SofaScore team page.
+    """
     search_name = urllib.request.quote(name)
     data = api_get(f'/search/teams/{search_name}')
-    if not data:
-        return None, None
+    if data:
+        teams = data if isinstance(data, list) else data.get('teams', data.get('results', []))
+        if isinstance(teams, dict):
+            teams = teams.get('results', [])
 
-    teams = data if isinstance(data, list) else data.get('teams', data.get('results', []))
-    if isinstance(teams, dict):
-        teams = teams.get('results', [])
-    if not teams:
-        return None, None
+        if teams:
+            # Build list of (entity, norm_name) — filter out youth/women/beach
+            import re as _re
+            _SKIP_RE = _re.compile(
+                r'\b(U\d{1,2}|Women|Reserve|II+|Academy|Beach|Youth|U?19|U?20|U?21|U?22|U?23)\b',
+                _re.IGNORECASE,
+            )
+            candidates = []
+            for t in teams:
+                entity = t.get('entity', t)
+                t_name = entity.get('name', '')
+                if not t_name:
+                    continue
+                if _SKIP_RE.search(t_name):
+                    continue
+                candidates.append((entity, _norm(t_name)))
 
-    name_lower = name.lower()
-    # Find best match
-    for t in teams:
-        entity = t.get('entity', t)
-        t_name = entity.get('name', '')
-        if t_name.lower() == name_lower:
-            return entity.get('id'), t_name
-    # Fallback: first result
-    first = teams[0]
-    entity = first.get('entity', first)
-    return entity.get('id'), entity.get('name')
+            target_norm = _norm(name)
+
+            # 1st pass: exact accent-stripped match
+            for entity, cn in candidates:
+                if cn == target_norm:
+                    return entity.get('id'), entity.get('name')
+
+            # 2nd pass: fuzzy best match (longest common substring)
+            best_score = 0
+            best_entity = None
+            for entity, cn in candidates:
+                score = _lcs_len(target_norm, cn)
+                if len(cn) < 3 or len(target_norm) < 3:
+                    continue
+                if score > best_score:
+                    best_score = score
+                    best_entity = entity
+
+            if best_entity and best_score >= 5:
+                # Only accept fuzzy match if LCS score is high enough
+                return best_entity.get('id'), best_entity.get('name')
+
+            # No good match — fall through to DuckDuckGo
+
+    # SofaScore API failed or returned empty — try DuckDuckGo
+    print('  S→DDG', end=' ')
+    ddg_id, ddg_name = _duckduckgo_search_team(name, league)
+    if ddg_id:
+        return ddg_id, ddg_name
+    return None, None
 
 
+def _lcs_len(a, b):
+    """Longest common substring length (simple DP)."""
+    m, n = len(a), len(b)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    best = 0
+    for i in range(m):
+        for j in range(n):
+            if a[i] == b[j]:
+                dp[i + 1][j + 1] = dp[i][j] + 1
+                if dp[i + 1][j + 1] > best:
+                    best = dp[i + 1][j + 1]
+    return best
+
+
+# =============================================================================
+#  Main
+# =============================================================================
 def main():
     print("=== Scanning archive ===")
     teams_to_process = []
@@ -378,7 +519,7 @@ def main():
 
     print(f"Found {len(teams_to_process)} teams in archive")
 
-    # Create or reuse registry
+    # Open / create registry — wipe and rebuild from scratch
     reg_conn = sqlite3.connect(REGISTRY_DB)
     reg_conn.execute("""
         CREATE TABLE IF NOT EXISTS teams (
@@ -400,7 +541,7 @@ def main():
         print(f"[{i+1}/{len(teams_to_process)}] {team['name']} ({team['slug']})", end=' ')
 
         time.sleep(0.3)
-        team_id, api_name = search_team_id(team['name'])
+        team_id, api_name = search_team_id(team['name'], team['league'])
 
         if team_id:
             reg_conn.execute(
@@ -415,15 +556,59 @@ def main():
             failed_teams.append(team)
             print("FAILED")
 
+    # =========================================================================
+    #  Report 1: Logos that could not be matched to a SofaScore team ID
+    # =========================================================================
+    print(f"\n{'='*60}")
+    print(f"LOGOS WITHOUT SOFASCORE ID ({len(failed_teams)}):")
+    if failed_teams:
+        for t in failed_teams:
+            print(f"  - {t['name']}  ({t['slug']}, {t['league']})")
+    else:
+        print("  (none)")
+
+    # =========================================================================
+    #  Report 2: Teams in football_matches.db that have no logo in registry
+    # =========================================================================
+    print(f"\n{'='*60}")
+    print(f"TEAMS IN MATCHES DB WITHOUT LOGO ENTRY:")
+    missing_matches = []
+    if os.path.isfile(MATCHES_DB):
+        reg_ids = set(
+            r[0] for r in reg_conn.execute("SELECT sofascore_team_id FROM teams")
+        )
+        m_conn = sqlite3.connect(MATCHES_DB)
+        m_conn.row_factory = sqlite3.Row
+        rows = m_conn.execute("""
+            SELECT home_team_sofascore_id AS sid, home_team AS tname FROM matches
+            WHERE home_team_sofascore_id IS NOT NULL
+            UNION
+            SELECT away_team_sofascore_id AS sid, away_team AS tname FROM matches
+            WHERE away_team_sofascore_id IS NOT NULL
+        """)
+        seen = set()
+        for r in rows:
+            sid, tname = r['sid'], r['tname']
+            if sid not in reg_ids and sid not in seen:
+                seen.add(sid)
+                missing_matches.append((sid, tname))
+        m_conn.close()
+    else:
+        print(f"  WARNING: {MATCHES_DB} not found, skipping this check.")
+
+    if missing_matches:
+        print(f"  Count: {len(missing_matches)}")
+        for sid, tname in sorted(missing_matches, key=lambda x: x[1].lower()):
+            print(f"  - id={sid}  {tname}")
+    else:
+        print("  (none)")
+
     reg_conn.close()
 
     print(f"\n=== DONE ===")
-    print(f"Success: {success}")
-    print(f"Failed: {failed}")
-    if failed_teams:
-        print(f"\nFailed teams:")
-        for t in failed_teams:
-            print(f"  - {t['name']} ({t['slug']}, {t['league']})")
+    print(f"Success (matched & saved): {success}")
+    print(f"Failed logos: {failed}")
+    print(f"Teams in matches without logo: {len(missing_matches)}")
 
 
 if __name__ == '__main__':

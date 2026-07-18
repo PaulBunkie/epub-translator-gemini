@@ -4,7 +4,7 @@ import json
 from typing import Optional
 from datetime import datetime
 
-BASE_URL = "https://itube.lol"
+BASE_URL = "https://aitube.fly.dev"
 
 def make_download_link(token: str) -> str:
     url = f"{BASE_URL}/translate/{token}"

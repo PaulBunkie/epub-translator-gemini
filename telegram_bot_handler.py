@@ -13,7 +13,7 @@ from telegram_notifier import telegram_notifier, make_download_link
 import workflow_db_manager
 
 # Базовый URL для API запросов
-BASE_URL = os.getenv("SITE_URL", "https://itube.lol")
+BASE_URL = os.getenv("SITE_URL", "https://aitube.fly.dev")
 
 class TelegramBotHandler:
     """
