@@ -2930,6 +2930,65 @@ def api_team_logo(sofascore_team_id):
     return resp
 
 
+@app.route('/api/team-logo/upload', methods=['POST'])
+def api_team_logo_upload():
+    """Admin: upload a team logo PNG for a given SofaScore team ID."""
+    from config import TEAM_REGISTRY_DB_FILE
+    import sqlite3 as _sqlite3
+
+    # Only allow in admin mode
+    if not (request.args.get('admin') == 'true' or session.get('admin_mode')):
+        return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+    sofascore_team_id = request.form.get('sofascore_team_id')
+    team_name = request.form.get('team_name', '').strip()
+    file = request.files.get('logo_file')
+
+    if not sofascore_team_id:
+        return jsonify({'success': False, 'error': 'sofascore_team_id is required'}), 400
+    if not file:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    try:
+        sofascore_team_id = int(sofascore_team_id)
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid sofascore_team_id'}), 400
+
+    # Validate file type
+    logo_data = file.read()
+    if not logo_data or len(logo_data) < 100:
+        return jsonify({'success': False, 'error': 'File too small or empty'}), 400
+
+    # Check PNG signature
+    if logo_data[:8] != b'\x89PNG\r\n\x1a\n':
+        return jsonify({'success': False, 'error': 'File must be a PNG image'}), 400
+
+    registry_path = str(TEAM_REGISTRY_DB_FILE)
+    conn = _sqlite3.connect(registry_path)
+    existing = conn.execute(
+        'SELECT name FROM teams WHERE sofascore_team_id = ?',
+        (sofascore_team_id,)
+    ).fetchone()
+
+    if existing:
+        conn.execute(
+            'UPDATE teams SET logo_data = ?, name = COALESCE(NULLIF(?, \'\'), name) WHERE sofascore_team_id = ?',
+            (logo_data, team_name, sofascore_team_id)
+        )
+        display_name = team_name or existing[0]
+    else:
+        display_name = team_name or f'Team {sofascore_team_id}'
+        conn.execute(
+            'INSERT INTO teams (sofascore_team_id, name, logo_data) VALUES (?, ?, ?)',
+            (sofascore_team_id, display_name, logo_data)
+        )
+
+    conn.commit()
+    conn.close()
+
+    print(f"[LogoUpload] Saved logo for {display_name} (id={sofascore_team_id}), size={len(logo_data)} bytes")
+    return jsonify({'success': True, 'team_id': sofascore_team_id, 'team_name': display_name})
+
 
 @app.route('/api/football/favorites-today', methods=['GET'])
 def api_get_favorites_today_tomorrow():

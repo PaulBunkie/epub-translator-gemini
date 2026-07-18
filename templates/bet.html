@@ -80,14 +80,29 @@
             color: #0d6efd;
         }
         
-        .team-logo {
-            width: 20px;
-            height: 20px;
-            object-fit: contain;
-            vertical-align: middle;
-            margin-left: 5px;
-            border-radius: 3px;
-        }
+    .team-logo {
+        width: 20px;
+        height: 20px;
+        object-fit: contain;
+        vertical-align: middle;
+        margin-left: 5px;
+        border-radius: 3px;
+    }
+    
+    .logo-upload-btn {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+        color: #adb5bd;
+        font-size: 18px;
+        margin-left: 5px;
+        vertical-align: middle;
+        text-decoration: none;
+    }
+    .logo-upload-btn:hover {
+        color: #0d6efd;
+    }
 
         /* Плюсики для экспресса: по умолчанию серые, при наведении темнее, выбранные зелёные */
         .add-to-parlay { color: #adb5bd; }
@@ -2698,8 +2713,8 @@
                     <td>${adminDeleteBtnHtml}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
-                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${match.home_team}</td>
-                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${match.away_team}</td>
+                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.home_team_sofascore_id},'${match.home_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.home_team}</td>
+                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.away_team_sofascore_id},'${match.away_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.away_team}</td>
                     <td><span class="fav-team">${match.fav}</span></td>
                     <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
                     <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
@@ -2940,8 +2955,8 @@
                     <td>${adminDeleteBtnHtmlAll}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
-                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${match.home_team}</td>
-                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${match.away_team}</td>
+                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.home_team_sofascore_id},'${match.home_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.home_team}</td>
+                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.away_team_sofascore_id},'${match.away_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.away_team}</td>
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
@@ -3932,6 +3947,89 @@
             alert('Ошибка соединения: ' + e.message);
         } finally {
             btn.disabled = false;
+        }
+    }
+</script>
+
+    <!-- Модальное окно для загрузки логотипа -->
+    <div class="modal fade" id="logoUploadModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Загрузить логотип</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="logo-upload-team-id">
+                    <p>Команда: <strong id="logo-upload-team-name"></strong></p>
+                    <div class="mb-3">
+                        <label class="form-label">PNG логотип (20x20 px рекомендовано):</label>
+                        <input type="file" id="logo-upload-file" accept="image/png" class="form-control">
+                    </div>
+                    <div id="logo-upload-status" class="mt-2"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-primary" onclick="uploadLogo()">Загрузить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let logoUploadModalInstance = null;
+    
+    function openLogoUpload(teamId, teamName) {
+        document.getElementById('logo-upload-team-id').value = teamId;
+        document.getElementById('logo-upload-team-name').textContent = teamName;
+        document.getElementById('logo-upload-file').value = '';
+        document.getElementById('logo-upload-status').innerHTML = '';
+        
+        if (!logoUploadModalInstance) {
+            logoUploadModalInstance = new bootstrap.Modal(document.getElementById('logoUploadModal'));
+        }
+        logoUploadModalInstance.show();
+    }
+    
+    async function uploadLogo() {
+        const teamId = document.getElementById('logo-upload-team-id').value;
+        const teamName = document.getElementById('logo-upload-team-name').textContent;
+        const fileInput = document.getElementById('logo-upload-file');
+        const statusDiv = document.getElementById('logo-upload-status');
+        
+        if (!fileInput.files || !fileInput.files[0]) {
+            statusDiv.innerHTML = '<div class="alert alert-warning py-1">Выберите файл</div>';
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('sofascore_team_id', teamId);
+        formData.append('team_name', teamName);
+        formData.append('logo_file', fileInput.files[0]);
+        
+        statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Загрузка...';
+        
+        try {
+            const resp = await fetch(`/api/team-logo/upload?admin=true`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success py-1">Логотип для ${data.team_name} сохранён!</div>`;
+                // Reload matches to show new logo
+                setTimeout(() => {
+                    if (typeof loadMatches === 'function') {
+                        loadMatches(true);
+                    }
+                    logoUploadModalInstance.hide();
+                }, 800);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger py-1">Ошибка: ${data.error || 'Неизвестная ошибка'}</div>`;
+            }
+        } catch (e) {
+            statusDiv.innerHTML = '<div class="alert alert-danger py-1">Ошибка соединения</div>';
         }
     }
     </script>
