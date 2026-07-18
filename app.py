@@ -1280,12 +1280,16 @@ def workflow_index():
     """ Отображает страницу со списком книг в новом рабочем процессе. """
     print("Загрузка страницы списка книг рабочего процесса...")
     
-    # Проверяем параметр admin (включая сессию)
-    admin = request.args.get('admin') == 'true' or request.args.get('user') == 'admin' or session.get('admin_mode') == True
-    
-    # Если admin определен из URL параметров, сохраняем в сессию для AJAX запросов
-    if admin and not session.get('admin_mode'):
+    # Проверяем параметр admin (только если явно передан, а не из сессии)
+    admin_param = request.args.get('admin')
+    if admin_param == 'true':
         session['admin_mode'] = True
+        admin = True
+    elif admin_param == 'false':
+        session.pop('admin_mode', None)
+        admin = False
+    else:
+        admin = request.args.get('user') == 'admin' or session.get('admin_mode') == True
 
     workflow_books = []
     try:
