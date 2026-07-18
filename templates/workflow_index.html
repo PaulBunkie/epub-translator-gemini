@@ -383,6 +383,23 @@
         </div>
     </div>
 
+    <!-- Оверлей для рассылки сообщений подписчикам (Broadcast) -->
+    <div id="broadcastOverlay" class="workflow-overlay" style="display: none; background: rgba(0,0,0,0.85);">
+        <div class="workflow-overlay-content" style="max-width: 600px; width: 90%;">
+            <h2>📨 Рассылка всем подписчикам</h2>
+            <p style="color: #ccc; font-size: 0.85em; margin-bottom: 12px;">
+                Сообщение будет отправлено всем активным подписчикам Telegram.
+                Поддерживается HTML-разметка (<code><b></code>, <code><i></code>, <code><code></code>).
+            </p>
+            <textarea id="broadcastTextArea" style="width: 100%; height: 200px; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 13px; padding: 15px; border: 1px solid #444; background: #1e1e1e; color: #ddd; border-radius: 5px; resize: vertical; box-sizing: border-box;" placeholder="Введите текст сообщения..."></textarea>
+            <div id="broadcastOverlayResult" style="margin-top: 12px; font-size: 0.9em; color: #38a169; display: none;"></div>
+            <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button id="cancelBroadcast" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Отмена</button>
+                <button id="sendBroadcast" style="background: #17a2b8; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Отправить</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Оверлей для редактирования анализа персонажей (Visual Bible) -->
     <div id="editAnalysisOverlay" class="workflow-overlay" style="display: none; background: rgba(0,0,0,0.85);">
         <div class="workflow-overlay-content" style="max-width: 800px; width: 90%;">
@@ -415,5 +432,79 @@
         document.head.appendChild(style);
     </script>
     <script src="{{ url_for('static', filename='js/workflow.js') }}"></script>
+    <script>
+        // === Broadcast Modal ===
+        (function() {
+            var btn = document.getElementById('broadcastBtn');
+            var overlay = document.getElementById('broadcastOverlay');
+            var textarea = document.getElementById('broadcastTextArea');
+            var sendBtn = document.getElementById('sendBroadcast');
+            var cancelBtn = document.getElementById('cancelBroadcast');
+            var overlayResult = document.getElementById('broadcastOverlayResult');
+            var pageResult = document.getElementById('broadcastResult');
+
+            if (!btn || !overlay) return;
+
+            btn.addEventListener('click', function() {
+                overlay.style.display = 'flex';
+                overlayResult.style.display = 'none';
+                textarea.value = '';
+                textarea.focus();
+            });
+
+            function closeOverlay() {
+                overlay.style.display = 'none';
+            }
+
+            cancelBtn.addEventListener('click', closeOverlay);
+
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) closeOverlay();
+            });
+
+            sendBtn.addEventListener('click', function() {
+                var msg = textarea.value.trim();
+                if (!msg) {
+                    overlayResult.textContent = '⚠️ Введите текст сообщения';
+                    overlayResult.style.color = '#e53e3e';
+                    overlayResult.style.display = 'block';
+                    return;
+                }
+
+                sendBtn.disabled = true;
+                sendBtn.textContent = 'Отправка...';
+                overlayResult.style.display = 'none';
+
+                fetch('/workflow/broadcast?admin=true', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'Отправить';
+                    if (data.status === 'success') {
+                        overlayResult.textContent = '✅ ' + data.message;
+                        overlayResult.style.color = '#38a169';
+                        pageResult.textContent = '✅ ' + data.message;
+                        pageResult.style.color = '#38a169';
+                        setTimeout(closeOverlay, 2000);
+                    } else {
+                        overlayResult.textContent = '❌ ' + (data.message || 'Ошибка');
+                        overlayResult.style.color = '#e53e3e';
+                    }
+                    overlayResult.style.display = 'block';
+                })
+                .catch(function(err) {
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'Отправить';
+                    overlayResult.textContent = '❌ Ошибка сети: ' + err;
+                    overlayResult.style.color = '#e53e3e';
+                    overlayResult.style.display = 'block';
+                });
+            });
+        })();
+    </script>
 </body>
 </html>
