@@ -518,6 +518,14 @@
                     Написать разработчику
                 </button>
             </div>
+
+            <!-- Почти незаметная ссылка на новости проекта -->
+            <div style="text-align: center; margin: 4px 0 10px 0;">
+                <a href="#" id="openNewsLink"
+                   style="font-size: 11px; color: #bbb; text-decoration: none; cursor: pointer;"
+                   onclick="openNews(); return false;"
+                   title="Посмотреть новости проекта">новости проекта</a>
+            </div>
         </div>
     </div>
     
@@ -1132,6 +1140,15 @@
                     localStorage.setItem('last_news_id', currentId);
                 }
             }
+        }
+
+        // Открыть оверлей новостей по клику на ссылку "новости проекта"
+        function openNews() {
+            const overlay = document.getElementById('newsOverlay');
+            if (!overlay || !allNews || !allNews.length) return;
+            currentNewsIndex = allNews.length - 1;
+            updateNewsDisplay();
+            overlay.style.display = 'flex';
         }
 
         // Show news if new news available
