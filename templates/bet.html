@@ -849,6 +849,23 @@
             });
             updateParlayButtonState();
         }
+
+        // Скрыть плюсик загрузки лого, если логотип реально подгрузился (уже есть)
+        function hidePlusForLoadedLogos() {
+            document.querySelectorAll('.team-logo').forEach(img => {
+                const hidePlus = () => {
+                    const p = img.nextElementSibling;
+                    if (p && p.classList.contains('logo-upload-btn')) {
+                        p.style.display = 'none';
+                    }
+                };
+                if (img.complete && img.naturalWidth > 0) {
+                    hidePlus();
+                } else {
+                    img.addEventListener('load', hidePlus);
+                }
+            });
+        }
         // Обработчики кнопок "Составить экспресс" (в обеих панелях)
         document.addEventListener('DOMContentLoaded', () => {
             updateParlayButtonState(); // Инициализация состояния кнопки
@@ -2713,8 +2730,8 @@
                     <td>${adminDeleteBtnHtml}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
-                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.home_team_sofascore_id},'${match.home_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.home_team}</td>
-                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.away_team_sofascore_id},'${match.away_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.away_team}</td>
+                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${window.isAdmin&&match.home_team_sofascore_id?`<a href="#" class="logo-upload-btn" onclick="openLogoUpload(${match.home_team_sofascore_id},'${match.home_team.replace(/'/g,'\\\'')}');return false" title="Загрузить логотип">+</a> `:''}${match.home_team}</td>
+                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${window.isAdmin&&match.away_team_sofascore_id?`<a href="#" class="logo-upload-btn" onclick="openLogoUpload(${match.away_team_sofascore_id},'${match.away_team.replace(/'/g,'\\\'')}');return false" title="Загрузить логотип">+</a> `:''}${match.away_team}</td>
                     <td><span class="fav-team">${match.fav}</span></td>
                     <td><span class="odds">${formatOdds(match.initial_odds)}</span></td>
                     <td><span class="odds">${formatOdds(match.last_odds)}</span></td>
@@ -2742,6 +2759,8 @@
                 setupBetAIClickHandlers();
                 // Синхронизируем подсветку плюсиков после обновления DOM
                 syncParlaySelectionHighlight();
+                // Скрываем плюсики загрузки лого там, где лого уже есть
+                hidePlusForLoadedLogos();
              }, 0);
          }
          
@@ -2955,8 +2974,8 @@
                     <td>${adminDeleteBtnHtmlAll}</td>
                     <td>${localDateTime.date}</td>
                     <td>${localDateTime.time}</td>
-                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.home_team_sofascore_id},'${match.home_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.home_team}</td>
-                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="if(window.isAdmin)this.outerHTML='<a href=# class=logo-upload-btn onclick=openLogoUpload(${match.away_team_sofascore_id},'${match.away_team.replace(/'/g,'\\\'')}');return false title='Загрузить логотип'>+</a>';else this.style.display='none'"> ` : ''}${match.away_team}</td>
+                    <td>${match.home_team_sofascore_id ? `<img src="/api/team-logo/${match.home_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${window.isAdmin&&match.home_team_sofascore_id?`<a href="#" class="logo-upload-btn" onclick="openLogoUpload(${match.home_team_sofascore_id},'${match.home_team.replace(/'/g,'\\\'')}');return false" title="Загрузить логотип">+</a> `:''}${match.home_team}</td>
+                    <td>${match.away_team_sofascore_id ? `<img src="/api/team-logo/${match.away_team_sofascore_id}" class="team-logo" alt="" loading="lazy" onerror="this.style.display='none'"> ` : ''}${window.isAdmin&&match.away_team_sofascore_id?`<a href="#" class="logo-upload-btn" onclick="openLogoUpload(${match.away_team_sofascore_id},'${match.away_team.replace(/'/g,'\\\'')}');return false" title="Загрузить логотип">+</a> `:''}${match.away_team}</td>
                     <td><span class="odds">${formatOdds(match.live_odds_1)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_x)}</span></td>
                     <td><span class="odds">${formatOdds(match.live_odds_2)}</span></td>
@@ -2991,6 +3010,8 @@
                 setupBetAIClickHandlers();
                 // Добавляем обработчики клика на статус "Идет" для открытия виджета SofaScore
                 setupSofascoreStatusHandlers();
+                // Скрываем плюсики загрузки лого там, где лого уже есть
+                hidePlusForLoadedLogos();
             }, 0);
         }
         
