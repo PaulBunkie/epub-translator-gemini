@@ -19,7 +19,7 @@ MODEL_CONFIG = {
         'fallback_level4': 'nvidia/nemotron-3-super-120b-a12b:free'
     },
     'translate': {
-        'censored': 'tencent/hy3:free',
+        'censored': 'nvidia/nemotron-3-ultra-550b-a55b:free',
         'primary': 'literouter/gemini-3-flash-preview', 
         'fallback_level1': 'vertex/gemini-3-flash-preview', 
         'fallback_level2': 'literouter/gpt-5.4-mini',
