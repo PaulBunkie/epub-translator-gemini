@@ -3,6 +3,7 @@
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
+from bs4 import NavigableString, Tag
 import os
 import re
 import uuid
@@ -59,8 +60,6 @@ def get_epub_structure(epub_filepath):
                     # Используем ID элемента как идентификатор секции
                     if item_id not in section_ids:
                         section_ids.append(item_id)
-                    # else: # Повторный ID в spine - это нормально, не будем выводить предупреждение
-                    #     print(f"Предупреждение: Повторный ID '{item_id}' в spine.")
                 # else: # Игнорируем не-документы в spine молча
                 #     pass
             else:
@@ -263,6 +262,63 @@ def _parse_ncx_navpoint(nav_point, level, toc_list, processed_hrefs, id_to_href_
             _parse_ncx_navpoint(child_nav_point, level + 1, toc_list, processed_hrefs, id_to_href_map)
 
 
+def _try_decode_content(raw_bytes):
+    """
+    Пытается декодировать байтовый контент в строку, перебирая кодировки.
+    Возвращает (decoded_string, encoding_name) или (None, None) если всё не удалось.
+    """
+    if not raw_bytes:
+        return None, None
+    
+    encodings_to_try = ['utf-8', 'utf-16', 'gb18030', 'gbk', 'gb2312', 'big5', 'shift-jis', 'euc-jp', 'euc-kr', 'latin-1']
+    
+    # Сначала пробуем определить кодировку по BOM или XML-декларации
+    first_bytes = raw_bytes[:200]
+    bom_encoding = None
+    if first_bytes.startswith(b'\xef\xbb\xbf'):
+        bom_encoding = 'utf-8-sig'
+    elif first_bytes.startswith(b'\xff\xfe'):
+        bom_encoding = 'utf-16-le'
+    elif first_bytes.startswith(b'\xfe\xff'):
+        bom_encoding = 'utf-16-be'
+    
+    if bom_encoding:
+        encodings_to_try.insert(0, bom_encoding)
+    
+    # Пробуем найти XML-декларацию с указанием кодировки
+    encoding_from_xml = None
+    try:
+        xml_decl_match = re.search(rb'<\?xml.*?encoding\s*=\s*["\'](.*?)["\'].*?\?>', raw_bytes[:500], re.IGNORECASE)
+        if xml_decl_match:
+            enc = xml_decl_match.group(1).decode('ascii', errors='ignore').lower()
+            if enc and enc not in encodings_to_try[:3]:  # Если отличается от уже проверенных
+                encoding_from_xml = enc
+    except Exception:
+        pass
+    
+    tried = set()
+    if encoding_from_xml and encoding_from_xml not in tried:
+        encodings_to_try.insert(0, encoding_from_xml)
+    
+    for enc in encodings_to_try:
+        if enc in tried:
+            continue
+        tried.add(enc)
+        try:
+            decoded = raw_bytes.decode(enc)
+            return decoded, enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    
+    # Финальный fallback: latin-1 никогда не падает
+    try:
+        decoded = raw_bytes.decode('latin-1')
+        print(f"ПРЕДУПРЕЖДЕНИЕ: Контент декодирован через latin-1 (вероятно, бинарный мусор)")
+        return decoded, 'latin-1'
+    except Exception:
+        return None, None
+
+
 def extract_section_text(epub_filepath, section_id, toc_data=None):
     """
     Извлекает "чистый" текст из указанного раздела (по ID) EPUB файла.
@@ -280,19 +336,79 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
             print(f"ОШИБКА: Раздел с ID '{section_id}' не найден в EPUB.")
             return None
 
-        if item.get_type() != ebooklib.ITEM_DOCUMENT:
-            print(f"ОШИБКА: Элемент с ID '{section_id}' не является текстовым документом.")
+        item_type = item.get_type()
+        item_name = item.get_name()
+        print(f"[extract_section_text] ID='{section_id}', имя='{item_name}', тип={item_type} (ITEM_DOCUMENT={ebooklib.ITEM_DOCUMENT})")
+
+        # --- СМЯГЧЕНИЕ ПРОВЕРКИ ТИПА ---
+        # Если тип не ITEM_DOCUMENT, но контент похож на HTML — всё равно пробуем извлечь
+        if item_type != ebooklib.ITEM_DOCUMENT:
+            raw_content = item.get_content()
+            # Проверяем, похож ли контент на HTML
+            head_check = raw_content[:500].lower()
+            looks_like_html = b'<html' in head_check or b'<body' in head_check or b'<!doctype' in head_check or b'<head' in head_check or b'<div' in head_check or b'<p' in head_check
+            
+            if not looks_like_html:
+                print(f"ОШИБКА: Элемент с ID '{section_id}' не является текстовым документом (тип {item_type}) и не похож на HTML.")
+                return None
+            else:
+                print(f"ПРЕДУПРЕЖДЕНИЕ: Элемент с ID '{section_id}' имеет тип {item_type}, но похож на HTML. Пробуем извлечь текст.")
+                html_content = raw_content
+        else:
+            html_content = item.get_content()
+
+        # --- ПОПЫТКА ДЕКОДИРОВАНИЯ ---
+        if isinstance(html_content, bytes):
+            decoded_html, used_encoding = _try_decode_content(html_content)
+            if decoded_html is None:
+                print(f"ОШИБКА: Не удалось декодировать контент секции '{section_id}' ни в одной кодировке.")
+                return None
+            if used_encoding and used_encoding not in ('utf-8', 'utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be'):
+                print(f"ПРЕДУПРЕЖДЕНИЕ: Контент секции '{section_id}' декодирован как '{used_encoding}', не UTF-8.")
+            html_content = decoded_html
+        else:
+            html_content = str(html_content)
+
+        # --- ПАРСИНГ С ПОПЫТКОЙ РАЗНЫХ ПАРСЕРОВ ---
+        soup = None
+        parsers_to_try = ['xml', 'html.parser']
+        used_parser = None
+        
+        for parser in parsers_to_try:
+            try:
+                soup = BeautifulSoup(html_content, parser)
+                # Проверяем, удалось ли найти body
+                body = soup.find('body')
+                if body is not None:
+                    used_parser = parser
+                    print(f"[extract_section_text] Парсер '{parser}' успешно обработал секцию '{section_id}' (body найден)")
+                    break
+                else:
+                    # Для xml-парсера body может быть в lowercase из-за регистрозависимости
+                    body = soup.find('Body')
+                    if body is not None:
+                        used_parser = parser
+                        print(f"[extract_section_text] Парсер '{parser}' нашёл <Body> (капс) для секции '{section_id}'")
+                        break
+                    print(f"[extract_section_text] Парсер '{parser}': body не найден, пробуем следующий...")
+            except Exception as pe:
+                print(f"[extract_section_text] Парсер '{parser}' упал с ошибкой: {pe}")
+                continue
+        
+        if soup is None:
+            print(f"ОШИБКА: Ни один парсер не смог обработать контент секции '{section_id}'.")
             return None
 
-        # print(f"Извлечение текста из раздела: {section_id} ({item.get_name()})")
-        html_content = item.get_content()
-        # Используем XML парсер для XHTML
-        soup = BeautifulSoup(html_content, 'xml')
+        if used_parser is None:
+            print(f"ПРЕДУПРЕЖДЕНИЕ: Ни один парсер не нашёл <body> в секции '{section_id}'. Используем весь документ.")
+            # Используем последний успешно созданный soup
+            used_parser = parsers_to_try[-1]
 
         # --- Извлечение текста с обработкой заголовков ---
         text_parts = []
         # Ищем тег body
-        body = soup.find('body')
+        body = soup.find('body') or soup.find('Body') or soup
+        
         if body:
             # Ищем заголовок-ссылку в начале секции, если передан TOC
             section_title_from_toc = None
@@ -449,9 +565,13 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
             
             # Обрабатываем специальные заголовки-ссылки из TOC
             processed_first_link = False
-            for element in body.find_all(recursive=False):
+            # ИСПРАВЛЕНИЕ: Используем .children вместо .find_all(recursive=False),
+            # чтобы захватить также прямые текстовые узлы (NavigableString)
+            for element in body.children:
                 # Проверяем первую ссылку на соответствие TOC
-                if not processed_first_link and section_title_from_toc and element.find('a'):
+                # Используем isinstance(element, Tag), т.к. у NavigableString (текстовый узел)
+                # тоже есть метод .find() (унаследован от str), но он возвращает int, а не Tag
+                if not processed_first_link and section_title_from_toc and isinstance(element, Tag) and element.find('a'):
                     first_link = element.find('a')
                     if first_link:
                         link_text = first_link.get_text(strip=True)
@@ -492,5 +612,3 @@ def extract_section_text(epub_filepath, section_id, toc_data=None):
         import traceback
         traceback.print_exc()
         return ""
-
-

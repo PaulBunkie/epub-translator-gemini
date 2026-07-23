@@ -2936,35 +2936,96 @@ def api_team_logo_upload():
     from config import TEAM_REGISTRY_DB_FILE
     import sqlite3 as _sqlite3
 
+    print(f"[LogoUpload] === START upload request ===")
+    print(f"[LogoUpload] Request method: {request.method}")
+    print(f"[LogoUpload] Request args: {dict(request.args)}")
+    print(f"[LogoUpload] Request form keys: {list(request.form.keys())}")
+    print(f"[LogoUpload] Request files keys: {list(request.files.keys())}")
+    print(f"[LogoUpload] Admin check - args.admin={request.args.get('admin')}, session.admin_mode={session.get('admin_mode')}")
+
     if not (request.args.get('admin') == 'true' or session.get('admin_mode')):
+        print(f"[LogoUpload] ERROR: Admin access required - denied")
         return jsonify({'success': False, 'error': 'Admin access required'}), 403
 
     sofascore_team_id = request.form.get('sofascore_team_id')
     team_name = (request.form.get('team_name') or '').strip()
     file = request.files.get('logo_file')
 
+    print(f"[LogoUpload] sofascore_team_id={sofascore_team_id}, team_name='{team_name}', file={file}")
+
     if not sofascore_team_id or not file:
+        print(f"[LogoUpload] ERROR: Missing sofascore_team_id or logo_file")
         return jsonify({'success': False, 'error': 'Missing sofascore_team_id or logo_file'}), 400
 
     try:
         sofascore_team_id = int(sofascore_team_id)
     except ValueError:
+        print(f"[LogoUpload] ERROR: Invalid sofascore_team_id format: {sofascore_team_id}")
         return jsonify({'success': False, 'error': 'Invalid sofascore_team_id'}), 400
 
     logo_data = file.read()
+    print(f"[LogoUpload] Read logo_data: {len(logo_data)} bytes, first 8 bytes: {logo_data[:8] if logo_data else 'EMPTY'}")
+
     if not logo_data or logo_data[:8] != b'\x89PNG\r\n\x1a\n':
+        print(f"[LogoUpload] ERROR: File is not a valid PNG (magic bytes mismatch)")
         return jsonify({'success': False, 'error': 'File must be a valid PNG'}), 400
 
-    conn = _sqlite3.connect(str(TEAM_REGISTRY_DB_FILE))
-    display_name = team_name or f'Team {sofascore_team_id}'
-    conn.execute(
-        'INSERT OR REPLACE INTO teams (sofascore_team_id, name, logo_data) VALUES (?, ?, ?)',
-        (sofascore_team_id, display_name, logo_data)
-    )
-    conn.commit()
-    conn.close()
+    db_path = str(TEAM_REGISTRY_DB_FILE)
+    print(f"[LogoUpload] Connecting to DB: {db_path}")
+    print(f"[LogoUpload] DB file exists: {os.path.exists(db_path)}")
+    if os.path.exists(db_path):
+        print(f"[LogoUpload] DB file size: {os.path.getsize(db_path)} bytes")
 
-    print(f"[LogoUpload] Saved logo for {display_name} (id={sofascore_team_id}), size={len(logo_data)} bytes")
+    try:
+        conn = _sqlite3.connect(db_path)
+        conn.row_factory = _sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Check if table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='teams'")
+        table_exists = cursor.fetchone()
+        print(f"[LogoUpload] Table 'teams' exists: {table_exists is not None}")
+        
+        if not table_exists:
+            print(f"[LogoUpload] Creating teams table...")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS teams (
+                    sofascore_team_id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    slug TEXT,
+                    league TEXT,
+                    logo_data BLOB
+                )
+            """)
+            conn.commit()
+
+        display_name = team_name or f'Team {sofascore_team_id}'
+        print(f"[LogoUpload] Inserting/updating team: id={sofascore_team_id}, name={display_name}, logo_size={len(logo_data)}")
+        
+        cursor.execute(
+            'INSERT OR REPLACE INTO teams (sofascore_team_id, name, logo_data) VALUES (?, ?, ?)',
+            (sofascore_team_id, display_name, logo_data)
+        )
+        rows_affected = cursor.rowcount
+        conn.commit()
+        print(f"[LogoUpload] Commit successful, rows affected: {rows_affected}")
+        
+        # Verify the insert
+        cursor.execute('SELECT sofascore_team_id, name, length(logo_data) as logo_size FROM teams WHERE sofascore_team_id = ?', (sofascore_team_id,))
+        row = cursor.fetchone()
+        if row:
+            print(f"[LogoUpload] VERIFIED: team_id={row['sofascore_team_id']}, name={row['name']}, logo_size={row['logo_size']}")
+        else:
+            print(f"[LogoUpload] WARNING: Team not found after insert!")
+        
+        conn.close()
+    except Exception as e:
+        print(f"[LogoUpload] EXCEPTION: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f'Database error: {e}'}), 500
+
+    print(f"[LogoUpload] === SUCCESS: Saved logo for {display_name} (id={sofascore_team_id}), size={len(logo_data)} bytes ===")
     return jsonify({'success': True, 'team_id': sofascore_team_id, 'team_name': display_name})
 
 
