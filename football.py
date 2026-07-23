@@ -122,7 +122,10 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
     # --- Европейские клубные турниры ---
     "soccer_uefa_champs_league",     # Лига Чемпионов
     "soccer_uefa_europa_league",     # Лига Европы
+    "soccer_uefa_europa_league_qualification", # Квалификация Лиги Европы
     "soccer_uefa_europa_conference_league", # Лига Конференций
+    "soccer_uefa_europa_conference_league_qualification", # Квалификация Лиги Конференций
+    "soccer_uefa_champs_league_qualification", # Квалификация Лиги Чемпионов
     "soccer_fifa_world_cup_qualifiers_europe", # Отборочные ЧМ (Европа)
     
     # --- Южноамериканские лиги ---
@@ -160,9 +163,13 @@ ALL_AVAILABLE_FOOTBALL_LEAGUES = [
 # Чтобы включить все лиги, раскомментируйте нужные строки ниже
 DEFAULT_FOOTBALL_LEAGUES = [
     "soccer_epl",                    # Английская Премьер-лига
-     "soccer_uefa_champs_league",     # Лига Чемпионов
-     "soccer_uefa_europa_league",     # Лига Европы
-    # --- Раскомментируйте для включения остальных лиг ---
+      "soccer_uefa_champs_league",     # Лига Чемпионов
+      "soccer_uefa_europa_league",     # Лига Европы
+      "soccer_uefa_europa_league_qualification", # Квалификация Лиги Европы
+      "soccer_uefa_europa_conference_league", # Лига Конференций
+      "soccer_uefa_europa_conference_league_qualification", # Квалификация Лиги Конференций
+      "soccer_uefa_champs_league_qualification", # Квалификация Лиги Чемпионов
+     # --- Раскомментируйте для включения остальных лиг ---
      "soccer_spain_la_liga",          # Ла Лига (Испания)
      "soccer_italy_serie_a",          # Серия A (Италия)
      "soccer_germany_bundesliga",     # Бундеслига (Германия)
